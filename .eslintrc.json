@@ -1,0 +1,37 @@
+{
+  "extends": ["prettier"],
+  "plugins": ["@typescript-eslint", "prettier", "jest", "import"],
+  "env": {
+    "browser": true,
+    "node": true,
+    "jest": true,
+    "es6": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2018, // Allows for the parsing of modern ECMAScript features
+    "sourceType": "module"
+  },
+  "rules": {
+    "prettier/prettier": "error",
+    "@typescript-eslint/no-use-before-define": "off",
+    "@typescript-eslint/array-type": ["error", { "default": "array" }],
+    "no-return-await": "warn",
+    "no-fallthrough": "error",
+    "jest/require-top-level-describe": "error",
+    "@typescript-eslint/no-unused-vars": [
+      "warn",
+      { "argsIgnorePattern": "^_" }
+    ], // Allow unused vars when prefixed with underscore
+    "jest/no-commented-out-tests": "warn",
+    "@typescript-eslint/no-explicit-any": "warn",
+    "no-console": "warn",
+    "@typescript-eslint/explicit-module-boundary-types": "warn",
+    "@typescript-eslint/explicit-function-return-type": [
+      "warn",
+      {
+        "allowExpressions": true
+      }
+    ],
+    "@typescript-eslint/consistent-type-definitions": ["error", "interface"]
+  }
+}

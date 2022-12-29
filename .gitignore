@@ -1,0 +1,16 @@
+# Logs
+logs
+*.log
+
+# Dependency directories
+node_modules/
+
+# Build
+dist/
+
+# dotenv environment variables file
+.env
+
+# System files
+.DS_Store
+Thumbs.db
