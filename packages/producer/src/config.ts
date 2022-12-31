@@ -24,6 +24,12 @@ function getEnvVariableNumber(
   return value;
 }
 
+/**
+ * Parses the environment or provided settings and ensures all the fields are
+ * set with provided or default data.
+ * @param env The process environment settings or a custom settings object
+ * @returns
+ */
 export const getConfig = (env: Env = process.env) => {
   return {
     postgresHost: getEnvVariableString(env, 'POSTGRESQL_HOST', 'localhost'),
@@ -73,4 +79,5 @@ export const getConfig = (env: Env = process.env) => {
   };
 };
 
+/** The configuration object type with parsed environment variables. */
 export type Config = ReturnType<typeof getConfig>;
