@@ -76,6 +76,23 @@ export const getConfig = (env: Env = process.env) => {
       'POSTGRESQL_LOGIN_ROLE_PASSWORD',
       'db_login_password',
     ),
+
+    rmqProtocol: getEnvVariableString(env, 'RABBITMQ_PROTOCOL', 'amqp'),
+    rmqHost: getEnvVariableString(env, 'RABBITMQ_HOST', 'localhost'),
+    rmqPort: getEnvVariableNumber(env, 'RABBITMQ_PORT', 5672),
+    rmqVHost: getEnvVariableString(env, 'RABBITMQ_VHOST', '/'),
+    rmqUser: getEnvVariableString(env, 'RABBITMQ_USER', 'guest'),
+    rmqPassword: getEnvVariableString(env, 'RABBITMQ_PASSWORD', 'guest'),
+    rmqChannelMax: getEnvVariableNumber(env, 'RABBITMQ_CHANNEL_MAX', 100),
+
+    // Management properties are optional - they are only used for VHost assertion (creation).
+    rmqMgmtProtocol: getEnvVariableString(
+      env,
+      'RABBITMQ_MGMT_PROTOCOL',
+      'http',
+    ),
+    rmqMgmtHost: getEnvVariableString(env, 'RABBITMQ_MGMT_HOST', 'localhost'),
+    rmqMgmtPort: getEnvVariableNumber(env, 'RABBITMQ_MGMT_PORT', 15672),
   };
 };
 

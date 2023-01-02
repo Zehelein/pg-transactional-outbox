@@ -6,16 +6,20 @@ import {
   initializeOutboxService,
 } from './wal-outbox-subscription';
 import { addMovies } from './add-movies';
+import { initializeRabbitMqPublisher } from './rabbitmq-publisher';
 
 /** The main entry point of the message producer. */
 (async () => {
   const config = getConfig();
 
-  // Initialize and start the subscription
-  const outboxService = initializeOutboxService(config, async () => {});
+  // Initialize the actual RabbitMQ message publisher
+  const rmqPublisher = await initializeRabbitMqPublisher(config);
+
+  // Initialize and start the outbox subscription
+  const outboxService = initializeOutboxService(config, rmqPublisher);
   subscribeToOutboxMessages(outboxService);
 
-  // Add movies and produce outbox messages on a one second timer
+  // Add movies and produce outbox messages on a timer
   await addMovies(config);
 
   // Test with some outbox service outages

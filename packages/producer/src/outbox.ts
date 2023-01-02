@@ -2,9 +2,7 @@ import { v4 as uuid } from 'uuid';
 import { Client } from 'pg';
 import { Config } from './config';
 
-/**
- * The outbox message for storing to the DB and receiving as back from the WAL
- */
+/** The outbox message for storing it to the DB and receiving it back from the WAL */
 export interface OutboxMessage {
   id: string;
   aggregateType: string;
@@ -18,8 +16,8 @@ export interface OutboxMessage {
  * Pre-configure the specific kind of outbox message to generate and receive a
  * function that can be called to actually store the specific outbox message.
  * @param aggregateType The aggregate root type that was responsible to create this message.
- * @param eventType The type of event that happened.
- * @param config The configuration object that defines the outbox database table schema.
+ * @param eventType The type of event that happened on the aggregate type.
+ * @param config The configuration object that defines the outbox table schema.
  * @returns The function to store the outbox message data to the database.
  */
 export const outboxMessageStore = (
@@ -29,7 +27,7 @@ export const outboxMessageStore = (
 ) => {
   /**
    * Function to store the outbox message data to the database.
-   * @param aggregateId The identifier of the aggregated entity.
+   * @param aggregateId The identifier of the aggregate.
    * @param payload The actual message payload that should be sent.
    * @param dbClient The database client that should have an active transaction to insert the outbox data along with the business logic transaction.
    * @returns The outbox message data that was stored in the database.

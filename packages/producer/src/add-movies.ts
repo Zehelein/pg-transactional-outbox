@@ -2,6 +2,9 @@ import { Config } from './config';
 import { Client } from 'pg';
 import { outboxMessageStore } from './outbox';
 
+export const MovieAggregateType = 'movie';
+export const MovieCreatedEventType = 'movie_created';
+
 const insertMovie = async (dbClient: Client) => {
   const movieInsertedIdResult = await dbClient.query(/*sql*/ `
         INSERT INTO public.movies (title, description, actors, directors, studio)
@@ -35,8 +38,8 @@ export const addMovies = async (config: Config) => {
 
   // pre-configure the specific kind of outbox message to generate
   const storeOutboxMessage = outboxMessageStore(
-    'movie',
-    'movie_created',
+    MovieAggregateType,
+    MovieCreatedEventType,
     config,
   );
 
@@ -48,7 +51,7 @@ export const addMovies = async (config: Config) => {
       await dbClient.query('COMMIT');
     } catch (error) {
       await dbClient.query('ROLLBACK');
-      throw error;
+      console.log(`Error when inserting a movie and outbox message`, error);
     }
   }, 1000);
 };

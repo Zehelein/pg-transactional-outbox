@@ -25,7 +25,7 @@ export interface OutboxService {
 /**
  * Initialize the service to watch for outbox table inserts.
  * @param config The configuration object with required values to connect to the WAL.
- * @param callback The callback to actually send the message through a message bus or other means.
+ * @param callback The callback is called to actually send the message through a message bus or other means.
  * @returns The outbox service instance.
  */
 export const initializeOutboxService = (
@@ -47,15 +47,13 @@ export const initializeOutboxService = (
     ) {
       const om = mapOutbox(log.new);
       console.log(
-        `Sending message for ${om.aggregateType}.${om.eventType}.${om.aggregateId}`,
+        `Received WAL message ${om.aggregateType}.${om.eventType}.${om.aggregateId}`,
       );
       await callback(om);
     }
   });
 
-  service.on('error', (err: Error) => {
-    console.error(err);
-  });
+  service.on('error', console.error);
 
   const plugin = new PgoutputPlugin({
     protoVersion: 1,
@@ -80,9 +78,7 @@ export const subscribeToOutboxMessages = ({
     .subscribe(plugin, slotName)
     // Log any error and restart the replication after a small timeout
     // The service will catch up with any events in the WAL once it restarts.
-    .catch((e) => {
-      console.error(e);
-    })
+    .catch(console.error)
     .then(() => {
       setTimeout(subscribeToOutboxMessages, 100);
     });

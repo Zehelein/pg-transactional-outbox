@@ -4,7 +4,9 @@
   "main": "./dist/index.js",
   "license": "MIT",
   "scripts": {
-    "lint": "eslint \"**/src/**/*.{ts,tsx}\""
+    "lint": "eslint \"**/src/**/*.{ts,tsx}\"",
+    "infra:up": "cd infra && docker compose -f docker-compose.yml up -d",
+    "infra:down": "cd infra && docker compose -f docker-compose.yml down"
   },
   "private": true,
   "workspaces": [

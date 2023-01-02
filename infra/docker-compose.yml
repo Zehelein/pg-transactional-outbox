@@ -5,10 +5,6 @@ name: pg-transactional-outbox
 services:
   rabbitmq:
     image: rabbitmq:3-management
-    environment:
-      RABBITMQ_DEFAULT_USER: rabbitmq
-      RABBITMQ_DEFAULT_PASS: rabbitmq
-      RABBITMQ_DEFAULT_VHOST: /
     ports:
       - "25672:5672"
       - "35672:15672"
