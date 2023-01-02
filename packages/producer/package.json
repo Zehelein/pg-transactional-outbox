@@ -19,6 +19,7 @@
     "dotenv": "^16.0.3",
     "pg": "^8.8.0",
     "pg-logical-replication": "^2.0.3",
+    "pg-pool": "^3.5.2",
     "rascal": "^16.2.0",
     "tsc-watch": "^6.0.0",
     "uuid": "^9.0.0"

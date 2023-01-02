@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid';
-import { Client } from 'pg';
+import { ClientBase } from 'pg';
 import { Config } from './config';
 
 /** The outbox message for storing it to the DB and receiving it back from the WAL */
@@ -35,7 +35,7 @@ export const outboxMessageStore = (
   return async (
     aggregateId: string,
     payload: unknown,
-    dbClient: Client,
+    dbClient: ClientBase,
   ): Promise<OutboxMessage> => {
     const outboxId = uuid();
     const outboxResult = await dbClient.query(

@@ -26,10 +26,10 @@ export const initializeRabbitMqPublisher = async (
     return new Promise((resolve, reject) => {
       publication
         .on('success', (_messageId) => {
+          resolve();
           console.log(
             `Published outbox message ${message.aggregateType}.${message.eventType}.${message.aggregateId}`,
           );
-          resolve();
         })
         .on('return', (_rmqMessage) => {
           console.debug(

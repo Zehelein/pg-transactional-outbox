@@ -6,80 +6,88 @@ import {
 } from 'pg-logical-replication';
 import { mapOutbox, OutboxMessage } from './outbox';
 
-/**
- * Provide this callback to actually send the messages through a message bus or other means.
- */
-export interface OutboxMessageHandler {
-  (message: OutboxMessage): Promise<void>;
-}
-
-/**
- * The outbox service with the replication service instance, PG output plugin, and the outbox replication slot name.
- */
-export interface OutboxService {
-  service: LogicalReplicationService;
-  plugin: PgoutputPlugin;
-  slotName: string;
-}
-
-/**
- * Initialize the service to watch for outbox table inserts.
- * @param config The configuration object with required values to connect to the WAL.
- * @param callback The callback is called to actually send the message through a message bus or other means.
- * @returns The outbox service instance.
- */
-export const initializeOutboxService = (
+const createService = (
   config: Config,
-  callback: OutboxMessageHandler,
-): OutboxService => {
-  const service = new LogicalReplicationService({
-    host: config.postgresHost,
-    port: config.postgresPort,
-    user: config.postgresOutboxRole,
-    password: config.postgresOutboxRolePassword,
-    database: config.postgresDatabase,
-  });
-  service.on('data', async (_lsn: string, log: Pgoutput.Message) => {
+  callback: (message: OutboxMessage) => Promise<void>,
+  errorListener: (err: Error) => Promise<void>,
+) => {
+  const service = new LogicalReplicationService(
+    {
+      host: config.postgresHost,
+      port: config.postgresPort,
+      user: config.postgresOutboxRole,
+      password: config.postgresOutboxRolePassword,
+      database: config.postgresDatabase,
+    },
+    {
+      acknowledge: { auto: false, timeoutSeconds: 0 },
+    },
+  );
+  service.on('data', async (lsn: string, log: Pgoutput.Message) => {
     if (
       log.tag === 'insert' &&
       log.relation.schema === config.postgresOutboxSchema &&
       log.relation.name === 'outbox'
     ) {
       const om = mapOutbox(log.new);
-      console.log(
-        `Received WAL message ${om.aggregateType}.${om.eventType}.${om.aggregateId}`,
-      );
-      await callback(om);
+      const identifier = `${om.aggregateType}.${om.eventType}.${om.aggregateId}`;
+      console.log(`Received WAL message ${identifier}`);
+      try {
+        await callback(om);
+        service.acknowledge(lsn);
+      } catch (error) {
+        // Do not acknowledge the outbox message in case of a message sending error
+        console.error(`Could not send the message ${identifier}.`, error);
+      }
     }
   });
+  service.on('error', errorListener);
+  return service;
+};
 
-  service.on('error', console.error);
+/**
+ * Initialize the service to watch for outbox table inserts.
+ * @param config The configuration object with required values to connect to the WAL.
+ * @param callback The callback is called to actually send the message through a message bus or other means.
+ * @returns Functions to help testing "outages" of the outbox service
+ */
+export const initializeOutboxService = (
+  config: Config,
+  callback: (message: OutboxMessage) => Promise<void>,
+) => {
+  const errorListener = async (err: Error) => {
+    console.error(err);
+    // Stop the current instance and create a new instance e.g. if the DB connection failed
+    await service.stop();
+    service = createService(config, callback, errorListener);
+  };
 
+  let service = createService(config, callback, errorListener);
   const plugin = new PgoutputPlugin({
     protoVersion: 1,
     publicationNames: [config.postgresOutboxPub],
   });
-  return { service, plugin, slotName: config.postgresOutboxSlot };
-};
 
-/**
- * Start listening to the replication slot for outbox message inserts and
- * restart the subscription if there is an error. The service will continue to
- * listen to the outbox messages until it is stopped.
- * @param outboxService The outbox service details
- */
-export const subscribeToOutboxMessages = ({
-  service,
-  plugin,
-  slotName,
-}: OutboxService): void => {
-  service
-    // `.subscribe` will start the replication and continue to listen until it is stopped
-    .subscribe(plugin, slotName)
-    // Log any error and restart the replication after a small timeout
-    // The service will catch up with any events in the WAL once it restarts.
-    .catch(console.error)
-    .then(() => {
-      setTimeout(subscribeToOutboxMessages, 100);
-    });
+  const subscribeToOutboxMessages = (): void => {
+    service
+      // `.subscribe` will start the replication and continue to listen until it is stopped
+      .subscribe(plugin, config.postgresOutboxSlot)
+      // Log any error and restart the replication after a small timeout
+      // The service will catch up with any events in the WAL once it restarts.
+      .catch(console.error)
+      .then(() => {
+        setTimeout(subscribeToOutboxMessages, 100);
+      });
+  };
+  subscribeToOutboxMessages();
+  return {
+    stop: async () => {
+      await service.stop();
+    },
+    startIfStopped: () => {
+      if (service.isStop()) {
+        subscribeToOutboxMessages();
+      }
+    },
+  };
 };
