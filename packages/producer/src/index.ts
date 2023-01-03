@@ -6,6 +6,12 @@ import { addMovies } from './add-movies';
 import { initializeRabbitMqPublisher } from './rabbitmq-publisher';
 import { resilienceTest } from './resilience-test';
 
+// Exit the process if there is an unhandled promise error
+process.on('unhandledRejection', (reason, promise) => {
+  console.error(`Unhandled promise rejection: ${reason}.`, promise);
+  process.exit(1);
+});
+
 /** The main entry point of the message producer. */
 (async () => {
   const config = getConfig();

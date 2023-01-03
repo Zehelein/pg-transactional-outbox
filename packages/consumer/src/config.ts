@@ -37,44 +37,44 @@ export const getConfig = (env: Env = process.env) => {
     postgresDatabase: getEnvVariableString(
       env,
       'POSTGRESQL_DATABASE',
-      'pg_transactional_outbox',
+      'pg_transactional_inbox',
     ),
 
-    postgresOutboxSchema: getEnvVariableString(
+    postgresInboxSchema: getEnvVariableString(
       env,
-      'POSTGRESQL_OUTBOX_SCHEMA',
-      'outbox',
+      'POSTGRESQL_INBOX_SCHEMA',
+      'inbox',
     ),
-    postgresOutboxSlot: getEnvVariableString(
+    postgresInboxSlot: getEnvVariableString(
       env,
-      'POSTGRESQL_OUTBOX_SLOT',
-      'pg_transactional_outbox_slot',
+      'POSTGRESQL_INBOX_SLOT',
+      'pg_transactional_inbox_slot',
     ),
-    postgresOutboxPub: getEnvVariableString(
+    postgresInboxPub: getEnvVariableString(
       env,
-      'POSTGRESQL_OUTBOX_PUB',
-      'pg_transactional_outbox_pub',
+      'POSTGRESQL_INBOX_PUB',
+      'pg_transactional_inbox_pub',
     ),
-    postgresOutboxRole: getEnvVariableString(
+    postgresInboxRole: getEnvVariableString(
       env,
-      'POSTGRESQL_OUTBOX_ROLE',
-      'db_outbox',
+      'POSTGRESQL_INBOX_ROLE',
+      'db_inbox',
     ),
-    postgresOutboxRolePassword: getEnvVariableString(
+    postgresInboxRolePassword: getEnvVariableString(
       env,
-      'POSTGRESQL_OUTBOX_ROLE_PASSWORD',
-      'db_outbox_password',
+      'POSTGRESQL_INBOX_ROLE_PASSWORD',
+      'db_inbox_password',
     ),
 
     postgresLoginRole: getEnvVariableString(
       env,
       'POSTGRESQL_LOGIN_ROLE',
-      'db_login_outbox',
+      'db_login_inbox',
     ),
     postgresLoginRolePassword: getEnvVariableString(
       env,
       'POSTGRESQL_LOGIN_ROLE_PASSWORD',
-      'db_login_outbox_password',
+      'db_login_inbox_password',
     ),
 
     rmqProtocol: getEnvVariableString(env, 'RABBITMQ_PROTOCOL', 'amqp'),

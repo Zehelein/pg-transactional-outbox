@@ -33,10 +33,10 @@ const dbmsSetup = async (config: Config): Promise<void> => {
       CREATE DATABASE ${config.postgresDatabase};
     `);
 
-    console.log('Create the database outbox role');
+    console.log('Create the database inbox role');
     await rootClient.query(/*sql*/ `
-      DROP ROLE IF EXISTS ${config.postgresOutboxRole};
-      CREATE ROLE ${config.postgresOutboxRole} WITH REPLICATION LOGIN PASSWORD '${config.postgresOutboxRolePassword}';
+      DROP ROLE IF EXISTS ${config.postgresInboxRole};
+      CREATE ROLE ${config.postgresInboxRole} WITH REPLICATION LOGIN PASSWORD '${config.postgresInboxRolePassword}';
     `);
 
     console.log('Create the database login role');
@@ -55,7 +55,7 @@ const dbmsSetup = async (config: Config): Promise<void> => {
     rootClient.end();
     console.log(
       '\x1b[32m%s\x1b[0m',
-      'Created the database and the outbox and login roles',
+      'Created the database and the inbox and login roles',
     );
   } catch (err) {
     console.error(err);
@@ -63,8 +63,8 @@ const dbmsSetup = async (config: Config): Promise<void> => {
   }
 };
 
-/** All the changes related to the outbox implementation in the database */
-const outboxSetup = async (config: Config): Promise<void> => {
+/** All the changes related to the inbox implementation in the database */
+const inboxSetup = async (config: Config): Promise<void> => {
   const dbClient = new Client({
     host: config.postgresHost,
     port: config.postgresPort,
@@ -74,39 +74,40 @@ const outboxSetup = async (config: Config): Promise<void> => {
   });
   dbClient.connect();
   try {
-    console.log('Make sure the outbox database schema exists');
+    console.log('Make sure the inbox database schema exists');
     await dbClient.query(/*sql*/ `
-      CREATE SCHEMA IF NOT EXISTS ${config.postgresOutboxSchema}
+      CREATE SCHEMA IF NOT EXISTS ${config.postgresInboxSchema}
     `);
 
-    console.log('Create the outbox table');
+    console.log('Create the inbox table');
     await dbClient.query(/*sql*/ `
-      DROP TABLE IF EXISTS ${config.postgresOutboxSchema}.outbox CASCADE;
-      CREATE TABLE ${config.postgresOutboxSchema}.outbox (
+      DROP TABLE IF EXISTS ${config.postgresInboxSchema}.inbox CASCADE;
+      CREATE TABLE ${config.postgresInboxSchema}.inbox (
         id uuid PRIMARY KEY,
         aggregate_type VARCHAR(255) NOT NULL,
         aggregate_id VARCHAR(255) NOT NULL,
         event_type VARCHAR(255) NOT NULL,
         payload JSONB NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        created_at TIMESTAMPTZ NOT NULL,
+        retries smallint NOT NULL DEFAULT 0
       );
-      GRANT USAGE ON SCHEMA ${config.postgresOutboxSchema} TO ${config.postgresLoginRole} ;
-      GRANT SELECT, INSERT, UPDATE, DELETE ON ${config.postgresOutboxSchema}.outbox TO ${config.postgresLoginRole};
+      GRANT USAGE ON SCHEMA ${config.postgresInboxSchema} TO ${config.postgresLoginRole} ;
+      GRANT SELECT, INSERT, UPDATE, DELETE ON ${config.postgresInboxSchema}.inbox TO ${config.postgresLoginRole};
     `);
 
-    console.log('Create the outbox publication');
+    console.log('Create the inbox publication');
     await dbClient.query(/*sql*/ `
-      DROP PUBLICATION IF EXISTS ${config.postgresOutboxPub};
-      CREATE PUBLICATION ${config.postgresOutboxPub} FOR TABLE ${config.postgresOutboxSchema}.outbox WITH (publish = 'insert')
+      DROP PUBLICATION IF EXISTS ${config.postgresInboxPub};
+      CREATE PUBLICATION ${config.postgresInboxPub} FOR TABLE ${config.postgresInboxSchema}.inbox WITH (publish = 'insert')
     `);
     await dbClient.query(/*sql*/ `
-      select pg_create_logical_replication_slot('${config.postgresOutboxSlot}', 'pgoutput');
+      select pg_create_logical_replication_slot('${config.postgresInboxSlot}', 'pgoutput');
     `);
 
     dbClient.end();
     console.log(
       '\x1b[32m%s\x1b[0m',
-      'Added the outbox table and created the publication for the outbox table',
+      'Added the inbox table and created the publication for the inbox table',
     );
   } catch (err) {
     console.error(err);
@@ -126,14 +127,14 @@ const testDataSetup = async (config: Config): Promise<void> => {
   dbClient.connect();
   try {
     console.log(
-      'Create the movies table and grant permissions to the login role',
+      'Create the published movies table and grant permissions to the login role',
     );
     await dbClient.query(/*sql*/ `
-      DROP TABLE IF EXISTS public.movies CASCADE;
-      DROP SEQUENCE IF EXISTS movies_id_seq;
-      CREATE SEQUENCE movies_id_seq;
-      CREATE TABLE IF NOT EXISTS public.movies (
-        id INTEGER PRIMARY KEY DEFAULT nextval('movies_id_seq'),
+      DROP TABLE IF EXISTS public.published_movies CASCADE;
+      DROP SEQUENCE IF EXISTS published_movies_id_seq;
+      CREATE SEQUENCE published_movies_id_seq;
+      CREATE TABLE IF NOT EXISTS public.published_movies (
+        id INTEGER PRIMARY KEY,
         title TEXT NOT NULL,
         description TEXT NOT NULL,
         actors TEXT[] NOT NULL,
@@ -167,7 +168,7 @@ const testDataSetup = async (config: Config): Promise<void> => {
   try {
     const config = getConfig();
     await dbmsSetup(config);
-    await outboxSetup(config);
+    await inboxSetup(config);
     await testDataSetup(config);
   } catch (err) {
     console.error(err);

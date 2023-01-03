@@ -21,7 +21,7 @@ export const initializeRabbitMqPublisher = async (
     // Publish a message
     const publication = await broker.publish(
       message.eventType, // By convention we use the event type also as publish topic
-      message.payload,
+      message, // Send the full outbox message so a receiver can use the inbox pattern to check for duplicate messages
     );
     return new Promise((resolve, reject) => {
       publication

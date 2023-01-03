@@ -9,14 +9,15 @@ const insertMovie = async (dbClient: PoolClient) => {
   const movieInsertedIdResult = await dbClient.query(/*sql*/ `
         INSERT INTO public.movies (title, description, actors, directors, studio)
         VALUES ('some movie', 'some description', ARRAY['Some Actor'], ARRAY['Some Director'], 'Some Studio')
-        RETURNING id, title;
+        RETURNING id, title, description;
       `);
   if (movieInsertedIdResult.rowCount === 0) {
     throw new Error('Could not insert the movie.');
   }
-  const { id, title } = movieInsertedIdResult.rows[0];
+  const { id, title, description } = movieInsertedIdResult.rows[0];
   console.log(`Stored movie with id ${id}`);
-  return { id, title };
+  // Select a few (or all) properties to send as part of the event
+  return { id, title, description };
 };
 
 const getClient = async (
