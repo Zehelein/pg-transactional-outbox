@@ -2,6 +2,7 @@ import { BrokerAsPromised } from 'rascal';
 import { Config } from './config';
 import { getMessagingConfig } from './rabbitmq-config';
 import { ensureError } from './utils';
+import { logger } from './logger';
 
 /** The received message as it was sent by the producer */
 export interface ReceivedMessage {
@@ -26,7 +27,7 @@ export const initializeRabbitMqHandler = async (
   const cfg = getMessagingConfig(config);
   const broker = await BrokerAsPromised.create(cfg);
   broker.on('error', (err, { vhost, connectionUrl }) => {
-    console.error('Broker error', err, vhost, connectionUrl);
+    logger.error({ err, vhost, connectionUrl }, 'Broker error');
   });
 
   // Consume messages for the desired subscriptions
@@ -42,24 +43,23 @@ export const initializeRabbitMqHandler = async (
         ) {
           try {
             await storeInboxMessage(content);
-            console.log(
-              `Added the incoming message ${content.aggregateType}.${content.eventType}.${content.aggregateId} to the inbox.`,
-            );
+            logger.trace(content, 'Added the incoming message to the inbox');
           } catch (error) {
-            console.debug(
-              `Could not save the incoming message ${content.aggregateType}.${content.eventType}.${content.aggregateId} to the inbox.`,
+            logger.error(
+              content,
+              'Could not save the incoming message to the inbox',
               content,
             );
             ackOrNack(ensureError(error));
           }
         } else {
-          console.debug(
-            'Received a message that was not a message with the required "ReceivedMessage" fields - skipping it.',
+          logger.warn(
             content,
+            'Received a message that was not a message with the required "ReceivedMessage" fields - skipping it',
           );
         }
         ackOrNack();
       })
-      .on('error', console.error);
+      .on('error', logger.error);
   });
 };

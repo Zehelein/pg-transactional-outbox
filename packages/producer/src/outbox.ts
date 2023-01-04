@@ -65,20 +65,3 @@ export const outboxMessageStore = (
     };
   };
 };
-
-/**
- * Maps the database outbox message record to the outbox message type.
- * @param outboxMessage The outbox message as it was written to the database.
- */
-export const mapOutbox = (
-  outboxMessage: Record<string, any>,
-): OutboxMessage => {
-  return {
-    id: outboxMessage.id,
-    aggregateType: outboxMessage.aggregate_type,
-    aggregateId: outboxMessage.aggregate_id,
-    eventType: outboxMessage.event_type,
-    payload: outboxMessage.payload,
-    createdAt: outboxMessage.created_at,
-  };
-};

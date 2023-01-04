@@ -1,4 +1,5 @@
 import { Pool, PoolClient } from 'pg';
+import { logger } from './logger';
 
 export const ensureError = (error: unknown): Error => {
   if (error instanceof Error) {
@@ -36,7 +37,7 @@ const getClient = async (pool: Pool) => {
   // The pool can return a new or an old client - we must register the event listener but should do so only once
   if (!client.listeners('error').length) {
     client.on('error', (err) => {
-      console.log('Error client', err.message);
+      logger.error(err, 'PostgreSQL client error');
     });
   }
   return client;

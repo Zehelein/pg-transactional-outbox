@@ -2,6 +2,7 @@ import { Config } from './config';
 import { Pool, PoolClient } from 'pg';
 import { outboxMessageStore } from './outbox';
 import { executeTransaction } from './utils';
+import { logger } from './logger';
 
 export const MovieAggregateType = 'movie';
 export const MovieCreatedEventType = 'movie_created';
@@ -15,10 +16,10 @@ const insertMovie = async (dbClient: PoolClient) => {
   if (movieInsertedIdResult.rowCount === 0) {
     throw new Error('Could not insert the movie.');
   }
-  const { id, title, description } = movieInsertedIdResult.rows[0];
-  console.log(`Stored movie with id ${id}`);
-  // Select a few (or all) properties to send as part of the event
-  return { id, title, description };
+  // Selecting a few properties to send as part of the event
+  const createdMovie = movieInsertedIdResult.rows[0];
+  logger.trace(createdMovie, 'Stored a movie');
+  return createdMovie;
 };
 
 /**
@@ -28,7 +29,7 @@ const insertMovie = async (dbClient: PoolClient) => {
  * second.
  * @param config The configuration object with details on how to connect to the database with the login role.
  */
-export const addMovies = async (config: Config) => {
+export const addMovies = async (config: Config): Promise<void> => {
   const pool = new Pool({
     host: config.postgresHost,
     port: config.postgresPort,
@@ -37,7 +38,7 @@ export const addMovies = async (config: Config) => {
     database: config.postgresDatabase,
   });
   pool.on('error', (err) => {
-    console.log('Error pool', err.message);
+    logger.error(err, 'PostgreSQL pool error');
   });
 
   // Create the outbox storage function for the movie created event
@@ -54,7 +55,7 @@ export const addMovies = async (config: Config) => {
       return payload;
     });
     if (result instanceof Error) {
-      console.error('Could not create a movie:', result);
+      logger.error(result, 'Could not create a movie');
     }
   }, 3000);
 };

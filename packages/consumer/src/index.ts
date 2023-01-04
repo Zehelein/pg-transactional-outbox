@@ -1,5 +1,7 @@
 import path from 'path';
-require('dotenv').config({ path: path.join(__dirname, '../.env') });
+import * as dotenv from 'dotenv';
+dotenv.config({ path: path.join(__dirname, '../.env') });
+import { logger } from './logger';
 import { getConfig } from './config';
 import { initializeInboxMessageStorage } from './inbox';
 import { initializeRabbitMqHandler } from './rabbitmq-handler';
@@ -12,7 +14,7 @@ import { initializeInboxService } from './wal-inbox-subscription';
 
 // Exit the process if there is an unhandled promise error
 process.on('unhandledRejection', (reason, promise) => {
-  console.error(`Unhandled promise rejection: ${reason}.`, promise);
+  logger.error({ reason, promise }, 'Unhandled promise rejection');
   process.exit(1);
 });
 
@@ -31,7 +33,7 @@ process.on('unhandledRejection', (reason, promise) => {
   const storePublishedMovie = initializePublishedMovieStorage(config);
 
   // Initialize and start the inbox subscription
-  const inboxService = initializeInboxService(config, [
+  initializeInboxService(config, [
     {
       aggregateType: MovieAggregateType,
       eventType: MovieCreatedEventType,

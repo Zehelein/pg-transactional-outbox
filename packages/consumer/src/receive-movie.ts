@@ -2,6 +2,7 @@ import { Pool, PoolClient } from 'pg';
 import { Config } from './config';
 import { InboxMessage, ackInbox, nackInbox } from './inbox';
 import { executeTransaction } from './utils';
+import { logger } from './logger';
 
 export const MovieAggregateType = 'movie';
 export const MovieCreatedEventType = 'movie_created';
@@ -13,14 +14,17 @@ interface PublishedMovie {
 }
 
 function isPublishedMovie(value: unknown): asserts value is PublishedMovie {
-  if (!value || typeof value !== 'object') throw new Error('Not an object');
+  if (!value || typeof value !== 'object') {
+    throw new Error('Not an object');
+  }
   const obj = value as PublishedMovie;
   if (
     typeof obj.id !== 'number' ||
     typeof obj.title !== 'string' ||
     typeof obj.description !== 'string'
-  )
+  ) {
     throw new Error('Not a valid PublishedMovie');
+  }
 }
 
 const insertPublishedMovie = async (
@@ -36,7 +40,9 @@ const insertPublishedMovie = async (
   );
 };
 
-export const initializePublishedMovieStorage = (config: Config) => {
+export const initializePublishedMovieStorage = (
+  config: Config,
+): { (msg: InboxMessage): Promise<void> } => {
   const pool = new Pool({
     host: config.postgresHost,
     port: config.postgresPort,
@@ -45,9 +51,9 @@ export const initializePublishedMovieStorage = (config: Config) => {
     database: config.postgresDatabase,
   });
   pool.on('error', (err) => {
-    console.log('Error pool', err.message);
+    logger.error(err, 'PostgreSQL pool error');
   });
-  return async (msg: InboxMessage) => {
+  return async (msg: InboxMessage): Promise<void> => {
     const { payload } = msg;
     isPublishedMovie(payload);
     const result = await executeTransaction(pool, async (client) => {
@@ -55,17 +61,18 @@ export const initializePublishedMovieStorage = (config: Config) => {
       await ackInbox(msg, client, config);
     });
     if (result instanceof Error) {
-      console.error(
-        `Could not store the published movie "${payload.title}" with id "${payload.id}."`,
-        result,
+      logger.error(
+        {
+          ...payload,
+          error: result,
+        },
+        'Could not store the published movie',
       );
       await executeTransaction(pool, async (client) => {
         await nackInbox(msg, client, config);
       });
     } else {
-      console.log(
-        `Inserted the published movie "${payload.title}" with id "${payload.id}."`,
-      );
+      logger.trace(payload, 'Inserted the published movie');
     }
   };
 };

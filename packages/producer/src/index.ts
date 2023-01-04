@@ -1,14 +1,16 @@
 import path from 'path';
-require('dotenv').config({ path: path.join(__dirname, '../.env') });
+import * as dotenv from 'dotenv';
+dotenv.config({ path: path.join(__dirname, '../.env') });
 import { getConfig } from './config';
 import { initializeOutboxService } from './wal-outbox-subscription';
 import { addMovies } from './add-movies';
 import { initializeRabbitMqPublisher } from './rabbitmq-publisher';
 import { resilienceTest } from './resilience-test';
+import { logger } from './logger';
 
 // Exit the process if there is an unhandled promise error
 process.on('unhandledRejection', (reason, promise) => {
-  console.error(`Unhandled promise rejection: ${reason}.`, promise);
+  logger.error({ reason, promise }, 'Unhandled promise rejection');
   process.exit(1);
 });
 

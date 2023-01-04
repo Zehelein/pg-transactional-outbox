@@ -1,6 +1,16 @@
 {
-  "extends": ["prettier"],
+  "root": true,
+  "parser": "@typescript-eslint/parser", // Specifies the ESLint parser
   "plugins": ["@typescript-eslint", "prettier", "jest", "import"],
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended", // Uses the recommended rules from @typescript-eslint/eslint-plugin
+    "plugin:prettier/recommended", // Enables eslint-plugin-prettier and eslint-config-prettier. This will display prettier errors as ESLint errors. Make sure this is always the last configuration in the extends array.
+    "plugin:jest/recommended",
+    "plugin:jest/style",
+    "prettier"
+  ],
+
   "env": {
     "browser": true,
     "node": true,
@@ -13,10 +23,18 @@
   },
   "rules": {
     "prettier/prettier": "error",
+    "@typescript-eslint/ban-ts-comment": "error",
     "@typescript-eslint/no-use-before-define": "off",
     "@typescript-eslint/array-type": ["error", { "default": "array" }],
     "no-return-await": "warn",
+    "no-trailing-spaces": [
+      "error",
+      {
+        "ignoreComments": true
+      }
+    ],
     "no-fallthrough": "error",
+    "jest/valid-expect": ["error", { "maxArgs": 2 }],
     "jest/require-top-level-describe": "error",
     "@typescript-eslint/no-unused-vars": [
       "warn",
@@ -26,12 +44,33 @@
     "@typescript-eslint/no-explicit-any": "warn",
     "no-console": "warn",
     "@typescript-eslint/explicit-module-boundary-types": "warn",
-    "@typescript-eslint/explicit-function-return-type": [
-      "warn",
-      {
-        "allowExpressions": true
+    "@typescript-eslint/explicit-function-return-type": "off",
+    "@typescript-eslint/consistent-type-definitions": ["error", "interface"],
+    "curly": ["warn", "all"],
+    "eqeqeq": ["error", "allow-null"],
+    "import/no-cycle": "off" // TODO: Enabling this slows down VSCode ESLint plugin - https://github.com/microsoft/vscode-eslint/issues/1431
+  },
+  "overrides": [
+    {
+      // Unit tests
+      "files": ["*.{spec,test}.{ts}", "**/tests/**"],
+      "rules": {
+        "no-console": "off",
+        "@typescript-eslint/no-non-null-assertion": "off",
+        "@typescript-eslint/no-explicit-any": "off",
+        "@typescript-eslint/explicit-function-return-type": "off"
       }
-    ],
-    "@typescript-eslint/consistent-type-definitions": ["error", "interface"]
+    }
+  ],
+  "settings": {
+    "import/parsers": {
+      "@typescript-eslint/parser": [".ts"]
+    },
+    "import/resolver": {
+      "typescript": {
+        "alwaysTryTypes": true, // always try to resolve types under `<root>@types` directory even it doesn't contain any source code, like `@types/unist`
+        "project": ["libs/*/tsconfig.json", "services/*/**/tsconfig.json"]
+      }
+    }
   }
 }

@@ -3,8 +3,9 @@ import path from 'path';
 import dotenv from 'dotenv';
 dotenv.config({ path: path.join(__dirname, '.env') });
 dotenv.config({ path: path.join(__dirname, '../.env'), override: true });
-import { Config, getConfig } from '../src/config';
 import { Client } from 'pg';
+import { Config, getConfig } from '../src/config';
+import { logger } from '../src/logger';
 
 /** Setup on the PostgreSQL server level (and not within a DB) */
 const dbmsSetup = async (config: Config): Promise<void> => {
@@ -16,49 +17,46 @@ const dbmsSetup = async (config: Config): Promise<void> => {
   });
   rootClient.connect();
   try {
-    console.log('Drop all connections to the database');
+    logger.debug('Drop all connections to the database');
     await rootClient.query(/*sql*/ `
       SELECT pg_terminate_backend (pg_stat_activity.pid)
       FROM pg_stat_activity
       WHERE pg_stat_activity.datname = '${config.postgresDatabase}';
     `);
 
-    console.log('Drop the database if it exists');
+    logger.debug('Drop the database if it exists');
     await rootClient.query(/*sql*/ `
       DROP DATABASE IF EXISTS ${config.postgresDatabase};
     `);
 
-    console.log('Create the database');
+    logger.debug('Create the database');
     await rootClient.query(/*sql*/ `
       CREATE DATABASE ${config.postgresDatabase};
     `);
 
-    console.log('Create the database inbox role');
+    logger.debug('Create the database inbox role');
     await rootClient.query(/*sql*/ `
       DROP ROLE IF EXISTS ${config.postgresInboxRole};
       CREATE ROLE ${config.postgresInboxRole} WITH REPLICATION LOGIN PASSWORD '${config.postgresInboxRolePassword}';
     `);
 
-    console.log('Create the database login role');
+    logger.debug('Create the database login role');
     await rootClient.query(/*sql*/ `
       DROP ROLE IF EXISTS ${config.postgresLoginRole};
       CREATE ROLE ${config.postgresLoginRole} WITH LOGIN PASSWORD '${config.postgresLoginRolePassword}';
       GRANT CONNECT ON DATABASE ${config.postgresDatabase} TO ${config.postgresLoginRole};
     `);
 
-    console.log('Add database extensions');
+    logger.debug('Add database extensions');
     await rootClient.query(/*sql*/ `
       CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public; -- used for gin indexes which optimize requests that use LIKE/ILIKE operators, e.g. filter by title
       CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public; -- used for generating UUID values for PK fields
     `);
 
     rootClient.end();
-    console.log(
-      '\x1b[32m%s\x1b[0m',
-      'Created the database and the inbox and login roles',
-    );
+    logger.info('Created the database and the inbox and login roles');
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     process.exit(1);
   }
 };
@@ -74,12 +72,12 @@ const inboxSetup = async (config: Config): Promise<void> => {
   });
   dbClient.connect();
   try {
-    console.log('Make sure the inbox database schema exists');
+    logger.debug('Make sure the inbox database schema exists');
     await dbClient.query(/*sql*/ `
       CREATE SCHEMA IF NOT EXISTS ${config.postgresInboxSchema}
     `);
 
-    console.log('Create the inbox table');
+    logger.debug('Create the inbox table');
     await dbClient.query(/*sql*/ `
       DROP TABLE IF EXISTS ${config.postgresInboxSchema}.inbox CASCADE;
       CREATE TABLE ${config.postgresInboxSchema}.inbox (
@@ -96,7 +94,7 @@ const inboxSetup = async (config: Config): Promise<void> => {
       GRANT SELECT, INSERT, UPDATE, DELETE ON ${config.postgresInboxSchema}.inbox TO ${config.postgresLoginRole};
     `);
 
-    console.log('Create the inbox publication');
+    logger.debug('Create the inbox publication');
     await dbClient.query(/*sql*/ `
       DROP PUBLICATION IF EXISTS ${config.postgresInboxPub};
       CREATE PUBLICATION ${config.postgresInboxPub} FOR TABLE ${config.postgresInboxSchema}.inbox WITH (publish = 'insert')
@@ -106,12 +104,11 @@ const inboxSetup = async (config: Config): Promise<void> => {
     `);
 
     dbClient.end();
-    console.log(
-      '\x1b[32m%s\x1b[0m',
+    logger.info(
       'Added the inbox table and created the publication for the inbox table',
     );
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     process.exit(1);
   }
 };
@@ -127,7 +124,7 @@ const testDataSetup = async (config: Config): Promise<void> => {
   });
   dbClient.connect();
   try {
-    console.log(
+    logger.debug(
       'Create the published movies table and grant permissions to the login role',
     );
     await dbClient.query(/*sql*/ `
@@ -144,12 +141,11 @@ const testDataSetup = async (config: Config): Promise<void> => {
     `);
 
     dbClient.end();
-    console.log(
-      '\x1b[32m%s\x1b[0m',
+    logger.debug(
       'Added the published movies tables and granted access to the login role',
     );
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     process.exit(1);
   }
 };
@@ -161,7 +157,7 @@ const testDataSetup = async (config: Config): Promise<void> => {
     await inboxSetup(config);
     await testDataSetup(config);
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     process.exit(1);
   }
 })();

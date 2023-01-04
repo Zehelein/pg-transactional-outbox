@@ -1,4 +1,6 @@
-type Env = { [key: string]: string | undefined };
+interface Env {
+  [key: string]: string | undefined;
+}
 
 function getEnvVariableString(
   env: Env,
@@ -6,10 +8,11 @@ function getEnvVariableString(
   defaultValue?: string,
 ): string {
   const value = env[field] ?? defaultValue;
-  if (typeof value !== 'string' || !value)
+  if (typeof value !== 'string' || !value) {
     throw new Error(
       `The environment variable ${field} must be a non-empty string.`,
     );
+  }
   return value;
 }
 
@@ -19,8 +22,9 @@ function getEnvVariableNumber(
   defaultValue?: number,
 ): number {
   const value = Number(getEnvVariableString(env, field, `${defaultValue}`));
-  if (Number.isNaN(value))
+  if (Number.isNaN(value)) {
     throw new Error(`The environment variable ${field} must be a number.`);
+  }
   return value;
 }
 
@@ -30,6 +34,7 @@ function getEnvVariableNumber(
  * @param env The process environment settings or a custom settings object
  * @returns
  */
+// eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
 export const getConfig = (env: Env = process.env) => {
   return {
     postgresHost: getEnvVariableString(env, 'POSTGRESQL_HOST', 'localhost'),

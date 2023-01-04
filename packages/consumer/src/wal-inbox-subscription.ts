@@ -4,7 +4,8 @@ import {
   PgoutputPlugin,
   Pgoutput,
 } from 'pg-logical-replication';
-import { mapInbox, InboxMessage } from './inbox';
+import { InboxMessage } from './inbox';
+import { logger } from './logger';
 
 export interface InboxMessageHandler {
   aggregateType: string;
@@ -35,9 +36,17 @@ const createService = (
       log.relation.schema === config.postgresInboxSchema &&
       log.relation.name === 'inbox'
     ) {
-      const im = mapInbox(log.new);
-      const identifier = `${im.aggregateType}.${im.eventType}.${im.aggregateId}`;
-      console.log(`Received WAL message ${identifier}`);
+      const msg = log.new;
+      const im = {
+        id: msg.id,
+        aggregateType: msg.aggregate_type,
+        aggregateId: msg.aggregate_id,
+        eventType: msg.event_type,
+        payload: msg.payload,
+        createdAt: msg.created_at,
+        retries: msg.retries,
+      };
+      logger.trace(log, 'Received WAL inbox message');
       try {
         await Promise.all(
           messageHandlers
@@ -51,7 +60,7 @@ const createService = (
         service.acknowledge(lsn);
       } catch (error) {
         // Do not acknowledge the inbox message in case of a message sending error
-        console.error(`Could not process the message ${identifier}.`, error);
+        logger.error({ ...msg, error }, 'Could not process the inbox message');
       }
     }
   });
@@ -68,9 +77,12 @@ const createService = (
 export const initializeInboxService = (
   config: Config,
   messageHandlers: InboxMessageHandler[],
-) => {
+): {
+  stop: { (): Promise<void> };
+  startIfStopped: { (): void };
+} => {
   const errorListener = async (err: Error) => {
-    console.error(err);
+    logger.error(err);
     // Stop the current instance and create a new instance e.g. if the DB connection failed
     await service.stop();
     service = createService(config, messageHandlers, errorListener);
@@ -88,7 +100,7 @@ export const initializeInboxService = (
       .subscribe(plugin, config.postgresInboxSlot)
       // Log any error and restart the replication after a small timeout
       // The service will catch up with any events in the WAL once it restarts.
-      .catch(console.error)
+      .catch(logger.error)
       .then(() => {
         setTimeout(subscribeToInboxMessages, 100);
       });

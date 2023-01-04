@@ -1,7 +1,8 @@
 import { Pool, PoolClient } from 'pg';
 import { Config } from './config';
 import { ReceivedMessage } from './rabbitmq-handler';
-import { ensureError, executeTransaction } from './utils';
+import { executeTransaction } from './utils';
+import { logger } from './logger';
 
 /** The inbox message for storing it to the DB and receiving it back from the WAL */
 export interface InboxMessage {
@@ -15,17 +16,12 @@ export interface InboxMessage {
 }
 
 const insertInbox = async (
-  {
-    id,
-    aggregateType,
-    aggregateId,
-    eventType,
-    payload,
-    createdAt,
-  }: ReceivedMessage,
+  message: ReceivedMessage,
   dbClient: PoolClient,
   { postgresInboxSchema }: Config,
 ) => {
+  const { id, aggregateType, aggregateId, eventType, payload, createdAt } =
+    message;
   const inboxResult = await dbClient.query(
     /*sql*/ `
     INSERT INTO ${postgresInboxSchema}.inbox
@@ -35,9 +31,7 @@ const insertInbox = async (
     [id, aggregateType, aggregateId, eventType, payload, createdAt],
   );
   if (inboxResult.rowCount < 1) {
-    console.debug(
-      `The message ${aggregateType}.${eventType}.${aggregateId} with message ID ${id} already existed.`,
-    );
+    logger.warn(message, 'The message already existed');
   }
 };
 
@@ -46,7 +40,9 @@ const insertInbox = async (
  * @param config The configuration object that defines the values on how to connect to the database.
  * @returns The function to store the inbox message data to the database.
  */
-export const initializeInboxMessageStorage = async (config: Config) => {
+export const initializeInboxMessageStorage = async (
+  config: Config,
+): Promise<{ (message: ReceivedMessage): Promise<void> }> => {
   const pool = new Pool({
     host: config.postgresHost,
     port: config.postgresPort,
@@ -55,19 +51,19 @@ export const initializeInboxMessageStorage = async (config: Config) => {
     database: config.postgresDatabase,
   });
   pool.on('error', (err) => {
-    console.log('Error pool', err.message);
+    logger.error(err, 'PostgreSQL pool error');
   });
 
   /**
    * The function to store the inbox message data to the database.
    * @param message The received message that should be stored as inbox message
    */
-  return async (message: ReceivedMessage) => {
+  return async (message: ReceivedMessage): Promise<void> => {
     const result = await executeTransaction(pool, async (client) => {
       await insertInbox(message, client, config);
     });
     if (result instanceof Error) {
-      console.error('Could not store the inbox message', result);
+      logger.error({ ...message, result }, 'Could not store the inbox message');
       throw result;
     }
   };
@@ -98,11 +94,12 @@ export const ackInbox = async (
  * @param config The configuration file to pick the inbox database schema from.
  */
 export const nackInbox = async (
-  { id, aggregateType, eventType, aggregateId }: InboxMessage,
+  message: InboxMessage,
   client: PoolClient,
   config: Pick<Config, 'postgresInboxSchema'>,
-  maxRetries: number = 5,
+  maxRetries = 5,
 ): Promise<void> => {
+  const { id, aggregateType, eventType, aggregateId } = message;
   const response = await client.query(
     /*sql*/ `
     UPDATE ${config.postgresInboxSchema}.inbox SET retries = retries + 1 WHERE id = $1
@@ -116,24 +113,9 @@ export const nackInbox = async (
     );
   } else {
     // Not throwing an error will mark the WAL inbox message as finished
-    console.log(
-      `Retries for the inbox message ${aggregateType}.${eventType}.${aggregateId} with message ID ${id} exceeded the maximum number of ${maxRetries} retries.`,
+    logger.error(
+      message,
+      `Retries for the inbox message exceeded the maximum number of ${maxRetries} retries`,
     );
   }
-};
-
-/**
- * Maps the database inbox message record to the inbox message type.
- * @param inboxMessage The inbox message as it was written to the database.
- */
-export const mapInbox = (inboxMessage: Record<string, any>): InboxMessage => {
-  return {
-    id: inboxMessage.id,
-    aggregateType: inboxMessage.aggregate_type,
-    aggregateId: inboxMessage.aggregate_id,
-    eventType: inboxMessage.event_type,
-    payload: inboxMessage.payload,
-    createdAt: inboxMessage.created_at,
-    retries: inboxMessage.retries,
-  };
 };

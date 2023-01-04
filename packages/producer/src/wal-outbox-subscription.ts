@@ -4,7 +4,8 @@ import {
   PgoutputPlugin,
   Pgoutput,
 } from 'pg-logical-replication';
-import { mapOutbox, OutboxMessage } from './outbox';
+import { OutboxMessage } from './outbox';
+import { logger } from './logger';
 
 const createService = (
   config: Config,
@@ -29,15 +30,22 @@ const createService = (
       log.relation.schema === config.postgresOutboxSchema &&
       log.relation.name === 'outbox'
     ) {
-      const om = mapOutbox(log.new);
-      const identifier = `${om.aggregateType}.${om.eventType}.${om.aggregateId}`;
-      console.log(`Received WAL message ${identifier}`);
+      const msg = log.new;
+      const om = {
+        id: msg.id,
+        aggregateType: msg.aggregate_type,
+        aggregateId: msg.aggregate_id,
+        eventType: msg.event_type,
+        payload: msg.payload,
+        createdAt: msg.created_at,
+      };
+      logger.trace(om, 'Received an outbox WAL message');
       try {
         await callback(om);
         service.acknowledge(lsn);
       } catch (error) {
         // Do not acknowledge the outbox message in case of a message sending error
-        console.error(`Could not send the message ${identifier}.`, error);
+        logger.error({ ...om, error }, 'Could not send the message');
       }
     }
   });
@@ -54,9 +62,12 @@ const createService = (
 export const initializeOutboxService = (
   config: Config,
   callback: (message: OutboxMessage) => Promise<void>,
-) => {
+): {
+  stop: { (): Promise<void> };
+  startIfStopped: { (): void };
+} => {
   const errorListener = async (err: Error) => {
-    console.error(err);
+    logger.error(err);
     // Stop the current instance and create a new instance e.g. if the DB connection failed
     await service.stop();
     service = createService(config, callback, errorListener);
@@ -74,7 +85,7 @@ export const initializeOutboxService = (
       .subscribe(plugin, config.postgresOutboxSlot)
       // Log any error and restart the replication after a small timeout
       // The service will catch up with any events in the WAL once it restarts.
-      .catch(console.error)
+      .catch(logger.error)
       .then(() => {
         setTimeout(subscribeToOutboxMessages, 100);
       });

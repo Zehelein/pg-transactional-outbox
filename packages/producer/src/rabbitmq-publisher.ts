@@ -2,6 +2,7 @@ import { BrokerAsPromised } from 'rascal';
 import { Config } from './config';
 import { OutboxMessage } from './outbox';
 import { getMessagingConfig } from './rabbitmq-config';
+import { logger } from './logger';
 
 /**
  * Initialize the message publisher and receive a function to publish messages.
@@ -14,7 +15,7 @@ export const initializeRabbitMqPublisher = async (
   const cfg = getMessagingConfig(config);
   const broker = await BrokerAsPromised.create(cfg);
   broker.on('error', (err, { vhost, connectionUrl }) => {
-    console.error('Broker error', err, vhost, connectionUrl);
+    logger.error({ err, vhost, connectionUrl }, 'Broker error');
   });
 
   return async (message: OutboxMessage): Promise<void> => {
@@ -27,13 +28,12 @@ export const initializeRabbitMqPublisher = async (
       publication
         .on('success', (_messageId) => {
           resolve();
-          console.log(
-            `Published outbox message ${message.aggregateType}.${message.eventType}.${message.aggregateId}`,
-          );
+          logger.trace(message, 'Published outbox message');
         })
         .on('return', (_rmqMessage) => {
-          console.debug(
-            `An outbox message ${message.aggregateType}.${message.eventType}.${message.aggregateId} was successfully published but was not routed.`,
+          logger.warn(
+            message,
+            `An outbox message was successfully published but was not routed.`,
           );
         })
         .on('error', (error, _messageId) => {
