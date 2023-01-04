@@ -1,6 +1,7 @@
 import { Config } from './config';
 import { Pool, PoolClient } from 'pg';
 import { outboxMessageStore } from './outbox';
+import { executeTransaction } from './utils';
 
 export const MovieAggregateType = 'movie';
 export const MovieCreatedEventType = 'movie_created';
@@ -20,25 +21,6 @@ const insertMovie = async (dbClient: PoolClient) => {
   return { id, title, description };
 };
 
-const getClient = async (
-  pool: Pool,
-  errorListener: (err: Error) => void,
-): Promise<PoolClient> => {
-  while (true) {
-    try {
-      let client = await pool.connect();
-      client.on('error', errorListener);
-      return client;
-    } catch (error) {
-      console.log(
-        'Error connecting to the database:',
-        error instanceof Error ? error.message : error,
-      );
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
-  }
-};
-
 /**
  * A business logic function to add business data (movies) to the database and
  * register an outbox message event "movie_created" for every inserted movie.
@@ -54,16 +36,11 @@ export const addMovies = async (config: Config) => {
     password: config.postgresLoginRolePassword,
     database: config.postgresDatabase,
   });
+  pool.on('error', (err) => {
+    console.log('Error pool', err.message);
+  });
 
-  // Define a reliable way to get a pg client - also in case of an error
-  const errorListener = async (err: Error) => {
-    console.error(err);
-    dbClient.release();
-    dbClient = await getClient(pool, errorListener);
-  };
-  let dbClient = await getClient(pool, errorListener);
-
-  // pre-configure the specific kind of outbox message to generate
+  // Create the outbox storage function for the movie created event
   const storeOutboxMessage = outboxMessageStore(
     MovieAggregateType,
     MovieCreatedEventType,
@@ -71,14 +48,13 @@ export const addMovies = async (config: Config) => {
   );
 
   setInterval(async () => {
-    try {
-      await dbClient.query('BEGIN');
-      const payload = await insertMovie(dbClient);
-      await storeOutboxMessage(payload.id, payload, dbClient);
-      await dbClient.query('COMMIT');
-    } catch (error) {
-      await dbClient.query('ROLLBACK');
-      console.log(`Error when inserting a movie and outbox message`, error);
+    const result = await executeTransaction(pool, async (client) => {
+      const payload = await insertMovie(client);
+      await storeOutboxMessage(payload.id, payload, client);
+      return payload;
+    });
+    if (result instanceof Error) {
+      console.error('Could not create a movie:', result);
     }
-  }, 1000);
+  }, 3000);
 };

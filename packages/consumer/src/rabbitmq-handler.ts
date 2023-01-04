@@ -1,11 +1,10 @@
-import { Message } from 'amqplib';
 import { BrokerAsPromised } from 'rascal';
 import { Config } from './config';
-import { InboxMessage } from './inbox';
 import { getMessagingConfig } from './rabbitmq-config';
+import { ensureError } from './utils';
 
-/** The outbox message as it was sent by the producer */
-export interface OutboxMessage {
+/** The received message as it was sent by the producer */
+export interface ReceivedMessage {
   id: string;
   aggregateType: string;
   aggregateId: string;
@@ -21,6 +20,7 @@ export interface OutboxMessage {
  */
 export const initializeRabbitMqHandler = async (
   config: Config,
+  storeInboxMessage: (message: ReceivedMessage) => Promise<void>,
   eventTypes: string[],
 ): Promise<void> => {
   const cfg = getMessagingConfig(config);
@@ -33,10 +33,29 @@ export const initializeRabbitMqHandler = async (
   eventTypes.map(async (eventType) => {
     const subscription = await broker.subscribe(eventType);
     subscription
-      .on('message', (_rmqMsg, content: OutboxMessage, ackOrNack) => {
-        if (content.id && content.aggregateType && content.eventType) {
-          console.log(
-            `Added the incoming message ${content.aggregateType}.${content.eventType}.${content.id} to the inbox.`,
+      .on('message', async (_rmqMsg, content: ReceivedMessage, ackOrNack) => {
+        if (
+          content.id &&
+          content.aggregateType &&
+          content.eventType &&
+          content.createdAt
+        ) {
+          try {
+            await storeInboxMessage(content);
+            console.log(
+              `Added the incoming message ${content.aggregateType}.${content.eventType}.${content.aggregateId} to the inbox.`,
+            );
+          } catch (error) {
+            console.debug(
+              `Could not save the incoming message ${content.aggregateType}.${content.eventType}.${content.aggregateId} to the inbox.`,
+              content,
+            );
+            ackOrNack(ensureError(error));
+          }
+        } else {
+          console.debug(
+            'Received a message that was not a message with the required "ReceivedMessage" fields - skipping it.',
+            content,
           );
         }
         ackOrNack();

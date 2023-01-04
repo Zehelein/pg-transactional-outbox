@@ -89,6 +89,7 @@ const inboxSetup = async (config: Config): Promise<void> => {
         event_type VARCHAR(255) NOT NULL,
         payload JSONB NOT NULL,
         created_at TIMESTAMPTZ NOT NULL,
+        processed_at TIMESTAMPTZ,
         retries smallint NOT NULL DEFAULT 0
       );
       GRANT USAGE ON SCHEMA ${config.postgresInboxSchema} TO ${config.postgresLoginRole} ;
@@ -136,27 +137,16 @@ const testDataSetup = async (config: Config): Promise<void> => {
       CREATE TABLE IF NOT EXISTS public.published_movies (
         id INTEGER PRIMARY KEY,
         title TEXT NOT NULL,
-        description TEXT NOT NULL,
-        actors TEXT[] NOT NULL,
-        directors TEXT[] NOT NULL,
-        studio TEXT NOT NULL
+        description TEXT NOT NULL
       );
-      GRANT SELECT, INSERT, UPDATE, DELETE ON public.movies TO ${config.postgresLoginRole};
-      GRANT USAGE ON SEQUENCE movies_id_seq TO ${config.postgresLoginRole};;
-    `);
-
-    console.log('Initialize the movie database with some movies');
-    await dbClient.query(/*sql*/ `
-      INSERT INTO public.movies (title, description, actors, directors, studio)
-      VALUES
-        ('Inception', 'A thief who steals corporate secrets through use of dream-sharing technology is given the inverse task of planting an idea into the mind of a CEO.', ARRAY['Leonardo DiCaprio', 'Joseph Gordon-Levitt', 'Ellen Page'], ARRAY['Christopher Nolan'], 'Warner Bros. Pictures'),
-        ('Interstellar', 'A team of explorers travel through a wormhole in space in an attempt to ensure humanity''s survival.', ARRAY['Matthew McConaughey', 'Anne Hathaway', 'Jessica Chastain'], ARRAY['Christopher Nolan'], 'Paramount Pictures');
+      GRANT SELECT, INSERT, UPDATE, DELETE ON public.published_movies TO ${config.postgresLoginRole};
+      GRANT USAGE ON SEQUENCE published_movies_id_seq TO ${config.postgresLoginRole};;
     `);
 
     dbClient.end();
     console.log(
       '\x1b[32m%s\x1b[0m',
-      'Added the movies tables and granted access to the login role',
+      'Added the published movies tables and granted access to the login role',
     );
   } catch (err) {
     console.error(err);
