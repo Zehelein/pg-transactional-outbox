@@ -17,11 +17,13 @@ if (process.env.NODE_ENV === 'development') {
       ) {
         return {
           context: `Message for ${value.aggregateType}.${value.eventType}.${value.aggregateId} has ID ${value.id}`,
+          err: value.err,
         };
       }
       if ('id' in value && 'title' in value && 'description' in value) {
         return {
           context: `Movie ${value.title} with id ${value.id}`,
+          err: value.err,
         };
       }
       return value;

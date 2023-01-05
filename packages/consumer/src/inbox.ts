@@ -15,6 +15,24 @@ export interface InboxMessage {
   retries: number;
 }
 
+/**
+ * An inbox related error. The code contains the reason on which issue ocurred.
+ */
+export class InboxError extends Error {
+  code: InboxErrorType;
+
+  constructor(message: string, code: InboxErrorType) {
+    super(message);
+    this.code = code;
+  }
+}
+
+type InboxErrorType =
+  | 'INBOX_MESSAGE_NOT_FOUND'
+  | 'ALREADY_PROCESSED'
+  | 'MESSAGE_HANDLING_ERROR'
+  | 'STORE_INBOX_MESSAGE_FAILED';
+
 const insertInbox = async (
   message: ReceivedMessage,
   dbClient: PoolClient,
@@ -57,16 +75,55 @@ export const initializeInboxMessageStorage = async (
   /**
    * The function to store the inbox message data to the database.
    * @param message The received message that should be stored as inbox message
+   * @throws InboxError if the inbox message could not be stored
    */
   return async (message: ReceivedMessage): Promise<void> => {
-    const result = await executeTransaction(pool, async (client) => {
-      await insertInbox(message, client, config);
-    });
-    if (result instanceof Error) {
-      logger.error({ ...message, result }, 'Could not store the inbox message');
-      throw result;
+    try {
+      await executeTransaction(pool, async (client) => {
+        await insertInbox(message, client, config);
+      });
+    } catch (err) {
+      logger.error({ ...message, err }, 'Could not store the inbox message');
+      throw new InboxError(
+        `Could not store the inbox message with id ${message.id}`,
+        'STORE_INBOX_MESSAGE_FAILED',
+      );
     }
   };
+};
+
+/**
+ * Make sure the inbox item was not and is not currently being worked on.
+ * As the WAL inbox service does not run in the same transaction as the message
+ * handler code there is a small chance that the handler code succeeds but the
+ * WAL inbox message was not acknowledged. This takes care of such cases.
+ * @param message The inbox message to check and later process.
+ * @param client The database client must be part of the transaction where the business relevant data changes are done as well.
+ * @param config The configuration file to pick the inbox database schema from.
+ * @throws Throws an error if the database row does not exist, is locked by some other transaction, or was already processed.
+ */
+export const verifyInbox = async (
+  { id }: InboxMessage,
+  client: PoolClient,
+  config: Pick<Config, 'postgresInboxSchema'>,
+): Promise<void> => {
+  // Get the inbox data and lock it for updates. Use NOWAIT to immediately fail if another process is locking it.
+  const inboxResult = await client.query(
+    /*sql*/ `SELECT processed_at FROM ${config.postgresInboxSchema}.inbox WHERE id = $1 FOR UPDATE NOWAIT`,
+    [id],
+  );
+  if (inboxResult.rowCount === 0) {
+    throw new InboxError(
+      `Received a WAL inbox message with id ${id} but found no database entry.`,
+      'INBOX_MESSAGE_NOT_FOUND',
+    );
+  }
+  if (inboxResult.rows[0].processed_at) {
+    throw new InboxError(
+      `The inbox message ${id} was already processed.`,
+      'ALREADY_PROCESSED',
+    );
+  }
 };
 
 /**
@@ -87,35 +144,34 @@ export const ackInbox = async (
 };
 
 /**
- * Reject the message and do not acknowledge it. This will throw an error and thus retry to handle the message later.
- * When the maximum number of retries is reached it will not throw an error and the message will be removed from the WAL.
+ * Reject the message and do not acknowledge it. Check the return value if the
+ * WAL message should be acknowledged or not.
  * @param message The inbox message to NOT acknowledge.
  * @param client The database client must be part of the transaction where the business relevant data changes are done as well.
  * @param config The configuration file to pick the inbox database schema from.
+ * @returns "RETRY" if the maximum number of retries was not reached - otherwise "RETRIES_EXCEEDED"
  */
 export const nackInbox = async (
   message: InboxMessage,
   client: PoolClient,
   config: Pick<Config, 'postgresInboxSchema'>,
   maxRetries = 5,
-): Promise<void> => {
-  const { id, aggregateType, eventType, aggregateId } = message;
+): Promise<'RETRY' | 'RETRIES_EXCEEDED'> => {
   const response = await client.query(
     /*sql*/ `
     UPDATE ${config.postgresInboxSchema}.inbox SET retries = retries + 1 WHERE id = $1
     RETURNING retries;
     `,
-    [id],
+    [message.id],
   );
   if (response.rowCount > 0 && response.rows[0].retries < maxRetries) {
-    throw new Error(
-      `There was an error when trying to handle the inbox message ${aggregateType}.${eventType}.${aggregateId} with the message ID ${id}.`,
-    );
+    logger.warn(message, 'Increased the retry counter on the inbox message.');
+    return 'RETRY';
   } else {
-    // Not throwing an error will mark the WAL inbox message as finished
     logger.error(
       message,
       `Retries for the inbox message exceeded the maximum number of ${maxRetries} retries`,
     );
+    return 'RETRIES_EXCEEDED';
   }
 };

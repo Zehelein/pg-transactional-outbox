@@ -8,13 +8,13 @@ import { initializeRabbitMqHandler } from './rabbitmq-handler';
 import {
   MovieAggregateType,
   MovieCreatedEventType,
-  initializePublishedMovieStorage,
+  storePublishedMovie,
 } from './receive-movie';
 import { initializeInboxService } from './wal-inbox-subscription';
 
 // Exit the process if there is an unhandled promise error
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error({ reason, promise }, 'Unhandled promise rejection');
+process.on('unhandledRejection', (err, promise) => {
+  logger.error({ err, promise }, 'Unhandled promise rejection');
   process.exit(1);
 });
 
@@ -29,8 +29,6 @@ process.on('unhandledRejection', (reason, promise) => {
   await initializeRabbitMqHandler(config, storeInboxMessage, [
     MovieCreatedEventType,
   ]);
-
-  const storePublishedMovie = initializePublishedMovieStorage(config);
 
   // Initialize and start the inbox subscription
   initializeInboxService(config, [

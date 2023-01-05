@@ -43,9 +43,9 @@ const createService = (
       try {
         await callback(om);
         service.acknowledge(lsn);
-      } catch (error) {
+      } catch (err) {
         // Do not acknowledge the outbox message in case of a message sending error
-        logger.error({ ...om, error }, 'Could not send the message');
+        logger.error({ ...om, err }, 'Could not send the message');
       }
     }
   });
@@ -85,7 +85,7 @@ export const initializeOutboxService = (
       .subscribe(plugin, config.postgresOutboxSlot)
       // Log any error and restart the replication after a small timeout
       // The service will catch up with any events in the WAL once it restarts.
-      .catch(logger.error)
+      .catch(logger.error.bind(logger))
       .then(() => {
         setTimeout(subscribeToOutboxMessages, 100);
       });

@@ -49,13 +49,14 @@ export const addMovies = async (config: Config): Promise<void> => {
   );
 
   setInterval(async () => {
-    const result = await executeTransaction(pool, async (client) => {
-      const payload = await insertMovie(client);
-      await storeOutboxMessage(payload.id, payload, client);
-      return payload;
-    });
-    if (result instanceof Error) {
-      logger.error(result, 'Could not create a movie');
+    try {
+      await executeTransaction(pool, async (client) => {
+        const payload = await insertMovie(client);
+        await storeOutboxMessage(payload.id, payload, client);
+        return payload;
+      });
+    } catch (error) {
+      logger.error(error, 'Could not create a movie');
     }
   }, 3000);
 };

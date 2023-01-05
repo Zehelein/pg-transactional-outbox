@@ -1,7 +1,5 @@
-import { Pool, PoolClient } from 'pg';
-import { Config } from './config';
-import { InboxMessage, ackInbox, nackInbox } from './inbox';
-import { executeTransaction } from './utils';
+import { ClientBase } from 'pg';
+import { InboxMessage } from './inbox';
 import { logger } from './logger';
 
 export const MovieAggregateType = 'movie';
@@ -13,7 +11,7 @@ interface PublishedMovie {
   description: string;
 }
 
-function isPublishedMovie(value: unknown): asserts value is PublishedMovie {
+function assertPublishedMovie(value: unknown): asserts value is PublishedMovie {
   if (!value || typeof value !== 'object') {
     throw new Error('Not an object');
   }
@@ -29,7 +27,7 @@ function isPublishedMovie(value: unknown): asserts value is PublishedMovie {
 
 const insertPublishedMovie = async (
   { id, title, description }: PublishedMovie,
-  dbClient: PoolClient,
+  dbClient: ClientBase,
 ) => {
   await dbClient.query(
     /*sql*/ `
@@ -40,39 +38,18 @@ const insertPublishedMovie = async (
   );
 };
 
-export const initializePublishedMovieStorage = (
-  config: Config,
-): { (msg: InboxMessage): Promise<void> } => {
-  const pool = new Pool({
-    host: config.postgresHost,
-    port: config.postgresPort,
-    user: config.postgresLoginRole,
-    password: config.postgresLoginRolePassword,
-    database: config.postgresDatabase,
-  });
-  pool.on('error', (err) => {
-    logger.error(err, 'PostgreSQL pool error');
-  });
-  return async (msg: InboxMessage): Promise<void> => {
-    const { payload } = msg;
-    isPublishedMovie(payload);
-    const result = await executeTransaction(pool, async (client) => {
-      await insertPublishedMovie(payload, client);
-      await ackInbox(msg, client, config);
-    });
-    if (result instanceof Error) {
-      logger.error(
-        {
-          ...payload,
-          error: result,
-        },
-        'Could not store the published movie',
-      );
-      await executeTransaction(pool, async (client) => {
-        await nackInbox(msg, client, config);
-      });
-    } else {
-      logger.trace(payload, 'Inserted the published movie');
-    }
-  };
+/**
+ * Stores the published video in the database
+ * @param message The inbox message that contains the movie details
+ * @param client The database client
+ * @throws Error if the message does not contain a valid movie.
+ */
+export const storePublishedMovie = async (
+  message: InboxMessage,
+  client: ClientBase,
+): Promise<void> => {
+  const { payload } = message;
+  assertPublishedMovie(payload);
+  await insertPublishedMovie(payload, client);
+  logger.trace(payload, 'Inserted the published movie');
 };

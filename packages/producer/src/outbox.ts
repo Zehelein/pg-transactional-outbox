@@ -31,6 +31,7 @@ export const outboxMessageStore = (
    * @param payload The actual message payload that should be sent.
    * @param dbClient The database client that should have an active transaction to insert the outbox data along with the business logic transaction.
    * @returns The outbox message data that was stored in the database.
+   * @throws An error if the outbox message could not be created.
    */
   return async (
     aggregateId: string,

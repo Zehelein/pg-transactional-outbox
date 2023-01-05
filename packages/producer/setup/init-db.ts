@@ -5,6 +5,7 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 dotenv.config({ path: path.join(__dirname, '../.env'), override: true });
 import { Config, getConfig } from '../src/config';
 import { Client } from 'pg';
+import { logger } from '../src/logger';
 
 /** Setup on the PostgreSQL server level (and not within a DB) */
 const dbmsSetup = async (config: Config): Promise<void> => {
@@ -16,49 +17,46 @@ const dbmsSetup = async (config: Config): Promise<void> => {
   });
   rootClient.connect();
   try {
-    console.log('Drop all connections to the database');
+    logger.debug('Drop all connections to the database');
     await rootClient.query(/*sql*/ `
       SELECT pg_terminate_backend (pg_stat_activity.pid)
       FROM pg_stat_activity
       WHERE pg_stat_activity.datname = '${config.postgresDatabase}';
     `);
 
-    console.log('Drop the database if it exists');
+    logger.debug('Drop the database if it exists');
     await rootClient.query(/*sql*/ `
       DROP DATABASE IF EXISTS ${config.postgresDatabase};
     `);
 
-    console.log('Create the database');
+    logger.debug('Create the database');
     await rootClient.query(/*sql*/ `
       CREATE DATABASE ${config.postgresDatabase};
     `);
 
-    console.log('Create the database outbox role');
+    logger.debug('Create the database outbox role');
     await rootClient.query(/*sql*/ `
       DROP ROLE IF EXISTS ${config.postgresOutboxRole};
       CREATE ROLE ${config.postgresOutboxRole} WITH REPLICATION LOGIN PASSWORD '${config.postgresOutboxRolePassword}';
     `);
 
-    console.log('Create the database login role');
+    logger.debug('Create the database login role');
     await rootClient.query(/*sql*/ `
       DROP ROLE IF EXISTS ${config.postgresLoginRole};
       CREATE ROLE ${config.postgresLoginRole} WITH LOGIN PASSWORD '${config.postgresLoginRolePassword}';
       GRANT CONNECT ON DATABASE ${config.postgresDatabase} TO ${config.postgresLoginRole};
     `);
 
-    console.log('Add database extensions');
+    logger.debug('Add database extensions');
     await rootClient.query(/*sql*/ `
       CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public; -- used for gin indexes which optimize requests that use LIKE/ILIKE operators, e.g. filter by title
       CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public; -- used for generating UUID values for PK fields
     `);
 
     rootClient.end();
-    console.log(
-      '\x1b[32m%s\x1b[0m',
-      'Created the database and the outbox and login roles',
-    );
+    logger.info('Created the database and the outbox and login roles');
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     process.exit(1);
   }
 };
@@ -74,12 +72,12 @@ const outboxSetup = async (config: Config): Promise<void> => {
   });
   dbClient.connect();
   try {
-    console.log('Make sure the outbox database schema exists');
+    logger.debug('Make sure the outbox database schema exists');
     await dbClient.query(/*sql*/ `
       CREATE SCHEMA IF NOT EXISTS ${config.postgresOutboxSchema}
     `);
 
-    console.log('Create the outbox table');
+    logger.debug('Create the outbox table');
     await dbClient.query(/*sql*/ `
       DROP TABLE IF EXISTS ${config.postgresOutboxSchema}.outbox CASCADE;
       CREATE TABLE ${config.postgresOutboxSchema}.outbox (
@@ -94,7 +92,7 @@ const outboxSetup = async (config: Config): Promise<void> => {
       GRANT SELECT, INSERT, UPDATE, DELETE ON ${config.postgresOutboxSchema}.outbox TO ${config.postgresLoginRole};
     `);
 
-    console.log('Create the outbox publication');
+    logger.debug('Create the outbox publication');
     await dbClient.query(/*sql*/ `
       DROP PUBLICATION IF EXISTS ${config.postgresOutboxPub};
       CREATE PUBLICATION ${config.postgresOutboxPub} FOR TABLE ${config.postgresOutboxSchema}.outbox WITH (publish = 'insert')
@@ -104,12 +102,11 @@ const outboxSetup = async (config: Config): Promise<void> => {
     `);
 
     dbClient.end();
-    console.log(
-      '\x1b[32m%s\x1b[0m',
+    logger.info(
       'Added the outbox table and created the publication for the outbox table',
     );
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     process.exit(1);
   }
 };
@@ -125,7 +122,7 @@ const testDataSetup = async (config: Config): Promise<void> => {
   });
   dbClient.connect();
   try {
-    console.log(
+    logger.debug(
       'Create the movies table and grant permissions to the login role',
     );
     await dbClient.query(/*sql*/ `
@@ -144,7 +141,7 @@ const testDataSetup = async (config: Config): Promise<void> => {
       GRANT USAGE ON SEQUENCE movies_id_seq TO ${config.postgresLoginRole};;
     `);
 
-    console.log('Initialize the movie database with some movies');
+    logger.debug('Initialize the movie database with some movies');
     await dbClient.query(/*sql*/ `
       INSERT INTO public.movies (title, description, actors, directors, studio)
       VALUES
@@ -153,12 +150,9 @@ const testDataSetup = async (config: Config): Promise<void> => {
     `);
 
     dbClient.end();
-    console.log(
-      '\x1b[32m%s\x1b[0m',
-      'Added the movies tables and granted access to the login role',
-    );
+    logger.info('Added the movies tables and granted access to the login role');
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     process.exit(1);
   }
 };
@@ -170,7 +164,7 @@ const testDataSetup = async (config: Config): Promise<void> => {
     await outboxSetup(config);
     await testDataSetup(config);
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     process.exit(1);
   }
 })();

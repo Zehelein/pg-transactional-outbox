@@ -45,12 +45,15 @@ export const initializeRabbitMqHandler = async (
             await storeInboxMessage(content);
             logger.trace(content, 'Added the incoming message to the inbox');
           } catch (error) {
+            const err = ensureError(error);
             logger.error(
-              content,
+              {
+                ...content,
+                err,
+              },
               'Could not save the incoming message to the inbox',
-              content,
             );
-            ackOrNack(ensureError(error));
+            ackOrNack(err);
           }
         } else {
           logger.warn(
@@ -60,6 +63,6 @@ export const initializeRabbitMqHandler = async (
         }
         ackOrNack();
       })
-      .on('error', logger.error);
+      .on('error', logger.error.bind(logger));
   });
 };
