@@ -1,3 +1,5 @@
+import { InboxConfig, InboxServiceConfig } from '../../../../lib/src';
+
 interface Env {
   [key: string]: string | undefined;
 }
@@ -103,3 +105,42 @@ export const getConfig = (env: Env = process.env) => {
 
 /** The configuration object type with parsed environment variables. */
 export type Config = ReturnType<typeof getConfig>;
+
+export const getInboxConfig = (config: Config): InboxConfig => {
+  return {
+    pgConfig: {
+      host: config.postgresHost,
+      port: config.postgresPort,
+      user: config.postgresLoginRole,
+      password: config.postgresLoginRolePassword,
+      database: config.postgresDatabase,
+    },
+    settings: {
+      inboxSchema: config.postgresInboxSchema,
+    },
+  };
+};
+
+export const getInboxServiceConfig = (config: Config): InboxServiceConfig => {
+  return {
+    pgConfig: {
+      host: config.postgresHost,
+      port: config.postgresPort,
+      user: config.postgresLoginRole,
+      password: config.postgresLoginRolePassword,
+      database: config.postgresDatabase,
+    },
+    pgReplicationConfig: {
+      host: config.postgresHost,
+      port: config.postgresPort,
+      user: config.postgresInboxRole,
+      password: config.postgresInboxRolePassword,
+      database: config.postgresDatabase,
+    },
+    settings: {
+      inboxSchema: config.postgresInboxSchema,
+      postgresInboxPub: config.postgresInboxPub,
+      postgresInboxSlot: config.postgresInboxSlot,
+    },
+  };
+};

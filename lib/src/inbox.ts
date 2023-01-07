@@ -1,23 +1,27 @@
-import { Pool, PoolClient } from 'pg';
-import { Config } from './config';
-import { ReceivedMessage } from './rabbitmq-handler';
+import { ClientConfig, Pool, PoolClient } from 'pg';
 import { executeTransaction } from './utils';
 import { logger } from './logger';
+import { OutboxMessage } from './outbox';
 
 /** The inbox message for storing it to the DB and receiving it back from the WAL */
-export interface InboxMessage {
-  id: string;
-  aggregateType: string;
-  aggregateId: string;
-  eventType: string;
-  payload: unknown;
-  createdAt: string;
+export interface InboxMessage extends OutboxMessage {
   retries: number;
 }
 
-/**
- * An inbox related error. The code contains the reason on which issue ocurred.
- */
+/** The inbox configuration */
+export interface InboxConfig {
+  /**
+   * The "pg" library based settings to initialize the PostgreSQL pool for the
+   * message handler (with insert permission to the inbox).
+   */
+  pgConfig: ClientConfig;
+  /** Inbox specific configurations */
+  settings: {
+    inboxSchema: string;
+  };
+}
+
+/** An inbox related error. The code contains the reason on which issue ocurred. */
 export class InboxError extends Error {
   code: InboxErrorType;
 
@@ -34,22 +38,22 @@ type InboxErrorType =
   | 'STORE_INBOX_MESSAGE_FAILED';
 
 const insertInbox = async (
-  message: ReceivedMessage,
+  message: OutboxMessage,
   dbClient: PoolClient,
-  { postgresInboxSchema }: Config,
+  { settings }: InboxConfig,
 ) => {
   const { id, aggregateType, aggregateId, eventType, payload, createdAt } =
     message;
   const inboxResult = await dbClient.query(
     /*sql*/ `
-    INSERT INTO ${postgresInboxSchema}.inbox
+    INSERT INTO ${settings.inboxSchema}.inbox
       (id, aggregate_type, aggregate_id, event_type, payload, created_at)
       VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT (id) DO NOTHING`,
     [id, aggregateType, aggregateId, eventType, payload, createdAt],
   );
   if (inboxResult.rowCount < 1) {
-    logger.warn(message, 'The message already existed');
+    logger().warn(message, 'The message already existed');
   }
 };
 
@@ -59,17 +63,11 @@ const insertInbox = async (
  * @returns The function to store the inbox message data to the database.
  */
 export const initializeInboxMessageStorage = async (
-  config: Config,
-): Promise<{ (message: ReceivedMessage): Promise<void> }> => {
-  const pool = new Pool({
-    host: config.postgresHost,
-    port: config.postgresPort,
-    user: config.postgresLoginRole,
-    password: config.postgresLoginRolePassword,
-    database: config.postgresDatabase,
-  });
+  config: InboxConfig,
+): Promise<{ (message: OutboxMessage): Promise<void> }> => {
+  const pool = new Pool(config.pgConfig);
   pool.on('error', (err) => {
-    logger.error(err, 'PostgreSQL pool error');
+    logger().error(err, 'PostgreSQL pool error');
   });
 
   /**
@@ -77,13 +75,13 @@ export const initializeInboxMessageStorage = async (
    * @param message The received message that should be stored as inbox message
    * @throws InboxError if the inbox message could not be stored
    */
-  return async (message: ReceivedMessage): Promise<void> => {
+  return async (message: OutboxMessage): Promise<void> => {
     try {
       await executeTransaction(pool, async (client) => {
         await insertInbox(message, client, config);
       });
     } catch (err) {
-      logger.error({ ...message, err }, 'Could not store the inbox message');
+      logger().error({ ...message, err }, 'Could not store the inbox message');
       throw new InboxError(
         `Could not store the inbox message with id ${message.id}`,
         'STORE_INBOX_MESSAGE_FAILED',
@@ -98,18 +96,18 @@ export const initializeInboxMessageStorage = async (
  * handler code there is a small chance that the handler code succeeds but the
  * WAL inbox message was not acknowledged. This takes care of such cases.
  * @param message The inbox message to check and later process.
- * @param client The database client must be part of the transaction where the business relevant data changes are done as well.
- * @param config The configuration file to pick the inbox database schema from.
+ * @param client The database client. Must be part of the transaction where the message handling changes are done.
+ * @param config The configuration settings that defines inbox database schema.
  * @throws Throws an error if the database row does not exist, is locked by some other transaction, or was already processed.
  */
 export const verifyInbox = async (
   { id }: InboxMessage,
   client: PoolClient,
-  config: Pick<Config, 'postgresInboxSchema'>,
+  { settings }: InboxConfig,
 ): Promise<void> => {
   // Get the inbox data and lock it for updates. Use NOWAIT to immediately fail if another process is locking it.
   const inboxResult = await client.query(
-    /*sql*/ `SELECT processed_at FROM ${config.postgresInboxSchema}.inbox WHERE id = $1 FOR UPDATE NOWAIT`,
+    /*sql*/ `SELECT processed_at FROM ${settings.inboxSchema}.inbox WHERE id = $1 FOR UPDATE NOWAIT`,
     [id],
   );
   if (inboxResult.rowCount === 0) {
@@ -129,47 +127,48 @@ export const verifyInbox = async (
 /**
  * Acknowledge that the inbox message was handled.
  * @param message The inbox message to acknowledge.
- * @param client The database client must be part of the transaction where the business relevant data changes are done as well.
- * @param config The configuration file to pick the inbox database schema from.
+ * @param client The database client. Must be part of the transaction where the message handling changes are done.
+ * @param config The configuration settings that defines inbox database schema.
  */
 export const ackInbox = async (
   { id }: InboxMessage,
   client: PoolClient,
-  config: Pick<Config, 'postgresInboxSchema'>,
+  { settings }: InboxConfig,
 ): Promise<void> => {
   await client.query(
-    /*sql*/ `UPDATE ${config.postgresInboxSchema}.inbox SET processed_at = $1 WHERE id = $2`,
+    /*sql*/ `UPDATE ${settings.inboxSchema}.inbox SET processed_at = $1 WHERE id = $2`,
     [new Date().toISOString(), id],
   );
 };
 
 /**
  * Reject the message and do not acknowledge it. Check the return value if the
- * WAL message should be acknowledged or not.
+ * WAL message should be acknowledged or not as the logic uses retries.
  * @param message The inbox message to NOT acknowledge.
- * @param client The database client must be part of the transaction where the business relevant data changes are done as well.
- * @param config The configuration file to pick the inbox database schema from.
+ * @param client The database client. Must be part of the transaction where the message handling changes are done.
+ * @param config The configuration settings that defines inbox database schema.
+ * @param maxRetries Retry a message up to max retries.
  * @returns "RETRY" if the maximum number of retries was not reached - otherwise "RETRIES_EXCEEDED"
  */
 export const nackInbox = async (
-  message: InboxMessage,
+  { id }: InboxMessage,
   client: PoolClient,
-  config: Pick<Config, 'postgresInboxSchema'>,
+  { settings }: InboxConfig,
   maxRetries = 5,
 ): Promise<'RETRY' | 'RETRIES_EXCEEDED'> => {
   const response = await client.query(
     /*sql*/ `
-    UPDATE ${config.postgresInboxSchema}.inbox SET retries = retries + 1 WHERE id = $1
+    UPDATE ${settings.inboxSchema}.inbox SET retries = retries + 1 WHERE id = $1
     RETURNING retries;
     `,
-    [message.id],
+    [id],
   );
   if (response.rowCount > 0 && response.rows[0].retries < maxRetries) {
-    logger.warn(message, 'Increased the retry counter on the inbox message.');
+    logger().warn(id, 'Increased the retry counter on the inbox message.');
     return 'RETRY';
   } else {
-    logger.error(
-      message,
+    logger().error(
+      id,
       `Retries for the inbox message exceeded the maximum number of ${maxRetries} retries`,
     );
     return 'RETRIES_EXCEEDED';

@@ -1,7 +1,6 @@
-import { Config } from './config';
 import { Pool, PoolClient } from 'pg';
-import { outboxMessageStore } from './outbox';
-import { executeTransaction } from './utils';
+import { outboxMessageStore, executeTransaction } from '../../../../lib/src';
+import { Config, getOutboxConfig } from './config';
 import { logger } from './logger';
 
 export const MovieAggregateType = 'movie';
@@ -45,7 +44,7 @@ export const addMovies = async (config: Config): Promise<void> => {
   const storeOutboxMessage = outboxMessageStore(
     MovieAggregateType,
     MovieCreatedEventType,
-    config,
+    getOutboxConfig(config),
   );
 
   setInterval(async () => {

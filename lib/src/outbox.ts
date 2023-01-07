@@ -1,6 +1,5 @@
 import { v4 as uuid } from 'uuid';
-import { ClientBase } from 'pg';
-import { Config } from './config';
+import { ClientBase, ClientConfig } from 'pg';
 
 /** The outbox message for storing it to the DB and receiving it back from the WAL */
 export interface OutboxMessage {
@@ -10,6 +9,12 @@ export interface OutboxMessage {
   eventType: string;
   payload: unknown;
   createdAt: string;
+}
+
+/** The outbox configuration */
+export interface OutboxConfig {
+  /** The database schema of the outbox table */
+  outboxSchema: string;
 }
 
 /**
@@ -23,7 +28,7 @@ export interface OutboxMessage {
 export const outboxMessageStore = (
   aggregateType: string,
   eventType: string,
-  { postgresOutboxSchema }: Pick<Config, 'postgresOutboxSchema'>,
+  { outboxSchema }: OutboxConfig,
 ) => {
   /**
    * Function to store the outbox message data to the database.
@@ -41,7 +46,7 @@ export const outboxMessageStore = (
     const outboxId = uuid();
     const outboxResult = await dbClient.query(
       /*sql*/ `
-      INSERT INTO ${postgresOutboxSchema}.outbox
+      INSERT INTO ${outboxSchema}.outbox
         (id, aggregate_type, aggregate_id, event_type, payload)
         VALUES ($1, $2, $3, $4, $5)
       RETURNING id, created_at;`,
@@ -53,7 +58,7 @@ export const outboxMessageStore = (
     // Immediately delete the outbox entry - it was already written to the WAL
     await dbClient.query(
       /*sql*/ `
-      DELETE FROM ${postgresOutboxSchema}.outbox WHERE id = $1;`,
+      DELETE FROM ${outboxSchema}.outbox WHERE id = $1;`,
       [outboxId],
     );
     return {

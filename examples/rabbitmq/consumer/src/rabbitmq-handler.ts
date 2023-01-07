@@ -1,7 +1,7 @@
 import { BrokerAsPromised } from 'rascal';
+import { ensureError } from '../../../../lib/src/utils';
 import { Config } from './config';
 import { getMessagingConfig } from './rabbitmq-config';
-import { ensureError } from './utils';
 import { logger } from './logger';
 
 /** The received message as it was sent by the producer */

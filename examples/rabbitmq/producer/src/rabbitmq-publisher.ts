@@ -1,8 +1,8 @@
 import { BrokerAsPromised } from 'rascal';
+import { OutboxMessage } from '../../../../lib/src';
 import { Config } from './config';
-import { OutboxMessage } from './outbox';
-import { getMessagingConfig } from './rabbitmq-config';
 import { logger } from './logger';
+import { getMessagingConfig } from './rabbitmq-config';
 
 /**
  * Initialize the message publisher and receive a function to publish messages.

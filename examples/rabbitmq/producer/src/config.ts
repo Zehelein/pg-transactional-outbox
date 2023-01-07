@@ -1,3 +1,5 @@
+import { OutboxConfig, OutboxServiceConfig } from '../../../../lib/src';
+
 interface Env {
   [key: string]: string | undefined;
 }
@@ -103,3 +105,26 @@ export const getConfig = (env: Env = process.env) => {
 
 /** The configuration object type with parsed environment variables. */
 export type Config = ReturnType<typeof getConfig>;
+
+export const getOutboxConfig = (config: Config): OutboxConfig => {
+  return {
+    outboxSchema: config.postgresOutboxSchema,
+  };
+};
+
+export const getOutboxServiceConfig = (config: Config): OutboxServiceConfig => {
+  return {
+    pgReplicationConfig: {
+      host: config.postgresHost,
+      port: config.postgresPort,
+      user: config.postgresOutboxRole,
+      password: config.postgresOutboxRolePassword,
+      database: config.postgresDatabase,
+    },
+    settings: {
+      outboxSchema: config.postgresOutboxSchema,
+      postgresOutboxPub: config.postgresOutboxPub,
+      postgresOutboxSlot: config.postgresOutboxSlot,
+    },
+  };
+};

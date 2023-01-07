@@ -49,7 +49,7 @@ const getClient = async (pool: Pool) => {
   // The pool can return a new or an old client - we must register the event listener but should do so only once
   if (!client.listeners('error').length) {
     client.on('error', (err) => {
-      logger.error(err, 'PostgreSQL client error');
+      logger().error(err, 'PostgreSQL client error');
     });
   }
   return client;
