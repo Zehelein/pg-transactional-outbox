@@ -1,0 +1,60 @@
+# Library
+
+The `pg-transactional-outbox` library contains the functionality to apply the
+transactional outbox pattern for message senders. And the transactional inbox
+pattern for message receivers.
+
+The core functions of the library are the following:
+
+## Outbox
+
+The `initializeOutboxMessageStore` function is a generator function to store
+outbox messages for a specific aggregate type (e.g. a movie or an order) and a
+corresponding event type (e.g. movie_created or order_cancelled). The generated
+function can then be used to store a message in the outbox table. Each outbox
+item consists of the mentioned aggregate type and event type. And it includes
+the aggregate unique identifier (e.g. the movie or order ID), a unique message
+identifier (e.g. a UUID), and the message payload. The payload contains the
+actual data that should be made available to the message consumers.
+
+This function must be used as part of a PostgreSQL transaction together with the
+data mutations that were the reason for sending this message.
+
+The outbox service that gets notified when new inbox rows are created is
+initialized via the `initializeOutboxService` function. The configuration input
+parameter includes the connection details to the PostgreSQL database with the
+role that has the "replication" permission. The other parameters define the
+database schema name where the outbox table is located, the name of the used
+PostgreSQL replication, and the name of the used PostgreSQL logical replication
+slot. The second parameter is the callback function which is executed whenever a
+new outbox message arrived. The implementation of this functionality must
+provide the logic to send the message via e.g. RabbitMQ or Kafka.
+
+## Inbox
+
+The counterpart to the outbox message store is the
+`initializeInboxMessageStorage` function that is used by the actual message
+receiver like a RabbitMQ-based message handler to store the incoming message
+(which was based on an outbox message) in the inbox table. The database role for
+this connection needs insert permissions to the inbox table.
+
+The other central function is `initializeInboxService`. It takes a configuration
+object with one database connection (`pgReplicationConfig`) based on a user with
+the replication permission to receive notifications when a new inbox message was
+created. And a second database connection (`pgConfig`) to open a datase
+transaction to process the inbox message and the message handler data changes.
+The configuration includes also the database schema name where the inbox table
+is located, the name of the used PostgreSQL replication, and the name of the
+used PostgreSQL logical replication slot.
+
+## General
+
+The library includes error logging and some trace/warning logs. By default it
+uses a `pino` logger instance. You can use the `setLogger` interface to provide
+your own `pino` logger instance or another logger that satisfies the pino
+`BaseLogger` interface.
+
+The `executeTransaction` functionality could be helpful when implementing the
+consumer to store both the outbox message and other data as part of the same
+transaction. It takes care to commit and rollback the transaction and release
+the client back to the pool.

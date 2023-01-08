@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid';
-import { ClientBase, ClientConfig } from 'pg';
+import { ClientBase } from 'pg';
 
 /** The outbox message for storing it to the DB and receiving it back from the WAL */
 export interface OutboxMessage {
@@ -25,7 +25,7 @@ export interface OutboxConfig {
  * @param config The configuration object that defines the outbox table schema.
  * @returns The function to store the outbox message data to the database.
  */
-export const outboxMessageStore = (
+export const initializeOutboxMessageStore = (
   aggregateType: string,
   eventType: string,
   { outboxSchema }: OutboxConfig,

@@ -43,9 +43,11 @@ export const initializeRabbitMqHandler = async (
         ) {
           try {
             await storeInboxMessage(content);
+            ackOrNack();
             logger.trace(content, 'Added the incoming message to the inbox');
           } catch (error) {
             const err = ensureError(error);
+            ackOrNack(err);
             logger.error(
               {
                 ...content,
@@ -53,15 +55,14 @@ export const initializeRabbitMqHandler = async (
               },
               'Could not save the incoming message to the inbox',
             );
-            ackOrNack(err);
           }
         } else {
           logger.warn(
             content,
             'Received a message that was not a message with the required "ReceivedMessage" fields - skipping it',
           );
+          ackOrNack();
         }
-        ackOrNack();
       })
       .on('error', logger.error.bind(logger));
   });
