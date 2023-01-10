@@ -1,3 +1,4 @@
+import { ClientBase, ClientConfig, Pool } from 'pg';
 import {
   LogicalReplicationService,
   PgoutputPlugin,
@@ -11,7 +12,6 @@ import {
   nackInbox,
 } from './inbox';
 import { logger } from './logger';
-import { ClientBase, ClientConfig, Pool } from 'pg';
 import { ensureError, executeTransaction } from './utils';
 
 /** The inbox service configuration */
@@ -42,12 +42,6 @@ const createPgPool = (config: InboxServiceConfig) => {
     logger().error(err, 'PostgreSQL pool error');
   });
   return pool;
-};
-
-const initializeReplicationService = (config: InboxServiceConfig) => {
-  return new LogicalReplicationService(config.pgReplicationConfig, {
-    acknowledge: { auto: false, timeoutSeconds: 0 },
-  });
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -107,14 +101,14 @@ const resolveMessageHandlingError = async (
       (error.code === 'ALREADY_PROCESSED' ||
         error.code === 'INBOX_MESSAGE_NOT_FOUND')
     ) {
-      service.acknowledge(lsn);
+      await service.acknowledge(lsn);
       logger().error({ ...message, err: error }, error.message);
     } else {
       await executeTransaction(pool, async (client) => {
         logger().error({ ...message, err: error }, 'Message handling failed.');
         const action = await nackInbox(message, client, config);
         if (action === 'RETRIES_EXCEEDED') {
-          service.acknowledge(lsn);
+          await service.acknowledge(lsn);
         }
       });
     }
@@ -127,12 +121,14 @@ const resolveMessageHandlingError = async (
 };
 
 const createService = (
+  pool: Pool,
   config: InboxServiceConfig,
   messageHandlers: InboxMessageHandler[],
   errorListener: (err: Error) => Promise<void>,
 ) => {
-  const pool = createPgPool(config);
-  const service = initializeReplicationService(config);
+  const service = new LogicalReplicationService(config.pgReplicationConfig, {
+    acknowledge: { auto: false, timeoutSeconds: 0 },
+  });
   service.on('data', async (lsn: string, log: Pgoutput.Message) => {
     if (
       log.tag === 'insert' &&
@@ -146,7 +142,7 @@ const createService = (
         // the message in the inbox table as processed, but the WAL message
         // acknowledging fails. The "verifyInbox" guards against this issue.
         await handleMessage(message, messageHandlers, pool, config);
-        service.acknowledge(lsn);
+        await service.acknowledge(lsn);
       } catch (error) {
         await resolveMessageHandlingError(
           ensureError(error),
@@ -162,6 +158,26 @@ const createService = (
   service.on('error', errorListener);
   return service;
 };
+
+/** Wait up to 10 seconds until the service started up  */
+async function waitForServiceStart(flags: { started: boolean }) {
+  const timeout = Date.now() + 10000; // 10 secs
+  await new Promise((resolve, reject) => {
+    (function waitForStarted() {
+      if (flags.started) {
+        return resolve(true);
+      }
+      if (Date.now() > timeout) {
+        reject(
+          new Error(
+            'Timeout: the inbox service did not start in a reasonable time.',
+          ),
+        );
+      }
+      setTimeout(waitForStarted, 30);
+    })();
+  });
+}
 
 /**
  * Message handler for a specific aggregate type and event type.
@@ -184,23 +200,28 @@ export interface InboxMessageHandler {
  * Initialize the service to watch for inbox table inserts.
  * @param config The configuration object with required values to connect to the WAL.
  * @param messageHandlers A list of message handlers to handle the inbox messages. I
- * @returns Functions to help testing "outages" of the inbox service
+ * @returns Functions for a clean shutdown and to help testing "outages" of the inbox service
  */
-export const initializeInboxService = (
+export const initializeInboxService = async (
   config: InboxServiceConfig,
   messageHandlers: InboxMessageHandler[],
-): {
-  stop: { (): Promise<void> };
-  startIfStopped: { (): void };
-} => {
+): Promise<{
+  shutdown: { (): Promise<void> };
+}> => {
   const errorListener = async (err: Error) => {
     logger().error(err);
     // Stop the current instance and create a new instance e.g. if the DB connection failed
     await service.stop();
-    service = createService(config, messageHandlers, errorListener);
+    service = createService(pool, config, messageHandlers, errorListener);
   };
 
-  let service = createService(config, messageHandlers, errorListener);
+  const pool = createPgPool(config);
+  let service = createService(pool, config, messageHandlers, errorListener);
+  // Waiting for the service to start - otherwise a shutdown can conflict with the ongoing initialization
+  const flags = { started: false, wasShutDown: false };
+  service.on('start', () => {
+    flags.started = true;
+  });
   const plugin = new PgoutputPlugin({
     protoVersion: 1,
     publicationNames: [config.settings.postgresInboxPub],
@@ -212,20 +233,22 @@ export const initializeInboxService = (
       .subscribe(plugin, config.settings.postgresInboxSlot)
       // Log any error and restart the replication after a small timeout
       // The service will catch up with any events in the WAL once it restarts.
-      .catch(logger().error.bind(logger))
+      .catch((e) => logger().error(e))
       .then(() => {
-        setTimeout(subscribeToInboxMessages, 500);
+        if (!flags.wasShutDown) {
+          setTimeout(subscribeToInboxMessages, 300);
+        }
       });
   };
   subscribeToInboxMessages();
+  await waitForServiceStart(flags);
   return {
-    stop: async () => {
-      await service.stop();
-    },
-    startIfStopped: () => {
-      if (service.isStop()) {
-        subscribeToInboxMessages();
-      }
+    shutdown: async () => {
+      flags.wasShutDown = true;
+      pool.removeAllListeners();
+      pool.end().catch((e) => logger().error(e));
+      service.removeAllListeners();
+      service.stop().catch((e) => logger().error(e));
     },
   };
 };

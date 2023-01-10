@@ -17,4 +17,4 @@ export {
 } from './inbox';
 
 export { logger, setLogger } from './logger';
-export { executeTransaction } from './utils';
+export { executeTransaction, ensureError } from './utils';

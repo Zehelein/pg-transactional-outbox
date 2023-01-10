@@ -1,5 +1,5 @@
 import { ClientBase } from 'pg';
-import { InboxMessage } from '../../../../lib/src';
+import { InboxMessage } from 'pg-transactional-outbox';
 import { logger } from './logger';
 
 export const MovieAggregateType = 'movie';

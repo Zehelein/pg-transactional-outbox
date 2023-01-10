@@ -2,7 +2,7 @@ import { Pool, PoolClient } from 'pg';
 import {
   initializeOutboxMessageStore,
   executeTransaction,
-} from '../../../../lib/src';
+} from 'pg-transactional-outbox';
 import { Config, getOutboxConfig } from './config';
 import { logger } from './logger';
 

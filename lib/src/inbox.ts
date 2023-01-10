@@ -64,7 +64,10 @@ const insertInbox = async (
  */
 export const initializeInboxMessageStorage = async (
   config: InboxConfig,
-): Promise<{ (message: OutboxMessage): Promise<void> }> => {
+): Promise<{
+  storeInboxMessage: (message: OutboxMessage) => Promise<void>;
+  shutdown: () => Promise<void>;
+}> => {
   const pool = new Pool(config.pgConfig);
   pool.on('error', (err) => {
     logger().error(err, 'PostgreSQL pool error');
@@ -75,18 +78,27 @@ export const initializeInboxMessageStorage = async (
    * @param message The received message that should be stored as inbox message
    * @throws InboxError if the inbox message could not be stored
    */
-  return async (message: OutboxMessage): Promise<void> => {
-    try {
-      await executeTransaction(pool, async (client) => {
-        await insertInbox(message, client, config);
-      });
-    } catch (err) {
-      logger().error({ ...message, err }, 'Could not store the inbox message');
-      throw new InboxError(
-        `Could not store the inbox message with id ${message.id}`,
-        'STORE_INBOX_MESSAGE_FAILED',
-      );
-    }
+  return {
+    storeInboxMessage: async (message: OutboxMessage): Promise<void> => {
+      try {
+        await executeTransaction(pool, async (client) => {
+          await insertInbox(message, client, config);
+        });
+      } catch (err) {
+        logger().error(
+          { ...message, err },
+          'Could not store the inbox message',
+        );
+        throw new InboxError(
+          `Could not store the inbox message with id ${message.id}`,
+          'STORE_INBOX_MESSAGE_FAILED',
+        );
+      }
+    },
+    shutdown: async () => {
+      pool.removeAllListeners();
+      await pool.end();
+    },
   };
 };
 

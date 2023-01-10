@@ -4,6 +4,7 @@
   "main": "./dist/index.js",
   "license": "MIT",
   "scripts": {
+    "lib": "yarn workspace pg-transactional-outbox",
     "lint": "eslint \"**/src/**/*.{ts,tsx}\"",
     "infra:up": "cd infra && docker compose -f docker-compose.yml up -d",
     "infra:down": "cd infra && docker compose -f docker-compose.yml down"
@@ -11,7 +12,8 @@
   "private": true,
   "workspaces": [
     "lib",
-    "examples/rabbitmq/*"
+    "examples/rabbitmq/*",
+    "__tests__"
   ],
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^5.0.0",

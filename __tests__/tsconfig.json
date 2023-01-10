@@ -1,9 +1,9 @@
 {
-  "extends": "../../../tsconfig.json",
+  "extends": "../tsconfig.json",
   "compilerOptions": {
     "outDir": "./dist"
   },
   "exclude": ["node_modules", "dist"],
   "include": ["src/**/*"],
-  "references": [{ "path": "../../../lib" }]
+  "references": [{ "path": "../lib" }]
 }

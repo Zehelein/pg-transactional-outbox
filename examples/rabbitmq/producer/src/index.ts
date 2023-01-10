@@ -1,7 +1,7 @@
 import path from 'path';
 import * as dotenv from 'dotenv';
 dotenv.config({ path: path.join(__dirname, '../.env') });
-import { initializeOutboxService, setLogger } from '../../../../lib/src';
+import { initializeOutboxService, setLogger } from 'pg-transactional-outbox';
 import { addMovies } from './add-movies';
 import { getConfig, getOutboxServiceConfig } from './config';
 import { logger } from './logger';
@@ -24,7 +24,7 @@ process.on('unhandledRejection', (reason, promise) => {
   const rmqPublisher = await initializeRabbitMqPublisher(config);
 
   // Initialize and start the outbox subscription
-  const outboxService = initializeOutboxService(
+  const { stop, startIfStopped } = await initializeOutboxService(
     getOutboxServiceConfig(config),
     rmqPublisher,
   );
@@ -33,5 +33,5 @@ process.on('unhandledRejection', (reason, promise) => {
   await addMovies(config);
 
   // Test behavior with some service outages
-  resilienceTest(outboxService.stop, outboxService.startIfStopped);
+  resilienceTest(stop, startIfStopped);
 })();

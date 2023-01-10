@@ -4,5 +4,6 @@
     "outDir": "./dist"
   },
   "exclude": ["node_modules", "dist"],
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "references": [{ "path": "../../../lib" }]
 }

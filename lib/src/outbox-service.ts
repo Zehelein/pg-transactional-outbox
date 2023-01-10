@@ -1,3 +1,4 @@
+import { ClientConfig } from 'pg';
 import {
   LogicalReplicationService,
   PgoutputPlugin,
@@ -5,7 +6,6 @@ import {
 } from 'pg-logical-replication';
 import { OutboxMessage } from './outbox';
 import { logger } from './logger';
-import { ClientConfig } from 'pg';
 
 /** The outbox service configuration */
 export interface OutboxServiceConfig {
@@ -51,7 +51,7 @@ const createService = (
       logger().trace(om, 'Received an outbox WAL message');
       try {
         await callback(om);
-        service.acknowledge(lsn);
+        await service.acknowledge(lsn);
       } catch (err) {
         // Do not acknowledge the outbox message in case of a message sending error
         logger().error({ ...om, err }, 'Could not send the message');
@@ -62,19 +62,40 @@ const createService = (
   return service;
 };
 
+/** Wait up to 10 seconds until the service started up  */
+async function waitForServiceStart(flags: { started: boolean }) {
+  const timeout = Date.now() + 10000; // 10 secs
+  await new Promise((resolve, reject) => {
+    (function waitForStarted() {
+      if (flags.started) {
+        return resolve(true);
+      }
+      if (Date.now() > timeout) {
+        reject(
+          new Error(
+            'Timeout: the outbox service did not start in a reasonable time.',
+          ),
+        );
+      }
+      setTimeout(waitForStarted, 30);
+    })();
+  });
+}
+
 /**
  * Initialize the service to watch for outbox table inserts via logical replication.
  * @param config The configuration object with required values to connect to the WAL.
  * @param callback The callback is called to actually send the message through a message bus or other means.
- * @returns Functions to help testing "outages" of the outbox service
+ * @returns Functions for a clean shutdown and to help testing "outages" of the outbox service
  */
-export const initializeOutboxService = (
+export const initializeOutboxService = async (
   config: OutboxServiceConfig,
   callback: (message: OutboxMessage) => Promise<void>,
-): {
+): Promise<{
   stop: { (): Promise<void> };
-  startIfStopped: { (): void };
-} => {
+  startIfStopped: { (): Promise<void> };
+  shutdown: { (): Promise<void> };
+}> => {
   const errorListener = async (err: Error) => {
     logger().error(err);
     // Stop the current instance and create a new instance e.g. if the DB connection failed
@@ -83,6 +104,11 @@ export const initializeOutboxService = (
   };
 
   let service = createService(config, callback, errorListener);
+  // Waiting for the service to start - otherwise a shutdown can conflict with the ongoing initialization
+  const flags = { started: false, wasShutDown: false };
+  service.on('start', () => {
+    flags.started = true;
+  });
   const plugin = new PgoutputPlugin({
     protoVersion: 1,
     publicationNames: [config.settings.postgresOutboxPub],
@@ -94,20 +120,28 @@ export const initializeOutboxService = (
       .subscribe(plugin, config.settings.postgresOutboxSlot)
       // Log any error and restart the replication after a small timeout
       // The service will catch up with any events in the WAL once it restarts.
-      .catch(logger().error.bind(logger))
+      .catch((e) => logger().error(e))
       .then(() => {
-        setTimeout(subscribeToOutboxMessages, 100);
+        if (!flags.wasShutDown) {
+          setTimeout(subscribeToOutboxMessages, 300);
+        }
       });
   };
   subscribeToOutboxMessages();
+  await waitForServiceStart(flags);
   return {
     stop: async () => {
       await service.stop();
     },
-    startIfStopped: () => {
+    startIfStopped: async () => {
       if (service.isStop()) {
         subscribeToOutboxMessages();
       }
+    },
+    shutdown: async () => {
+      flags.wasShutDown = true;
+      service.removeAllListeners();
+      service.stop().catch((e) => logger().error(e));
     },
   };
 };

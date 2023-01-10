@@ -1,5 +1,5 @@
 import { BrokerAsPromised } from 'rascal';
-import { ensureError } from '../../../../lib/src/utils';
+import { ensureError } from 'pg-transactional-outbox';
 import { Config } from './config';
 import { getMessagingConfig } from './rabbitmq-config';
 import { logger } from './logger';
@@ -64,6 +64,6 @@ export const initializeRabbitMqHandler = async (
           ackOrNack();
         }
       })
-      .on('error', logger.error.bind(logger));
+      .on('error', (e) => logger.error(e));
   });
 };

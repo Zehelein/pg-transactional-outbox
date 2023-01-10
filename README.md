@@ -345,7 +345,7 @@ import {
   initializeInboxMessageStorage,
   initializeInboxService,
   OutboxMessage,
-} from '../../../../lib/src';
+} from 'pg-transactional-outbox';
 import { fork } from 'child_process';
 import { ClientBase } from 'pg';
 
@@ -432,3 +432,17 @@ import { ClientBase } from 'pg';
   );
 })();
 ```
+
+## Testing
+
+The `__tests__` folder contains integration test which test the functionality of
+the outbox and inbox service implementation.
+
+It assumes that you already created the infrastructure (see the "Database
+server" section). If you made any customizations please be sure to adjust the
+configurations in `__tests__/src/test-utils/default-configs.ts`.
+
+Before you can run the tests please execute the `setup:db` script to initialize
+the database, replication roles, tables, etc.
+
+After this is done you can run the `test` script to execute the tests.

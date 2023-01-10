@@ -1,4 +1,4 @@
-import { InboxConfig, InboxServiceConfig } from '../../../../lib/src';
+import { InboxConfig, InboxServiceConfig } from 'pg-transactional-outbox';
 
 interface Env {
   [key: string]: string | undefined;

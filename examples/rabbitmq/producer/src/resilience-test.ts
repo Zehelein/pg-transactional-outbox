@@ -2,7 +2,7 @@ import { logger } from './logger';
 
 export const resilienceTest = (
   stopOutboxService: () => Promise<void>,
-  startOutboxServiceIfStopped: () => void,
+  startOutboxServiceIfStopped: () => Promise<void>,
 ): void => {
   setInterval(async () => {
     if (Math.random() > 0.9) {
@@ -15,7 +15,7 @@ export const resilienceTest = (
       logger.warn(
         'Restart the subscription if it was stopped. It will now catch up with the outbox messages from the WAL.',
       );
-      startOutboxServiceIfStopped();
+      await startOutboxServiceIfStopped();
     }
   }, 750);
 };

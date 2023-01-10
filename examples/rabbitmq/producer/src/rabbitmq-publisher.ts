@@ -1,5 +1,5 @@
 import { BrokerAsPromised } from 'rascal';
-import { OutboxMessage } from '../../../../lib/src';
+import { OutboxMessage } from 'pg-transactional-outbox';
 import { Config } from './config';
 import { logger } from './logger';
 import { getMessagingConfig } from './rabbitmq-config';

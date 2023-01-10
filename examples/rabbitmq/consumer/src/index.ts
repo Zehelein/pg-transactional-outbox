@@ -5,7 +5,7 @@ import {
   initializeInboxMessageStorage,
   initializeInboxService,
   setLogger,
-} from '../../../../lib/src';
+} from 'pg-transactional-outbox';
 import { getConfig, getInboxConfig, getInboxServiceConfig } from './config';
 import { logger } from './logger';
 import { initializeRabbitMqHandler } from './rabbitmq-handler';
@@ -28,7 +28,7 @@ process.on('unhandledRejection', (err, promise) => {
   const config = getConfig();
 
   // Initialize the inbox message storage to store incoming messages in the inbox
-  const storeInboxMessage = await initializeInboxMessageStorage(
+  const { storeInboxMessage } = await initializeInboxMessageStorage(
     getInboxConfig(config),
   );
 
