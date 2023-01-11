@@ -38,7 +38,7 @@ process.on('unhandledRejection', (err, promise) => {
   ]);
 
   // Initialize and start the inbox subscription
-  initializeInboxService(getInboxServiceConfig(config), [
+  await initializeInboxService(getInboxServiceConfig(config), [
     {
       aggregateType: MovieAggregateType,
       eventType: MovieCreatedEventType,

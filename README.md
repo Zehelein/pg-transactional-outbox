@@ -266,7 +266,7 @@ import { Client } from 'pg';
   // Initialize and start the outbox subscription. This service receives all the
   // outbox table inserts from the WAL. It executes the messagePublisher function
   // with every received outbox message. It cares for the at least once delivery.
-  initializeOutboxService(
+  await initializeOutboxService(
     {
       pgReplicationConfig: {
         host: 'localhost',
@@ -373,7 +373,7 @@ import { ClientBase } from 'pg';
   });
 
   // Initialize and start the inbox subscription
-  initializeInboxService(
+  await initializeInboxService(
     {
       // This configuration is used to start a transaction that locks and updates
       // the row in the inbox table that was found from the WAL log. This connection
@@ -435,14 +435,8 @@ import { ClientBase } from 'pg';
 
 ## Testing
 
-The `__tests__` folder contains integration test which test the functionality of
-the outbox and inbox service implementation.
+The `__tests__` folder contains integration tests that test the functionality of
+the outbox and inbox service implementation. The tests are using the
+`testcontainers` library to start up a new docker PostgreSQL server.
 
-It assumes that you already created the infrastructure (see the "Database
-server" section). If you made any customizations please be sure to adjust the
-configurations in `__tests__/src/test-utils/default-configs.ts`.
-
-Before you can run the tests please execute the `setup:db` script to initialize
-the database, replication roles, tables, etc.
-
-After this is done you can run the `test` script to execute the tests.
+You can simply run the `test` script to execute the tests.
