@@ -5,6 +5,22 @@ import { logger } from './logger';
 export const MovieAggregateType = 'movie';
 export const MovieCreatedEventType = 'movie_created';
 
+/**
+ * Stores the published video in the database
+ * @param message The inbox message that contains the movie details
+ * @param client The database client
+ * @throws Error if the message does not contain a valid movie.
+ */
+export const storePublishedMovie = async (
+  message: InboxMessage,
+  client: ClientBase,
+): Promise<void> => {
+  const { payload } = message;
+  assertPublishedMovie(payload);
+  await insertPublishedMovie(payload, client);
+  logger.trace(payload, 'Inserted the published movie');
+};
+
 interface PublishedMovie {
   id: number;
   title: string;
@@ -36,20 +52,4 @@ const insertPublishedMovie = async (
       VALUES ($1, $2, $3)`,
     [id, title, description],
   );
-};
-
-/**
- * Stores the published video in the database
- * @param message The inbox message that contains the movie details
- * @param client The database client
- * @throws Error if the message does not contain a valid movie.
- */
-export const storePublishedMovie = async (
-  message: InboxMessage,
-  client: ClientBase,
-): Promise<void> => {
-  const { payload } = message;
-  assertPublishedMovie(payload);
-  await insertPublishedMovie(payload, client);
-  logger.trace(payload, 'Inserted the published movie');
 };

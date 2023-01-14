@@ -19,32 +19,6 @@ export class InboxError extends Error {
   }
 }
 
-type InboxErrorType =
-  | 'INBOX_MESSAGE_NOT_FOUND'
-  | 'ALREADY_PROCESSED'
-  | 'MESSAGE_HANDLING_ERROR'
-  | 'STORE_INBOX_MESSAGE_FAILED';
-
-const insertInbox = async (
-  message: OutboxMessage,
-  dbClient: PoolClient,
-  { settings }: Pick<InboxServiceConfig, 'settings'>,
-) => {
-  const { id, aggregateType, aggregateId, eventType, payload, createdAt } =
-    message;
-  const inboxResult = await dbClient.query(
-    /*sql*/ `
-    INSERT INTO ${settings.dbSchema}.${settings.dbTable}
-      (id, aggregate_type, aggregate_id, event_type, payload, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      ON CONFLICT (id) DO NOTHING`,
-    [id, aggregateType, aggregateId, eventType, payload, createdAt],
-  );
-  if (inboxResult.rowCount < 1) {
-    logger().warn(message, 'The message already existed');
-  }
-};
-
 /**
  * Initialize the inbox message storage to store incoming messages in the inbox table.
  * @param config The configuration object that defines the values on how to connect to the database.
@@ -172,5 +146,31 @@ export const nackInbox = async (
       `Retries for the inbox message exceeded the maximum number of ${maxRetries} retries`,
     );
     return 'RETRIES_EXCEEDED';
+  }
+};
+
+type InboxErrorType =
+  | 'INBOX_MESSAGE_NOT_FOUND'
+  | 'ALREADY_PROCESSED'
+  | 'MESSAGE_HANDLING_ERROR'
+  | 'STORE_INBOX_MESSAGE_FAILED';
+
+const insertInbox = async (
+  message: OutboxMessage,
+  dbClient: PoolClient,
+  { settings }: Pick<InboxServiceConfig, 'settings'>,
+) => {
+  const { id, aggregateType, aggregateId, eventType, payload, createdAt } =
+    message;
+  const inboxResult = await dbClient.query(
+    /*sql*/ `
+    INSERT INTO ${settings.dbSchema}.${settings.dbTable}
+      (id, aggregate_type, aggregate_id, event_type, payload, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (id) DO NOTHING`,
+    [id, aggregateType, aggregateId, eventType, payload, createdAt],
+  );
+  if (inboxResult.rowCount < 1) {
+    logger().warn(message, 'The message already existed');
   }
 };

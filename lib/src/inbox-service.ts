@@ -18,6 +18,53 @@ export interface InboxServiceConfig extends ServiceConfig {
   pgConfig: ClientConfig;
 }
 
+/**
+ * Message handler for a specific aggregate type and event type.
+ */
+export interface InboxMessageHandler {
+  /** The aggregate root type */
+  aggregateType: string;
+  /** The name of the event created for the aggregate type. */
+  eventType: string;
+  /**
+   * Custom business logic to handle a message that was stored in the inbox.
+   * @param message The inbox message with the payload to handle.
+   * @param client The database client that is part of a transaction to safely handle the inbox message.
+   * @throws If something failed and the inbox message should NOT be acknowledged - throw an error.
+   */
+  handle: (message: InboxMessage, client: ClientBase) => Promise<void>;
+}
+
+/**
+ * Initialize the service to watch for inbox table inserts.
+ * @param config The configuration object with required values to connect to the WAL.
+ * @param messageHandlers A list of message handlers to handle the inbox messages. I
+ * @returns Functions for a clean shutdown and to help testing "outages" of the inbox service
+ */
+export const initializeInboxService = async (
+  config: InboxServiceConfig,
+  messageHandlers: InboxMessageHandler[],
+): Promise<{
+  shutdown: { (): Promise<void> };
+}> => {
+  const pool = createPgPool(config);
+  const messageHandler = createMessageHandler(messageHandlers, pool, config);
+  const errorResolver = createErrorResolver(pool, config);
+  const { shutdown } = await createService(
+    config,
+    messageHandler,
+    errorResolver,
+    mapInboxRetries,
+  );
+  return {
+    shutdown: async () => {
+      pool.removeAllListeners();
+      pool.end().catch((e) => logger().error(e));
+      shutdown().catch((e) => logger().error(e));
+    },
+  };
+};
+
 const createPgPool = (config: InboxServiceConfig) => {
   const pool = new Pool(config.pgConfig);
   pool.on('error', (err) => {
@@ -93,57 +140,11 @@ const createErrorResolver = (pool: Pool, config: InboxServiceConfig) => {
     }
   };
 };
+
 /** The local replication service maps by default only the outbox properties */
 const mapInboxRetries = (input: object) => {
   if ('retries' in input && typeof input.retries === 'number') {
     return { retries: input.retries };
   }
   return {};
-};
-
-/**
- * Message handler for a specific aggregate type and event type.
- */
-export interface InboxMessageHandler {
-  /** The aggregate root type */
-  aggregateType: string;
-  /** The name of the event created for the aggregate type. */
-  eventType: string;
-  /**
-   * Custom business logic to handle a message that was stored in the inbox.
-   * @param message The inbox message with the payload to handle.
-   * @param client The database client that is part of a transaction to safely handle the inbox message.
-   * @throws If something failed and the inbox message should NOT be acknowledged - throw an error.
-   */
-  handle: (message: InboxMessage, client: ClientBase) => Promise<void>;
-}
-
-/**
- * Initialize the service to watch for inbox table inserts.
- * @param config The configuration object with required values to connect to the WAL.
- * @param messageHandlers A list of message handlers to handle the inbox messages. I
- * @returns Functions for a clean shutdown and to help testing "outages" of the inbox service
- */
-export const initializeInboxService = async (
-  config: InboxServiceConfig,
-  messageHandlers: InboxMessageHandler[],
-): Promise<{
-  shutdown: { (): Promise<void> };
-}> => {
-  const pool = createPgPool(config);
-  const messageHandler = createMessageHandler(messageHandlers, pool, config);
-  const errorResolver = createErrorResolver(pool, config);
-  const { shutdown } = await createService(
-    config,
-    messageHandler,
-    errorResolver,
-    mapInboxRetries,
-  );
-  return {
-    shutdown: async () => {
-      pool.removeAllListeners();
-      pool.end().catch((e) => logger().error(e));
-      shutdown().catch((e) => logger().error(e));
-    },
-  };
 };

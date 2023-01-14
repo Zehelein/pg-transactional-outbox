@@ -2,21 +2,6 @@ import { BrokerConfig, PublicationConfig } from 'rascal';
 import { MovieCreatedEventType, MovieAggregateType } from './add-movies';
 import { Config } from './config';
 
-/** Build a publication configuration - the event type is also used as the publish topic */
-const buildPublication = (
-  aggregateType: string,
-  eventType: string,
-): {
-  [key: string]: PublicationConfig;
-} => {
-  return {
-    [MovieCreatedEventType]: {
-      exchange: 'event',
-      routingKey: `producer.${aggregateType}.${eventType}`,
-    },
-  };
-};
-
 /**
  * Creates a rascal configuration on how to use and configure the RabbitMQ vhost
  * This is currently a "publish only" setup.
@@ -67,4 +52,19 @@ export const getMessagingConfig = (config: Config): BrokerConfig => {
     },
   };
   return cfg;
+};
+
+/** Build a publication configuration - the event type is also used as the publish topic */
+const buildPublication = (
+  aggregateType: string,
+  eventType: string,
+): {
+  [key: string]: PublicationConfig;
+} => {
+  return {
+    [MovieCreatedEventType]: {
+      exchange: 'event',
+      routingKey: `producer.${aggregateType}.${eventType}`,
+    },
+  };
 };

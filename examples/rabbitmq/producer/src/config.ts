@@ -1,35 +1,5 @@
 import { ServiceConfig } from 'pg-transactional-outbox';
 
-interface Env {
-  [key: string]: string | undefined;
-}
-
-function getEnvVariableString(
-  env: Env,
-  field: string,
-  defaultValue?: string,
-): string {
-  const value = env[field] ?? defaultValue;
-  if (typeof value !== 'string' || !value) {
-    throw new Error(
-      `The environment variable ${field} must be a non-empty string.`,
-    );
-  }
-  return value;
-}
-
-function getEnvVariableNumber(
-  env: Env,
-  field: string,
-  defaultValue?: number,
-): number {
-  const value = Number(getEnvVariableString(env, field, `${defaultValue}`));
-  if (Number.isNaN(value)) {
-    throw new Error(`The environment variable ${field} must be a number.`);
-  }
-  return value;
-}
-
 /**
  * Parses the environment or provided settings and ensures all the fields are
  * set with provided or default data.
@@ -128,3 +98,33 @@ export const getOutboxServiceConfig = (config: Config): ServiceConfig => {
     },
   };
 };
+
+interface Env {
+  [key: string]: string | undefined;
+}
+
+function getEnvVariableString(
+  env: Env,
+  field: string,
+  defaultValue?: string,
+): string {
+  const value = env[field] ?? defaultValue;
+  if (typeof value !== 'string' || !value) {
+    throw new Error(
+      `The environment variable ${field} must be a non-empty string.`,
+    );
+  }
+  return value;
+}
+
+function getEnvVariableNumber(
+  env: Env,
+  field: string,
+  defaultValue?: number,
+): number {
+  const value = Number(getEnvVariableString(env, field, `${defaultValue}`));
+  if (Number.isNaN(value)) {
+    throw new Error(`The environment variable ${field} must be a number.`);
+  }
+  return value;
+}

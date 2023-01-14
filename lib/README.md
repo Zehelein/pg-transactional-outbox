@@ -23,12 +23,12 @@ data mutations that were the reason for sending this message.
 The outbox service that gets notified when new inbox rows are created is
 initialized via the `initializeOutboxService` function. The configuration input
 parameter includes the connection details to the PostgreSQL database with the
-role that has the "replication" permission. The other parameters define the
-database schema name where the outbox table is located, the name of the used
-PostgreSQL replication, and the name of the used PostgreSQL logical replication
-slot. The second parameter is the callback function which is executed whenever a
-new outbox message arrived. The implementation of this functionality must
-provide the logic to send the message via e.g. RabbitMQ or Kafka.
+role that has the "replication" permission. The configuration also includes the
+database schema/table for the outbox table, the name of the used PostgreSQL
+replication, and the name of the used PostgreSQL logical replication slot. The
+second parameter is the callback function which is executed whenever a new
+outbox message arrived. The implementation of this functionality must provide
+the logic to send the message via e.g. RabbitMQ or Kafka.
 
 ## Inbox
 
@@ -41,20 +41,20 @@ this connection needs insert permissions to the inbox table.
 The other central function is `initializeInboxService`. It takes a configuration
 object with one database connection (`pgReplicationConfig`) based on a user with
 the replication permission to receive notifications when a new inbox message was
-created. And a second database connection (`pgConfig`) to open a datase
+created. And a second database connection (`pgConfig`) to open a database
 transaction to process the inbox message and the message handler data changes.
-The configuration includes also the database schema name where the inbox table
-is located, the name of the used PostgreSQL replication, and the name of the
-used PostgreSQL logical replication slot.
+The configuration includes also the database schema and table name of the inbox
+table, the name of the used PostgreSQL replication, and the name of the used
+PostgreSQL logical replication slot.
 
 ## General
 
-The library includes error logging and some trace/warning logs. By default it
+The library includes error logging and some trace/warning logs. By default, it
 uses a `pino` logger instance. You can use the `setLogger` interface to provide
 your own `pino` logger instance or another logger that satisfies the pino
 `BaseLogger` interface.
 
 The `executeTransaction` functionality could be helpful when implementing the
 consumer to store both the outbox message and other data as part of the same
-transaction. It takes care to commit and rollback the transaction and release
+transaction. It takes care to commit and roll back the transaction and release
 the client back to the pool.

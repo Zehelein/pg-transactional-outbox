@@ -5,6 +5,16 @@ import {
 } from 'pg-transactional-outbox';
 import { TestConfigs } from './configs';
 
+export const setupTestDb = async ({
+  loginConnection,
+  outboxServiceConfig,
+  inboxServiceConfig,
+}: TestConfigs): Promise<void> => {
+  await dbmsSetup(loginConnection, outboxServiceConfig, inboxServiceConfig);
+  await outboxSetup(loginConnection, outboxServiceConfig);
+  await inboxSetup(loginConnection, inboxServiceConfig);
+};
+
 /** Setup on the PostgreSQL server level (and not within a DB) */
 const dbmsSetup = async (
   defaultLoginConnection: ClientConfig,
@@ -149,14 +159,4 @@ const inboxSetup = async (
       GRANT SELECT, INSERT, UPDATE, DELETE ON public.received_entities TO ${user};
     `);
   dbClient.end();
-};
-
-export const setupTestDb = async ({
-  loginConnection,
-  outboxServiceConfig,
-  inboxServiceConfig,
-}: TestConfigs): Promise<void> => {
-  await dbmsSetup(loginConnection, outboxServiceConfig, inboxServiceConfig);
-  await outboxSetup(loginConnection, outboxServiceConfig);
-  await inboxSetup(loginConnection, inboxServiceConfig);
 };
