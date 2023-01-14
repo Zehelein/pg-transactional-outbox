@@ -79,8 +79,8 @@ const outboxSetup = async (config: Config): Promise<void> => {
 
     logger.debug('Create the outbox table');
     await dbClient.query(/*sql*/ `
-      DROP TABLE IF EXISTS ${config.postgresOutboxSchema}.outbox CASCADE;
-      CREATE TABLE ${config.postgresOutboxSchema}.outbox (
+      DROP TABLE IF EXISTS ${config.postgresOutboxSchema}.${config.postgresOutboxTable} CASCADE;
+      CREATE TABLE ${config.postgresOutboxSchema}.${config.postgresOutboxTable} (
         id uuid PRIMARY KEY,
         aggregate_type VARCHAR(255) NOT NULL,
         aggregate_id VARCHAR(255) NOT NULL,
@@ -89,13 +89,13 @@ const outboxSetup = async (config: Config): Promise<void> => {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
       GRANT USAGE ON SCHEMA ${config.postgresOutboxSchema} TO ${config.postgresLoginRole} ;
-      GRANT SELECT, INSERT, UPDATE, DELETE ON ${config.postgresOutboxSchema}.outbox TO ${config.postgresLoginRole};
+      GRANT SELECT, INSERT, UPDATE, DELETE ON ${config.postgresOutboxSchema}.${config.postgresOutboxTable} TO ${config.postgresLoginRole};
     `);
 
     logger.debug('Create the outbox publication');
     await dbClient.query(/*sql*/ `
       DROP PUBLICATION IF EXISTS ${config.postgresOutboxPub};
-      CREATE PUBLICATION ${config.postgresOutboxPub} FOR TABLE ${config.postgresOutboxSchema}.outbox WITH (publish = 'insert')
+      CREATE PUBLICATION ${config.postgresOutboxPub} FOR TABLE ${config.postgresOutboxSchema}.${config.postgresOutboxTable} WITH (publish = 'insert')
     `);
     await dbClient.query(/*sql*/ `
       select pg_create_logical_replication_slot('${config.postgresOutboxSlot}', 'pgoutput');

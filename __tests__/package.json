@@ -9,8 +9,7 @@
   "scripts": {
     "clean": "rimraf dist && rimraf tsconfig.tsbuildinfo",
     "build": "yarn clean && tsc",
-    "test": "jest",
-    "setup:db": "ts-node ./setup/init-db.ts"
+    "test": "jest"
   },
   "dependencies": {
     "pg": "^8.8.0",

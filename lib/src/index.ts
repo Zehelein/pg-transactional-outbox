@@ -1,9 +1,6 @@
+export { OutboxMessage, ServiceConfig } from './local-replication-service';
 export { initializeOutboxService, OutboxServiceConfig } from './outbox-service';
-export {
-  initializeOutboxMessageStore,
-  OutboxMessage,
-  OutboxConfig,
-} from './outbox';
+export { initializeOutboxMessageStore } from './outbox';
 export {
   initializeInboxService,
   InboxMessageHandler,
@@ -12,7 +9,6 @@ export {
 export {
   initializeInboxMessageStorage,
   InboxMessage,
-  InboxConfig,
   InboxError,
 } from './inbox';
 

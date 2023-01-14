@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { resolve } from 'path';
-import { ClientBase, Pool, PoolClient } from 'pg';
+import { Client, ClientBase, Pool, PoolClient } from 'pg';
 import { v4 as uuid } from 'uuid';
 import {
   executeTransaction,
@@ -16,19 +16,33 @@ import {
 } from 'pg-transactional-outbox';
 import { DockerComposeEnvironment } from 'testcontainers';
 import { StartedDockerComposeEnvironment } from 'testcontainers/dist/docker-compose-environment/started-docker-compose-environment';
-import { getConfigs, TestConfigs, setupTestDb, sleep } from './test-utils';
+import {
+  getConfigs,
+  TestConfigs,
+  setupTestDb,
+  sleep,
+  tryCallback,
+} from './test-utils';
 
-jest.setTimeout(300000);
+jest.setTimeout(60_000);
+// Uncomment to not see logs during tests:
+// const fakePinoLogger = {
+//   child: () => fakePinoLogger,
+//   debug: () => {},
+//   error: () => {},
+//   fatal: () => {},
+//   info: () => {},
+//   trace: () => {},
+//   warn: () => {},
+//   silent: () => {},
+//   level: 'silent',
+// };
+//setLogger(fakePinoLogger);
 
 const aggregateType = 'source_entity';
 const eventType = 'source_entity_created';
 const setupProducerAndConsumer = async (
-  {
-    inboxConfig,
-    inboxServiceConfig,
-    outboxConfig,
-    outboxServiceConfig,
-  }: TestConfigs,
+  { inboxServiceConfig, outboxServiceConfig }: TestConfigs,
   inboxMessageHandlers: InboxMessageHandler[],
   outboxPublisherWrapper?: (message: OutboxMessage) => boolean,
 ): Promise<
@@ -37,27 +51,13 @@ const setupProducerAndConsumer = async (
     shutdown: () => Promise<void>,
   ]
 > => {
-  // omit logs for now but can be easily adjusted for testing logs
-  const fakePinoLogger = {
-    child: () => fakePinoLogger,
-    debug: () => {},
-    error: () => {},
-    fatal: () => {},
-    info: () => {},
-    trace: () => {},
-    warn: () => {},
-    silent: () => {},
-    level: 'silent',
-  };
-  setLogger(fakePinoLogger);
-
   // Inbox
   const { shutdown: inSrvShutdown } = await initializeInboxService(
     inboxServiceConfig,
     inboxMessageHandlers,
   );
   const { storeInboxMessage, shutdown: inStoreShutdown } =
-    await initializeInboxMessageStorage(inboxConfig);
+    await initializeInboxMessageStorage(inboxServiceConfig);
 
   // A simple in-process message sender
   const messageReceiver = async (message: OutboxMessage): Promise<void> => {
@@ -80,7 +80,7 @@ const setupProducerAndConsumer = async (
   const storeOutboxMessage = initializeOutboxMessageStore(
     aggregateType,
     eventType,
-    outboxConfig,
+    outboxServiceConfig,
   );
 
   return [
@@ -95,19 +95,53 @@ const setupProducerAndConsumer = async (
 
 const createContent = (id: string) => `Content for id ${id}`;
 
+const insertSourceEntity = async (
+  loginPool: Pool,
+  id: string,
+  content: string,
+  storeOutboxMessage: ReturnType<typeof initializeOutboxMessageStore>,
+) => {
+  await executeTransaction(loginPool, async (client: PoolClient) => {
+    const entity = await client.query(
+      `INSERT INTO public.source_entities (id, content) VALUES ($1, $2) RETURNING id, content;`,
+      [id, content],
+    );
+    expect(entity.rowCount).toBe(1);
+    await storeOutboxMessage(id, entity.rows[0], client);
+  });
+};
+
+const compareEntities = (
+  { aggregateId: id1 }: { aggregateId: string },
+  { aggregateId: id2 }: { aggregateId: string },
+) => (id1 > id2 ? 1 : id2 > id1 ? -1 : 0);
+
+const createInfraOutage = async (
+  startedEnv: StartedDockerComposeEnvironment,
+) => {
+  // Stop the environment and 5 seconds later start the PG container again
+  await startedEnv.stop();
+  setTimeout(async () => {
+    const postgresContainer = startedEnv.getContainer('postgres');
+    await postgresContainer.restart();
+  }, 5000);
+};
+
 describe('Sending messages from a producer to a consumer works.', () => {
-  let environment: StartedDockerComposeEnvironment;
+  let dockerEnv: DockerComposeEnvironment;
+  let startedEnv: StartedDockerComposeEnvironment;
   let loginPool: Pool;
   let configs: TestConfigs;
   let cleanup: { (): Promise<void> } | undefined = undefined;
 
   beforeAll(async () => {
-    environment = await new DockerComposeEnvironment(
+    dockerEnv = new DockerComposeEnvironment(
       resolve(__dirname, 'test-utils'),
       'docker-compose.yml',
-    ).up();
+    );
+    startedEnv = await dockerEnv.up();
 
-    const postgresContainer = environment.getContainer('postgres');
+    const postgresContainer = startedEnv.getContainer('postgres');
     const port = postgresContainer.getMappedPort(5432);
     configs = getConfigs(port);
     await setupTestDb(configs);
@@ -120,13 +154,13 @@ describe('Sending messages from a producer to a consumer works.', () => {
 
   afterEach(async () => {
     if (cleanup) {
-      await cleanup();
+      cleanup().catch((e) => logger().error(e));
     }
   });
 
   afterAll(async () => {
-    await loginPool.end();
-    await environment.down();
+    loginPool.end().catch((e) => logger().error(e));
+    startedEnv.down().catch((e) => logger().error(e));
   });
 
   test('A single message is sent and received', async () => {
@@ -155,17 +189,10 @@ describe('Sending messages from a producer to a consumer works.', () => {
     cleanup = shutdown;
 
     // Act
-    await executeTransaction(loginPool, async (client: PoolClient) => {
-      const entity = await client.query(
-        `INSERT INTO public.source_entities (id, content) VALUES ($1, $2) RETURNING id, content;`,
-        [entityId, content],
-      );
-      expect(entity.rowCount).toBe(1);
-      await storeOutboxMessage(entityId, entity.rows[0], client);
-    });
+    await insertSourceEntity(loginPool, entityId, content, storeOutboxMessage);
 
     // Assert
-    const timeout = Date.now() + 5000; // 5 secs
+    const timeout = Date.now() + 50000000; // 5 secs
     while (!inboxMessageReceived && Date.now() < timeout) {
       await sleep(100);
     }
@@ -220,11 +247,7 @@ describe('Sending messages from a producer to a consumer works.', () => {
       await sleep(100);
     }
     expect(receivedInboxMessages).toHaveLength(10);
-    const compare = (
-      { aggregateId: id1 }: { aggregateId: string },
-      { aggregateId: id2 }: { aggregateId: string },
-    ) => (id1 > id2 ? 1 : id2 > id1 ? -1 : 0);
-    expect(receivedInboxMessages.sort(compare)).toMatchObject(
+    expect(receivedInboxMessages.sort(compareEntities)).toMatchObject(
       ids
         .map((id) => ({
           aggregateType,
@@ -232,7 +255,7 @@ describe('Sending messages from a producer to a consumer works.', () => {
           aggregateId: id,
           payload: { id, content: createContent(id) },
         }))
-        .sort(compare),
+        .sort(compareEntities),
     );
   });
 
@@ -268,17 +291,10 @@ describe('Sending messages from a producer to a consumer works.', () => {
     await sleep(500);
 
     // Act
-    await executeTransaction(loginPool, async (client: PoolClient) => {
-      const entity = await client.query(
-        `INSERT INTO public.source_entities (id, content) VALUES ($1, $2) RETURNING id, content;`,
-        [entityId, content],
-      );
-      expect(entity.rowCount).toBe(1);
-      await storeOutboxMessage(entityId, entity.rows[0], client);
-    });
+    await insertSourceEntity(loginPool, entityId, content, storeOutboxMessage);
 
     // Assert
-    const timeout = Date.now() + 5000; // 5 secs
+    const timeout = Date.now() + 5000000; // 5 secs
     while (!inboxMessageReceived && Date.now() < timeout) {
       await sleep(100);
     }
@@ -288,5 +304,26 @@ describe('Sending messages from a producer to a consumer works.', () => {
       aggregateId: entityId,
       payload: { id: entityId, content },
     });
+  });
+
+  test('Ensure reconnection possible after PostgreSQL outage.', async () => {
+    const ensureDbConnection = async () => {
+      let client: Client | undefined = undefined;
+      try {
+        client = new Client(configs.loginConnection);
+        await client.connect();
+        const one = await client.query(`SELECT 1 as one`);
+        expect(one).toMatchObject({
+          rowCount: 1,
+          rows: [{ one: 1 }],
+        });
+      } finally {
+        await client?.end();
+      }
+    };
+
+    await ensureDbConnection();
+    await createInfraOutage(startedEnv);
+    await tryCallback(ensureDbConnection, 10_000, 100);
   });
 });

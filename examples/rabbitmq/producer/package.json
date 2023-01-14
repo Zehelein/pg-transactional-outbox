@@ -19,7 +19,6 @@
     "amqplib": "^0.10.3",
     "dotenv": "^16.0.3",
     "pg": "^8.8.0",
-    "pg-logical-replication": "^2.0.3",
     "pino": "^8.8.0",
     "rascal": "^16.2.0",
     "uuid": "^9.0.0"

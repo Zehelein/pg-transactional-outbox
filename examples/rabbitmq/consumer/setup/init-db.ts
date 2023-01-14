@@ -79,8 +79,8 @@ const inboxSetup = async (config: Config): Promise<void> => {
 
     logger.debug('Create the inbox table');
     await dbClient.query(/*sql*/ `
-      DROP TABLE IF EXISTS ${config.postgresInboxSchema}.inbox CASCADE;
-      CREATE TABLE ${config.postgresInboxSchema}.inbox (
+      DROP TABLE IF EXISTS ${config.postgresInboxSchema}.${config.postgresInboxTable} CASCADE;
+      CREATE TABLE ${config.postgresInboxSchema}.${config.postgresInboxTable} (
         id uuid PRIMARY KEY,
         aggregate_type VARCHAR(255) NOT NULL,
         aggregate_id VARCHAR(255) NOT NULL,
@@ -91,13 +91,13 @@ const inboxSetup = async (config: Config): Promise<void> => {
         retries smallint NOT NULL DEFAULT 0
       );
       GRANT USAGE ON SCHEMA ${config.postgresInboxSchema} TO ${config.postgresLoginRole} ;
-      GRANT SELECT, INSERT, UPDATE, DELETE ON ${config.postgresInboxSchema}.inbox TO ${config.postgresLoginRole};
+      GRANT SELECT, INSERT, UPDATE, DELETE ON ${config.postgresInboxSchema}.${config.postgresInboxTable} TO ${config.postgresLoginRole};
     `);
 
     logger.debug('Create the inbox publication');
     await dbClient.query(/*sql*/ `
       DROP PUBLICATION IF EXISTS ${config.postgresInboxPub};
-      CREATE PUBLICATION ${config.postgresInboxPub} FOR TABLE ${config.postgresInboxSchema}.inbox WITH (publish = 'insert')
+      CREATE PUBLICATION ${config.postgresInboxPub} FOR TABLE ${config.postgresInboxSchema}.${config.postgresInboxTable} WITH (publish = 'insert')
     `);
     await dbClient.query(/*sql*/ `
       select pg_create_logical_replication_slot('${config.postgresInboxSlot}', 'pgoutput');

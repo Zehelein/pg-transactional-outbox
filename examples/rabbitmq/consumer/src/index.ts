@@ -6,7 +6,7 @@ import {
   initializeInboxService,
   setLogger,
 } from 'pg-transactional-outbox';
-import { getConfig, getInboxConfig, getInboxServiceConfig } from './config';
+import { getConfig, getInboxServiceConfig } from './config';
 import { logger } from './logger';
 import { initializeRabbitMqHandler } from './rabbitmq-handler';
 import {
@@ -26,10 +26,11 @@ process.on('unhandledRejection', (err, promise) => {
   // Set the pino logger also for the library logging
   setLogger(logger);
   const config = getConfig();
+  const inboxConfig = getInboxServiceConfig(config);
 
   // Initialize the inbox message storage to store incoming messages in the inbox
   const { storeInboxMessage } = await initializeInboxMessageStorage(
-    getInboxConfig(config),
+    inboxConfig,
   );
 
   // Initialize the RabbitMQ message handler to receive messages and store them in the inbox
@@ -38,7 +39,7 @@ process.on('unhandledRejection', (err, promise) => {
   ]);
 
   // Initialize and start the inbox subscription
-  await initializeInboxService(getInboxServiceConfig(config), [
+  await initializeInboxService(inboxConfig, [
     {
       aggregateType: MovieAggregateType,
       eventType: MovieCreatedEventType,

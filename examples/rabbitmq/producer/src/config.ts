@@ -1,4 +1,4 @@
-import { OutboxConfig, OutboxServiceConfig } from 'pg-transactional-outbox';
+import { ServiceConfig } from 'pg-transactional-outbox';
 
 interface Env {
   [key: string]: string | undefined;
@@ -50,6 +50,11 @@ export const getConfig = (env: Env = process.env) => {
     postgresOutboxSchema: getEnvVariableString(
       env,
       'POSTGRESQL_OUTBOX_SCHEMA',
+      'outbox',
+    ),
+    postgresOutboxTable: getEnvVariableString(
+      env,
+      'POSTGRESQL_OUTBOX_TABLE',
       'outbox',
     ),
     postgresOutboxSlot: getEnvVariableString(
@@ -106,13 +111,7 @@ export const getConfig = (env: Env = process.env) => {
 /** The configuration object type with parsed environment variables. */
 export type Config = ReturnType<typeof getConfig>;
 
-export const getOutboxConfig = (config: Config): OutboxConfig => {
-  return {
-    outboxSchema: config.postgresOutboxSchema,
-  };
-};
-
-export const getOutboxServiceConfig = (config: Config): OutboxServiceConfig => {
+export const getOutboxServiceConfig = (config: Config): ServiceConfig => {
   return {
     pgReplicationConfig: {
       host: config.postgresHost,
@@ -122,9 +121,10 @@ export const getOutboxServiceConfig = (config: Config): OutboxServiceConfig => {
       database: config.postgresDatabase,
     },
     settings: {
-      outboxSchema: config.postgresOutboxSchema,
-      postgresOutboxPub: config.postgresOutboxPub,
-      postgresOutboxSlot: config.postgresOutboxSlot,
+      dbSchema: config.postgresOutboxSchema,
+      dbTable: config.postgresOutboxTable,
+      postgresPub: config.postgresOutboxPub,
+      postgresSlot: config.postgresOutboxSlot,
     },
   };
 };

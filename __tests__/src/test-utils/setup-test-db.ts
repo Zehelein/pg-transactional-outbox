@@ -50,7 +50,9 @@ const dbmsSetup = async (
 
 const outboxSetup = async (
   defaultLoginConnection: ClientConfig,
-  outSrvConfig: OutboxServiceConfig,
+  {
+    settings: { dbSchema, dbTable, postgresPub, postgresSlot },
+  }: OutboxServiceConfig,
 ): Promise<void> => {
   const { host, port, database, user } = defaultLoginConnection;
   const dbClient = new Client({
@@ -63,11 +65,11 @@ const outboxSetup = async (
   dbClient.connect();
 
   await dbClient.query(/*sql*/ `
-      CREATE SCHEMA IF NOT EXISTS ${outSrvConfig.settings.outboxSchema}
+      CREATE SCHEMA IF NOT EXISTS ${dbSchema}
     `);
   await dbClient.query(/*sql*/ `
-      DROP TABLE IF EXISTS ${outSrvConfig.settings.outboxSchema}.outbox CASCADE;
-      CREATE TABLE ${outSrvConfig.settings.outboxSchema}.outbox (
+      DROP TABLE IF EXISTS ${dbSchema}.${dbTable} CASCADE;
+      CREATE TABLE ${dbSchema}.${dbTable} (
         id uuid PRIMARY KEY,
         aggregate_type VARCHAR(255) NOT NULL,
         aggregate_id VARCHAR(255) NOT NULL,
@@ -75,15 +77,15 @@ const outboxSetup = async (
         payload JSONB NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
-      GRANT USAGE ON SCHEMA ${outSrvConfig.settings.outboxSchema} TO ${user} ;
-      GRANT SELECT, INSERT, UPDATE, DELETE ON ${outSrvConfig.settings.outboxSchema}.outbox TO ${user};
+      GRANT USAGE ON SCHEMA ${dbSchema} TO ${user} ;
+      GRANT SELECT, INSERT, UPDATE, DELETE ON ${dbSchema}.${dbTable} TO ${user};
     `);
   await dbClient.query(/*sql*/ `
-      DROP PUBLICATION IF EXISTS ${outSrvConfig.settings.outboxSchema};
-      CREATE PUBLICATION ${outSrvConfig.settings.postgresOutboxPub} FOR TABLE ${outSrvConfig.settings.outboxSchema}.outbox WITH (publish = 'insert')
+      DROP PUBLICATION IF EXISTS ${postgresPub};
+      CREATE PUBLICATION ${postgresPub} FOR TABLE ${dbSchema}.${dbTable} WITH (publish = 'insert')
     `);
   await dbClient.query(/*sql*/ `
-      select pg_create_logical_replication_slot('${outSrvConfig.settings.postgresOutboxSlot}', 'pgoutput');
+      select pg_create_logical_replication_slot('${postgresSlot}', 'pgoutput');
     `);
   await dbClient.query(/*sql*/ `
       DROP TABLE IF EXISTS public.source_entities CASCADE;
@@ -99,7 +101,9 @@ const outboxSetup = async (
 /** All the changes related to the inbox implementation in the database */
 const inboxSetup = async (
   defaultLoginConnection: ClientConfig,
-  inSrvConfig: InboxServiceConfig,
+  {
+    settings: { dbSchema, dbTable, postgresPub, postgresSlot },
+  }: OutboxServiceConfig,
 ): Promise<void> => {
   const { host, port, database, user } = defaultLoginConnection;
   const dbClient = new Client({
@@ -112,11 +116,11 @@ const inboxSetup = async (
   dbClient.connect();
 
   await dbClient.query(/*sql*/ `
-      CREATE SCHEMA IF NOT EXISTS ${inSrvConfig.settings.inboxSchema}
+      CREATE SCHEMA IF NOT EXISTS ${dbSchema}
     `);
   await dbClient.query(/*sql*/ `
-      DROP TABLE IF EXISTS ${inSrvConfig.settings.inboxSchema}.inbox CASCADE;
-      CREATE TABLE ${inSrvConfig.settings.inboxSchema}.inbox (
+      DROP TABLE IF EXISTS ${dbSchema}.${dbTable} CASCADE;
+      CREATE TABLE ${dbSchema}.${dbTable} (
         id uuid PRIMARY KEY,
         aggregate_type VARCHAR(255) NOT NULL,
         aggregate_id VARCHAR(255) NOT NULL,
@@ -126,15 +130,15 @@ const inboxSetup = async (
         processed_at TIMESTAMPTZ,
         retries smallint NOT NULL DEFAULT 0
       );
-      GRANT USAGE ON SCHEMA ${inSrvConfig.settings.inboxSchema} TO ${user} ;
-      GRANT SELECT, INSERT, UPDATE, DELETE ON ${inSrvConfig.settings.inboxSchema}.inbox TO ${user};
+      GRANT USAGE ON SCHEMA ${dbSchema} TO ${user} ;
+      GRANT SELECT, INSERT, UPDATE, DELETE ON ${dbSchema}.${dbTable} TO ${user};
     `);
   await dbClient.query(/*sql*/ `
-      DROP PUBLICATION IF EXISTS ${inSrvConfig.settings.postgresInboxPub};
-      CREATE PUBLICATION ${inSrvConfig.settings.postgresInboxPub} FOR TABLE ${inSrvConfig.settings.inboxSchema}.inbox WITH (publish = 'insert')
+      DROP PUBLICATION IF EXISTS ${postgresPub};
+      CREATE PUBLICATION ${postgresPub} FOR TABLE ${dbSchema}.${dbTable} WITH (publish = 'insert')
     `);
   await dbClient.query(/*sql*/ `
-      select pg_create_logical_replication_slot('${inSrvConfig.settings.postgresInboxSlot}', 'pgoutput');
+      select pg_create_logical_replication_slot('${postgresSlot}', 'pgoutput');
     `);
   await dbClient.query(/*sql*/ `
       DROP TABLE IF EXISTS public.received_entities CASCADE;

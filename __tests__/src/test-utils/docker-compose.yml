@@ -10,7 +10,8 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - 5432
+      # The host-port could be left dynamic but resilience tests start/stop PG which results in differen ports
+      - 60399:5432
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres.conf:/etc/postgresql/postgresql.conf

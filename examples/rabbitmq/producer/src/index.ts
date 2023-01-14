@@ -6,7 +6,6 @@ import { addMovies } from './add-movies';
 import { getConfig, getOutboxServiceConfig } from './config';
 import { logger } from './logger';
 import { initializeRabbitMqPublisher } from './rabbitmq-publisher';
-import { resilienceTest } from './resilience-test';
 
 // Exit the process if there is an unhandled promise error
 process.on('unhandledRejection', (reason, promise) => {
@@ -19,19 +18,14 @@ process.on('unhandledRejection', (reason, promise) => {
   // Set the pino logger also for the library logging
   setLogger(logger);
   const config = getConfig();
+  const outboxConfig = getOutboxServiceConfig(config);
 
   // Initialize the actual RabbitMQ message publisher
   const rmqPublisher = await initializeRabbitMqPublisher(config);
 
   // Initialize and start the outbox subscription
-  const { stop, startIfStopped } = await initializeOutboxService(
-    getOutboxServiceConfig(config),
-    rmqPublisher,
-  );
+  await initializeOutboxService(outboxConfig, rmqPublisher);
 
   // Add movies and produce outbox messages on a timer
-  await addMovies(config);
-
-  // Test behavior with some service outages
-  resilienceTest(stop, startIfStopped);
+  await addMovies(config, outboxConfig);
 })();

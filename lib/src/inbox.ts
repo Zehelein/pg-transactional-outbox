@@ -1,24 +1,12 @@
-import { ClientConfig, Pool, PoolClient } from 'pg';
+import { Pool, PoolClient } from 'pg';
 import { executeTransaction } from './utils';
 import { logger } from './logger';
-import { OutboxMessage } from './outbox';
+import { OutboxMessage } from './local-replication-service';
+import { InboxServiceConfig } from './inbox-service';
 
 /** The inbox message for storing it to the DB and receiving it back from the WAL */
 export interface InboxMessage extends OutboxMessage {
   retries: number;
-}
-
-/** The inbox configuration */
-export interface InboxConfig {
-  /**
-   * The "pg" library based settings to initialize the PostgreSQL pool for the
-   * message handler (with insert permission to the inbox).
-   */
-  pgConfig: ClientConfig;
-  /** Inbox specific configurations */
-  settings: {
-    inboxSchema: string;
-  };
 }
 
 /** An inbox related error. The code contains the reason on which issue ocurred. */
@@ -40,13 +28,13 @@ type InboxErrorType =
 const insertInbox = async (
   message: OutboxMessage,
   dbClient: PoolClient,
-  { settings }: InboxConfig,
+  { settings }: Pick<InboxServiceConfig, 'settings'>,
 ) => {
   const { id, aggregateType, aggregateId, eventType, payload, createdAt } =
     message;
   const inboxResult = await dbClient.query(
     /*sql*/ `
-    INSERT INTO ${settings.inboxSchema}.inbox
+    INSERT INTO ${settings.dbSchema}.${settings.dbTable}
       (id, aggregate_type, aggregate_id, event_type, payload, created_at)
       VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT (id) DO NOTHING`,
@@ -63,7 +51,7 @@ const insertInbox = async (
  * @returns The function to store the inbox message data to the database.
  */
 export const initializeInboxMessageStorage = async (
-  config: InboxConfig,
+  config: Pick<InboxServiceConfig, 'pgConfig' | 'settings'>,
 ): Promise<{
   storeInboxMessage: (message: OutboxMessage) => Promise<void>;
   shutdown: () => Promise<void>;
@@ -115,11 +103,11 @@ export const initializeInboxMessageStorage = async (
 export const verifyInbox = async (
   { id }: InboxMessage,
   client: PoolClient,
-  { settings }: InboxConfig,
+  { settings }: Pick<InboxServiceConfig, 'settings'>,
 ): Promise<void> => {
   // Get the inbox data and lock it for updates. Use NOWAIT to immediately fail if another process is locking it.
   const inboxResult = await client.query(
-    /*sql*/ `SELECT processed_at FROM ${settings.inboxSchema}.inbox WHERE id = $1 FOR UPDATE NOWAIT`,
+    /*sql*/ `SELECT processed_at FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT`,
     [id],
   );
   if (inboxResult.rowCount === 0) {
@@ -145,10 +133,10 @@ export const verifyInbox = async (
 export const ackInbox = async (
   { id }: InboxMessage,
   client: PoolClient,
-  { settings }: InboxConfig,
+  { settings }: Pick<InboxServiceConfig, 'settings'>,
 ): Promise<void> => {
   await client.query(
-    /*sql*/ `UPDATE ${settings.inboxSchema}.inbox SET processed_at = $1 WHERE id = $2`,
+    /*sql*/ `UPDATE ${settings.dbSchema}.${settings.dbTable} SET processed_at = $1 WHERE id = $2`,
     [new Date().toISOString(), id],
   );
 };
@@ -165,12 +153,12 @@ export const ackInbox = async (
 export const nackInbox = async (
   { id }: InboxMessage,
   client: PoolClient,
-  { settings }: InboxConfig,
+  { settings }: Pick<InboxServiceConfig, 'settings'>,
   maxRetries = 5,
 ): Promise<'RETRY' | 'RETRIES_EXCEEDED'> => {
   const response = await client.query(
     /*sql*/ `
-    UPDATE ${settings.inboxSchema}.inbox SET retries = retries + 1 WHERE id = $1
+    UPDATE ${settings.dbSchema}.${settings.dbTable} SET retries = retries + 1 WHERE id = $1
     RETURNING retries;
     `,
     [id],

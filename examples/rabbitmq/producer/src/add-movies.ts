@@ -2,8 +2,9 @@ import { Pool, PoolClient } from 'pg';
 import {
   initializeOutboxMessageStore,
   executeTransaction,
+  ServiceConfig,
 } from 'pg-transactional-outbox';
-import { Config, getOutboxConfig } from './config';
+import { Config } from './config';
 import { logger } from './logger';
 
 export const MovieAggregateType = 'movie';
@@ -31,7 +32,10 @@ const insertMovie = async (dbClient: PoolClient) => {
  * second.
  * @param config The configuration object with details on how to connect to the database with the login role.
  */
-export const addMovies = async (config: Config): Promise<void> => {
+export const addMovies = async (
+  config: Config,
+  outboxConfig: ServiceConfig,
+): Promise<void> => {
   const pool = new Pool({
     host: config.postgresHost,
     port: config.postgresPort,
@@ -47,7 +51,7 @@ export const addMovies = async (config: Config): Promise<void> => {
   const storeOutboxMessage = initializeOutboxMessageStore(
     MovieAggregateType,
     MovieCreatedEventType,
-    getOutboxConfig(config),
+    outboxConfig,
   );
 
   setInterval(async () => {
