@@ -52,11 +52,11 @@ const setupProducerAndConsumer = async (
   ]
 > => {
   // Inbox
-  const { shutdown: inSrvShutdown } = await initializeInboxService(
+  const [inSrvShutdown] = await initializeInboxService(
     inboxServiceConfig,
     inboxMessageHandlers,
   );
-  const { storeInboxMessage, shutdown: inStoreShutdown } =
+  const [storeInboxMessage, inStoreShutdown] =
     await initializeInboxMessageStorage(inboxServiceConfig);
 
   // A simple in-process message sender
@@ -73,7 +73,7 @@ const setupProducerAndConsumer = async (
   };
 
   // Outbox
-  const { shutdown: outSrvShutdown } = await initializeOutboxService(
+  const [outSrvShutdown] = await initializeOutboxService(
     outboxServiceConfig,
     messagePublisher,
   );

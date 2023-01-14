@@ -22,14 +22,16 @@ export class InboxError extends Error {
 /**
  * Initialize the inbox message storage to store incoming messages in the inbox table.
  * @param config The configuration object that defines the values on how to connect to the database.
- * @returns The function to store the inbox message data to the database.
+ * @returns The function to store the inbox message data to the database and the shutdown action.
  */
 export const initializeInboxMessageStorage = async (
   config: Pick<InboxServiceConfig, 'pgConfig' | 'settings'>,
-): Promise<{
-  storeInboxMessage: (message: OutboxMessage) => Promise<void>;
-  shutdown: () => Promise<void>;
-}> => {
+): Promise<
+  [
+    storeInboxMessage: (message: OutboxMessage) => Promise<void>,
+    shutdown: () => Promise<void>,
+  ]
+> => {
   const pool = new Pool(config.pgConfig);
   pool.on('error', (err) => {
     logger().error(err, 'PostgreSQL pool error');
@@ -40,8 +42,8 @@ export const initializeInboxMessageStorage = async (
    * @param message The received message that should be stored as inbox message
    * @throws InboxError if the inbox message could not be stored
    */
-  return {
-    storeInboxMessage: async (message: OutboxMessage): Promise<void> => {
+  return [
+    async (message: OutboxMessage): Promise<void> => {
       try {
         await executeTransaction(pool, async (client) => {
           await insertInbox(message, client, config);
@@ -57,11 +59,11 @@ export const initializeInboxMessageStorage = async (
         );
       }
     },
-    shutdown: async () => {
+    async () => {
       pool.removeAllListeners();
       await pool.end();
     },
-  };
+  ];
 };
 
 /**

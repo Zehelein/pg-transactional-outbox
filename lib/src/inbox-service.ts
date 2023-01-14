@@ -44,25 +44,23 @@ export interface InboxMessageHandler {
 export const initializeInboxService = async (
   config: InboxServiceConfig,
   messageHandlers: InboxMessageHandler[],
-): Promise<{
-  shutdown: { (): Promise<void> };
-}> => {
+): Promise<[shutdown: { (): Promise<void> }]> => {
   const pool = createPgPool(config);
   const messageHandler = createMessageHandler(messageHandlers, pool, config);
   const errorResolver = createErrorResolver(pool, config);
-  const { shutdown } = await createService(
+  const [shutdown] = await createService(
     config,
     messageHandler,
     errorResolver,
     mapInboxRetries,
   );
-  return {
-    shutdown: async () => {
+  return [
+    async () => {
       pool.removeAllListeners();
       pool.end().catch((e) => logger().error(e));
       shutdown().catch((e) => logger().error(e));
     },
-  };
+  ];
 };
 
 const createPgPool = (config: InboxServiceConfig) => {

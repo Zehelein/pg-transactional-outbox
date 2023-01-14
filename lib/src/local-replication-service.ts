@@ -45,9 +45,7 @@ export const createService = async <T extends OutboxMessage>(
     ack: () => Promise<void>,
   ) => Promise<void>,
   mapAdditionalRows?: (row: object) => Record<string, unknown>,
-): Promise<{
-  shutdown: { (): Promise<void> };
-}> => {
+): Promise<[shutdown: { (): Promise<void> }]> => {
   const plugin = new PgoutputPlugin({
     protoVersion: 1,
     publicationNames: [config.settings.postgresPub],
@@ -87,13 +85,13 @@ export const createService = async <T extends OutboxMessage>(
   };
   subscribeToOutboxMessages();
   await service.waitFor('start', 10000);
-  return {
-    shutdown: async () => {
+  return [
+    async () => {
       flags.wasShutDown = true;
       service.removeAllListeners();
       service.stop().catch((e) => logger().error(e));
     },
-  };
+  ];
 };
 
 const createServiceInstance = <T extends OutboxMessage>(

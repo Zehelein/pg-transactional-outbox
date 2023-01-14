@@ -29,21 +29,28 @@ process.on('unhandledRejection', (err, promise) => {
   const inboxConfig = getInboxServiceConfig(config);
 
   // Initialize the inbox message storage to store incoming messages in the inbox
-  const { storeInboxMessage } = await initializeInboxMessageStorage(
-    inboxConfig,
-  );
+  const [storeInboxMessage, shutdownInStore] =
+    await initializeInboxMessageStorage(inboxConfig);
 
   // Initialize the RabbitMQ message handler to receive messages and store them in the inbox
-  await initializeRabbitMqHandler(config, storeInboxMessage, [
-    MovieCreatedEventType,
-  ]);
+  const [shutdownRmq] = await initializeRabbitMqHandler(
+    config,
+    storeInboxMessage,
+    [MovieCreatedEventType],
+  );
 
   // Initialize and start the inbox subscription
-  await initializeInboxService(inboxConfig, [
+  const [shutdownInSrv] = await initializeInboxService(inboxConfig, [
     {
       aggregateType: MovieAggregateType,
       eventType: MovieCreatedEventType,
       handle: storePublishedMovie,
     },
   ]);
+
+  // Close all connections
+  const cleanup = async () =>
+    Promise.allSettled([shutdownInStore, shutdownRmq, shutdownInSrv]);
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
 })();

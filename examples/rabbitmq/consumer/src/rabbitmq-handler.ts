@@ -23,7 +23,7 @@ export const initializeRabbitMqHandler = async (
   config: Config,
   storeInboxMessage: (message: ReceivedMessage) => Promise<void>,
   eventTypes: string[],
-): Promise<void> => {
+): Promise<[shutdown: { (): Promise<void> }]> => {
   const cfg = getMessagingConfig(config);
   const broker = await BrokerAsPromised.create(cfg);
   broker.on('error', (err, { vhost, connectionUrl }) => {
@@ -66,4 +66,6 @@ export const initializeRabbitMqHandler = async (
       })
       .on('error', (e) => logger.error(e));
   });
+
+  return [broker.shutdown];
 };

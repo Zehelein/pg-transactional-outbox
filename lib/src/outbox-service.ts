@@ -15,6 +15,5 @@ export type OutboxServiceConfig = ServiceConfig;
 export const initializeOutboxService = async (
   config: OutboxServiceConfig,
   callback: (message: OutboxMessage) => Promise<void>,
-): Promise<{
-  shutdown: { (): Promise<void> };
-}> => createService(config, callback);
+): Promise<[shutdown: { (): Promise<void> }]> =>
+  createService(config, callback);

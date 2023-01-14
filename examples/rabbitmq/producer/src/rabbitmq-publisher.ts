@@ -11,34 +11,42 @@ import { getMessagingConfig } from './rabbitmq-config';
  */
 export const initializeRabbitMqPublisher = async (
   config: Config,
-): Promise<(message: OutboxMessage) => Promise<void>> => {
+): Promise<
+  [
+    rmqPublisher: (message: OutboxMessage) => Promise<void>,
+    shutdown: { (): Promise<void> },
+  ]
+> => {
   const cfg = getMessagingConfig(config);
   const broker = await BrokerAsPromised.create(cfg);
   broker.on('error', (err, { vhost, connectionUrl }) => {
     logger.error({ err, vhost, connectionUrl }, 'Broker error');
   });
 
-  return async (message: OutboxMessage): Promise<void> => {
-    // Publish a message
-    const publication = await broker.publish(
-      message.eventType, // By convention we use the event type also as publish topic
-      message, // Send the full outbox message so a receiver can use the inbox pattern to check for duplicate messages
-    );
-    return new Promise((resolve, reject) => {
-      publication
-        .on('success', (_messageId) => {
-          resolve();
-          logger.trace(message, 'Published outbox message');
-        })
-        .on('return', (_rmqMessage) => {
-          logger.warn(
-            message,
-            `An outbox message was successfully published but was not routed.`,
-          );
-        })
-        .on('error', (error, _messageId) => {
-          reject(error);
-        });
-    });
-  };
+  return [
+    async (message: OutboxMessage): Promise<void> => {
+      // Publish a message
+      const publication = await broker.publish(
+        message.eventType, // By convention we use the event type also as publish topic
+        message, // Send the full outbox message so a receiver can use the inbox pattern to check for duplicate messages
+      );
+      return new Promise((resolve, reject) => {
+        publication
+          .on('success', (_messageId) => {
+            resolve();
+            logger.trace(message, 'Published outbox message');
+          })
+          .on('return', (_rmqMessage) => {
+            logger.warn(
+              message,
+              `An outbox message was successfully published but was not routed.`,
+            );
+          })
+          .on('error', (error, _messageId) => {
+            reject(error);
+          });
+      });
+    },
+    broker.shutdown,
+  ];
 };

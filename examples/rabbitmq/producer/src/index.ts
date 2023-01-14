@@ -21,11 +21,19 @@ process.on('unhandledRejection', (reason, promise) => {
   const outboxConfig = getOutboxServiceConfig(config);
 
   // Initialize the actual RabbitMQ message publisher
-  const rmqPublisher = await initializeRabbitMqPublisher(config);
+  const [rmqPublisher, shutdownRmq] = await initializeRabbitMqPublisher(config);
 
   // Initialize and start the outbox subscription
-  await initializeOutboxService(outboxConfig, rmqPublisher);
+  const [shutdownOutSrv] = await initializeOutboxService(
+    outboxConfig,
+    rmqPublisher,
+  );
 
   // Add movies and produce outbox messages on a timer
   await addMovies(config, outboxConfig);
+
+  // Close all connections
+  const cleanup = async () => Promise.allSettled([shutdownRmq, shutdownOutSrv]);
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
 })();
