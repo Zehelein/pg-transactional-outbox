@@ -20,7 +20,7 @@ export const initializeRabbitMqPublisher = async (
   const cfg = getMessagingConfig(config);
   const broker = await BrokerAsPromised.create(cfg);
   broker.on('error', (err, { vhost, connectionUrl }) => {
-    logger.error({ err, vhost, connectionUrl }, 'Broker error');
+    logger.error({ err, vhost, connectionUrl }, 'RabbitMQ broker error');
   });
 
   return [

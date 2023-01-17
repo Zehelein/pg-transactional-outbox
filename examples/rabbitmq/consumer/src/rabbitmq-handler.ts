@@ -27,7 +27,7 @@ export const initializeRabbitMqHandler = async (
   const cfg = getMessagingConfig(config);
   const broker = await BrokerAsPromised.create(cfg);
   broker.on('error', (err, { vhost, connectionUrl }) => {
-    logger.error({ err, vhost, connectionUrl }, 'Broker error');
+    logger.error({ err, vhost, connectionUrl }, 'RabbitMQ broker error');
   });
 
   // Consume messages for the desired subscriptions
@@ -64,7 +64,7 @@ export const initializeRabbitMqHandler = async (
           ackOrNack();
         }
       })
-      .on('error', (e) => logger.error(e));
+      .on('error', (e) => logger.error(e, 'RabbitMQ subscription error.'));
   });
 
   return [broker.shutdown];

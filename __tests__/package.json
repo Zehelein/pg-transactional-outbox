@@ -9,10 +9,12 @@
   "scripts": {
     "clean": "rimraf dist && rimraf tsconfig.tsbuildinfo",
     "build": "yarn clean && tsc",
-    "test": "jest"
+    "test": "jest",
+    "logical-rep-service": "tsc-watch --onSuccess \"node --inspect dist/logical-rep-service-test.js\""
   },
   "dependencies": {
     "pg": "^8.8.0",
+    "pg-logical-replication": "^2.0.3",
     "uuid": "^9.0.0"
   },
   "devDependencies": {

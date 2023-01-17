@@ -83,7 +83,7 @@ export const verifyInbox = async (
 ): Promise<void> => {
   // Get the inbox data and lock it for updates. Use NOWAIT to immediately fail if another process is locking it.
   const inboxResult = await client.query(
-    /*sql*/ `SELECT processed_at FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT`,
+    /* sql*/ `SELECT processed_at FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT`,
     [id],
   );
   if (inboxResult.rowCount === 0) {
@@ -112,7 +112,7 @@ export const ackInbox = async (
   { settings }: Pick<InboxServiceConfig, 'settings'>,
 ): Promise<void> => {
   await client.query(
-    /*sql*/ `UPDATE ${settings.dbSchema}.${settings.dbTable} SET processed_at = $1 WHERE id = $2`,
+    /* sql*/ `UPDATE ${settings.dbSchema}.${settings.dbTable} SET processed_at = $1 WHERE id = $2`,
     [new Date().toISOString(), id],
   );
 };
@@ -133,7 +133,7 @@ export const nackInbox = async (
   maxRetries = 5,
 ): Promise<'RETRY' | 'RETRIES_EXCEEDED'> => {
   const response = await client.query(
-    /*sql*/ `
+    /* sql*/ `
     UPDATE ${settings.dbSchema}.${settings.dbTable} SET retries = retries + 1 WHERE id = $1
     RETURNING retries;
     `,
@@ -165,7 +165,7 @@ const insertInbox = async (
   const { id, aggregateType, aggregateId, eventType, payload, createdAt } =
     message;
   const inboxResult = await dbClient.query(
-    /*sql*/ `
+    /* sql*/ `
     INSERT INTO ${settings.dbSchema}.${settings.dbTable}
       (id, aggregate_type, aggregate_id, event_type, payload, created_at)
       VALUES ($1, $2, $3, $4, $5, $6)

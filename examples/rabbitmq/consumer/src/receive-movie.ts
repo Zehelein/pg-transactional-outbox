@@ -46,7 +46,7 @@ const insertPublishedMovie = async (
   dbClient: ClientBase,
 ) => {
   await dbClient.query(
-    /*sql*/ `
+    /* sql*/ `
     INSERT INTO public.published_movies
       (id, title, description)
       VALUES ($1, $2, $3)`,

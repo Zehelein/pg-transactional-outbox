@@ -61,7 +61,7 @@ export const createService = async <T extends OutboxMessage>(
     );
 
   const errorListener = async (err: Error) => {
-    logger().error(err);
+    logger().error(err, 'Logical replication error');
     // Stop the current instance and create a new instance e.g. if the DB connection failed
     await service.stop();
     service = create();
@@ -76,7 +76,7 @@ export const createService = async <T extends OutboxMessage>(
       .subscribe(plugin, config.settings.postgresSlot)
       // Log any error and restart the replication after a small timeout
       // The service will catch up with any events in the WAL once it restarts.
-      .catch((e) => logger().error(e))
+      .catch((e) => logger().error(e, 'Logical replication subscription error'))
       .then(() => {
         if (!flags.wasShutDown) {
           setTimeout(subscribeToOutboxMessages, 300);
@@ -89,7 +89,9 @@ export const createService = async <T extends OutboxMessage>(
     async () => {
       flags.wasShutDown = true;
       service.removeAllListeners();
-      service.stop().catch((e) => logger().error(e));
+      service
+        .stop()
+        .catch((e) => logger().error(e, 'Error on service shutdown.'));
     },
   ];
 };
@@ -121,6 +123,11 @@ const createServiceInstance = <T extends OutboxMessage>(
     );
   });
   service.on('error', errorListener);
+  service.on('heartbeat', async (lsn, _timestamp, shouldRespond) => {
+    if (shouldRespond) {
+      await service.acknowledge(lsn);
+    }
+  });
   return service;
 };
 

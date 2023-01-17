@@ -31,7 +31,7 @@ export const initializeOutboxMessageStore = (
   ): Promise<OutboxMessage> => {
     const outboxId = uuid();
     const outboxResult = await dbClient.query(
-      /*sql*/ `
+      /* sql*/ `
       INSERT INTO ${dbSchema}.${dbTable}
         (id, aggregate_type, aggregate_id, event_type, payload)
         VALUES ($1, $2, $3, $4, $5)
@@ -43,7 +43,7 @@ export const initializeOutboxMessageStore = (
     }
     // Immediately delete the outbox entry - it was already written to the WAL
     await dbClient.query(
-      /*sql*/ `
+      /* sql*/ `
       DELETE FROM ${dbSchema}.${dbTable} WHERE id = $1;`,
       [outboxId],
     );

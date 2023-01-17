@@ -14,6 +14,14 @@ export const ensureError = (error: unknown): Error => {
 };
 
 /**
+ * Sleep for a given amount of milliseconds
+ * @param milliseconds The time in milliseconds to sleep
+ * @returns The (void) promise to await
+ */
+export const sleep = async (milliseconds: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+/**
  * Open a transaction and execute the callback as part of the transaction.
  * @param pool The PostgreSQL database pool
  * @param callback The callback to execute DB commands with.

@@ -57,8 +57,12 @@ export const initializeInboxService = async (
   return [
     async () => {
       pool.removeAllListeners();
-      pool.end().catch((e) => logger().error(e));
-      shutdown().catch((e) => logger().error(e));
+      pool
+        .end()
+        .catch((e) => logger().error(e, 'PostgreSQL pool shutdown error'));
+      shutdown().catch((e) =>
+        logger().error(e, 'Inbox service shutdown error'),
+      );
     },
   ];
 };

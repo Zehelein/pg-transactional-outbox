@@ -8,8 +8,8 @@ import { logger } from './logger';
 import { initializeRabbitMqPublisher } from './rabbitmq-publisher';
 
 // Exit the process if there is an unhandled promise error
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error({ reason, promise }, 'Unhandled promise rejection');
+process.on('unhandledRejection', (err, promise) => {
+  logger.error({ err, promise }, 'Unhandled promise rejection');
   process.exit(1);
 });
 
@@ -33,7 +33,10 @@ process.on('unhandledRejection', (reason, promise) => {
   await addMovies(config, outboxConfig);
 
   // Close all connections
-  const cleanup = async () => Promise.allSettled([shutdownRmq, shutdownOutSrv]);
+  const cleanup = async () => {
+    await Promise.allSettled([shutdownRmq, shutdownOutSrv]);
+    process.exit(0);
+  };
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
 })();

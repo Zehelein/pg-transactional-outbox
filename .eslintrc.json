@@ -41,6 +41,7 @@
       { "argsIgnorePattern": "^_" }
     ], // Allow unused vars when prefixed with underscore
     "jest/no-commented-out-tests": "warn",
+    "spaced-comment": ["error", "always"],
     "@typescript-eslint/no-explicit-any": "warn",
     "no-console": "warn",
     "@typescript-eslint/explicit-module-boundary-types": "warn",

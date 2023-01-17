@@ -1,4 +1,4 @@
-# Library
+# pg-transactional-outbox
 
 The `pg-transactional-outbox` is a library that implements the transactional
 outbox and transactional inbox pattern for PostgreSQL. It allows you to reliably
@@ -53,7 +53,9 @@ reliability and atomicity of message processing are important, such as in an
 event-driven architecture where the loss or duplication of a message could have
 significant consequences.
 
-# What is the transactional outbox pattern
+# Pattern
+
+## What is the transactional outbox pattern
 
 The transactional outbox pattern is a design pattern that allows you to reliably
 send messages within the context of a database transaction. It is used to ensure
@@ -85,20 +87,18 @@ Transactional log tailing pattern.
 - Polling-Publisher: an external process queries the outbox table on a (short)
   interval. This has the drawback, that the database is put under load and often
   results in no newly found entries.
-- Transactional log tailing (also called capture-based) is not querying the
-  database itself but reads from the transactional log or change stream. For
-  PostgreSQL, this is the Write-Ahead Log (WAL). In PostgreSQL, the WAL is a log
-  of changes made to the database that is used to ensure data consistency and
-  recoverability in the event of a failure.  
-  Using this approach, the transactional outbox pattern can be implemented with
-  minimal impact on the database, as the WAL tailing process does not need to
-  hold locks or block other transactions.
+- Transactional (also called capture-based) log tailing reads from the
+  transactional log or change stream that contains the changes to the outbox
+  table. For PostgreSQL, this is the Write-Ahead Log (WAL) which is described
+  further down in more detail. Using this approach, the transactional outbox
+  pattern can be implemented with minimal impact on the database, as the WAL
+  tailing process does not need to hold locks or block other transactions.
 
 You can read more about the transactional outbox pattern in this
 [microservices.io](https://microservices.io/patterns/data/transactional-outbox.html)
 article.
 
-# What is the transactional inbox pattern
+## What is the transactional inbox pattern
 
 The transactional outbox pattern solves the challenges from the producing side.
 
@@ -133,6 +133,51 @@ again. But at least it will keep a lock on the message for a longer time. With
 the inbox pattern, the message is not processed when it is received but only
 stored in the inbox table. The actual processing can then take whatever time is
 needed.
+
+## What is the PostgreSQL Logical Replication
+
+PostgreSQL logical replication is a method that offers the possibility of
+replicating data from a PostgreSQL database to another PostgreSQL database or
+other consumer. It works by streaming the changes that are made to the data in a
+database in a logical, row-based format, rather than replicating at the physical
+storage level.
+
+This is achieved by using a feature called "Logical Replication Slot", which
+allows a PostgreSQL server to stream changes made to a specific table or set of
+tables to a replication client. The client can then apply these changes to its
+own database (effectively replicating the data). Or more generally the client
+can use those changes for any kind of updates/notifications.
+
+The replication process begins with the creation of a replication slot on the
+primary database server. This is a named data structure that holds information
+about the replication process, such as the current position of the replication
+stream and the name of the table(s) that are being replicated. In the
+transactional outbox/inbox pattern case, the outbox and inbox table are
+replicated.
+
+Once the replication slot is created, the primary server will begin streaming
+changes made to the specified table(s) to the replication client. These changes
+are sent in the form of "WAL records" (Write-Ahead Log records), which are the
+individual changes made to the data in the inbox/outbox tables.
+
+The publisher keeps track of the current position of the replication stream
+using the logical replication slot. A logical replication slot is a named data
+structure on the publisher that stores information about the current position of
+the replication stream, including the transaction ID and the write-ahead log
+(WAL) location.
+
+When the subscriber (client) connects to the publisher, it specifies the name of
+the logical replication slot it wants to use. The publisher uses this
+information to start streaming changes from the point in the WAL that is stored
+in the replication slot. As the subscriber receives changes, it updates the
+position of the replication slot on the publisher to keep track of where it is
+in the stream. The position defines the last data record that the client
+successfully consumed and acknowledged. It is not possible to acknowledge only
+specific messages - everything up to this position is acknowledged.
+
+In this way, the publisher and subscriber can maintain a consistent position in
+the replication stream, allowing the subscriber to catch up with any changes
+that may have occurred while it was disconnected.
 
 # The pg-transactional-outbox library
 
@@ -336,7 +381,7 @@ function is `initializeInboxService`. It uses one database connection based on a
 user with the replication permission to receive notifications when a new inbox
 message was created. And a second database connection to open a transaction,
 load the inbox message from the database and lock it, execute the message
-handler queries/mutations, and to finally mark the inbox message as processed in
+handler queries/mutations, and finally mark the inbox message as processed in
 the database.
 
 ```TypeScript
