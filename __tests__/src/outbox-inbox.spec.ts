@@ -21,24 +21,26 @@ import {
   TestConfigs,
   setupTestDb,
   sleep,
-  tryCallback,
+  retryCallback,
+  isDebugMode,
 } from './test-utils';
 
 jest.setTimeout(60_000);
-// Uncomment to not see logs during tests:
-// const fakePinoLogger = {
-//   child: () => fakePinoLogger,
-//   debug: () => {},
-//   error: () => {},
-//   fatal: () => {},
-//   info: () => {},
-//   trace: () => {},
-//   warn: () => {},
-//   silent: () => {},
-//   level: 'silent',
-// };
-//setLogger(fakePinoLogger);
-
+if (!isDebugMode()) {
+  // Hide logs if the tests are not run in debug mode
+  const fakePinoLogger = {
+    child: () => fakePinoLogger,
+    debug: () => {},
+    error: () => {},
+    fatal: () => {},
+    info: () => {},
+    trace: () => {},
+    warn: () => {},
+    silent: () => {},
+    level: 'silent',
+  };
+  setLogger(fakePinoLogger);
+}
 const aggregateType = 'source_entity';
 const eventType = 'source_entity_created';
 const setupProducerAndConsumer = async (
@@ -106,7 +108,11 @@ const insertSourceEntity = async (
       `INSERT INTO public.source_entities (id, content) VALUES ($1, $2) RETURNING id, content;`,
       [id, content],
     );
-    expect(entity.rowCount).toBe(1);
+    if (entity.rowCount !== 1) {
+      throw new Error(
+        `Inserted ${entity.rowCount} source entities instead of 1.`,
+      );
+    }
     await storeOutboxMessage(id, entity.rows[0], client);
   });
 };
@@ -119,12 +125,20 @@ const compareEntities = (
 const createInfraOutage = async (
   startedEnv: StartedDockerComposeEnvironment,
 ) => {
-  // Stop the environment and 5 seconds later start the PG container again
-  await startedEnv.stop();
+  try {
+    // Stop the environment and a bit later start the PG container again
+    await startedEnv.stop();
+  } catch (error) {
+    logger().error(error);
+  }
   setTimeout(async () => {
-    const postgresContainer = startedEnv.getContainer('postgres');
-    await postgresContainer.restart();
-  }, 5000);
+    try {
+      const postgresContainer = startedEnv.getContainer('postgres');
+      await postgresContainer.restart();
+    } catch (error) {
+      logger().error(error);
+    }
+  }, 3000);
 };
 
 describe('Sending messages from a producer to a consumer works.', () => {
@@ -192,7 +206,7 @@ describe('Sending messages from a producer to a consumer works.', () => {
     await insertSourceEntity(loginPool, entityId, content, storeOutboxMessage);
 
     // Assert
-    const timeout = Date.now() + 50000000; // 5 secs
+    const timeout = Date.now() + 5_000;
     while (!inboxMessageReceived && Date.now() < timeout) {
       await sleep(100);
     }
@@ -242,7 +256,7 @@ describe('Sending messages from a producer to a consumer works.', () => {
     });
 
     // Assert
-    const timeout = Date.now() + 5000; // 5 secs
+    const timeout = Date.now() + 5_000;
     while (receivedInboxMessages.length < 10 && Date.now() < timeout) {
       await sleep(100);
     }
@@ -294,10 +308,11 @@ describe('Sending messages from a producer to a consumer works.', () => {
     await insertSourceEntity(loginPool, entityId, content, storeOutboxMessage);
 
     // Assert
-    const timeout = Date.now() + 5000000; // 5 secs
+    const timeout = Date.now() + 5_000;
     while (!inboxMessageReceived && Date.now() < timeout) {
       await sleep(100);
     }
+    expect(inboxMessageReceived).toBeDefined();
     expect(inboxMessageReceived).toMatchObject({
       aggregateType,
       eventType,
@@ -324,6 +339,6 @@ describe('Sending messages from a producer to a consumer works.', () => {
 
     await ensureDbConnection();
     await createInfraOutage(startedEnv);
-    await tryCallback(ensureDbConnection, 10_000, 100);
+    await retryCallback(ensureDbConnection, 10_000, 100);
   });
 });

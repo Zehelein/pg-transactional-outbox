@@ -5,7 +5,7 @@ import {
   PgoutputPlugin,
 } from 'pg-logical-replication';
 import { logger } from './logger';
-import { ensureError } from './utils';
+import { ensureError, sleep } from './utils';
 
 /** The outbox message for storing it to the DB and receiving it back from the WAL */
 export interface OutboxMessage {
@@ -36,142 +36,108 @@ export interface ServiceConfig {
   };
 }
 
+/**
+ * Initiate the outbox/inbox table to listen for WAL messages.
+ * @param config The replication connection settings and general service settings
+ * @param messageHandler The message handler that handles the outbox/inbox message
+ * @param errorHandler A handler that can decide if the message should be retried (true; restarts the service) or not (false)
+ * @param mapAdditionalRows The inbox table requires an additional row to be mapped to the inbox message
+ * @returns A function to stop the service
+ */
 export const createService = async <T extends OutboxMessage>(
-  config: ServiceConfig,
+  { pgReplicationConfig, settings }: ServiceConfig,
   messageHandler: (message: T) => Promise<void>,
   errorHandler?: (
     err: Error,
     message: T,
     ack: () => Promise<void>,
-  ) => Promise<void>,
+  ) => Promise<boolean>,
   mapAdditionalRows?: (row: object) => Record<string, unknown>,
 ): Promise<[shutdown: { (): Promise<void> }]> => {
   const plugin = new PgoutputPlugin({
     protoVersion: 1,
-    publicationNames: [config.settings.postgresPub],
+    publicationNames: [settings.postgresPub],
   });
-
-  const create = () =>
-    createServiceInstance(
-      config,
-      errorListener,
-      messageHandler,
-      errorHandler,
-      mapAdditionalRows,
-    );
-
-  const errorListener = async (err: Error) => {
-    logger().error(err, 'Logical replication error');
-    // Stop the current instance and create a new instance e.g. if the DB connection failed
-    await service.stop();
-    service = create();
-  };
-
-  let service = create();
-
-  const flags = { wasShutDown: false };
-  const subscribeToOutboxMessages = (): void => {
-    service
-      // `.subscribe` will start the replication and continue to listen until it is stopped
-      .subscribe(plugin, config.settings.postgresSlot)
-      // Log any error and restart the replication after a small timeout
-      // The service will catch up with any events in the WAL once it restarts.
-      .catch((e) => logger().error(e, 'Logical replication subscription error'))
-      .then(() => {
-        if (!flags.wasShutDown) {
-          setTimeout(subscribeToOutboxMessages, 300);
-        }
-      });
-  };
-  subscribeToOutboxMessages();
-  await service.waitFor('start', 10000);
+  let service: LogicalReplicationService;
+  let stopped = false;
+  // Run the service in an endless background loop until it gets stopped
+  (async () => {
+    while (!stopped) {
+      try {
+        await new Promise((resolve, reject) => {
+          let heartbeatAckTimer: NodeJS.Timeout | undefined = undefined;
+          service = new LogicalReplicationService(pgReplicationConfig, {
+            acknowledge: { auto: false, timeoutSeconds: 0 },
+          });
+          service.on('data', async (lsn: string, log: Pgoutput.Message) => {
+            const msg = getRelevantMessage(log, settings, mapAdditionalRows);
+            if (msg) {
+              // 'OutboxMessage' is assignable to the constraint of type 'T',
+              // but 'T' could be instantiated with a different subtype of constraint 'OutboxMessage'
+              const message = msg as T;
+              logger().trace(
+                message,
+                `Received a WAL message for ${settings.dbSchema}.${settings.dbTable}`,
+              );
+              try {
+                await messageHandler(message);
+                clearTimeout(heartbeatAckTimer);
+                await service.acknowledge(lsn);
+              } catch (error) {
+                const err = ensureError(error);
+                logger().error({ ...message, err }, err.message);
+                if (errorHandler) {
+                  const retry = await errorHandler(err, message, async () => {
+                    await service.acknowledge(lsn);
+                  });
+                  if (retry) {
+                    service.emit('error', error);
+                  }
+                } else {
+                  service.emit('error', error);
+                }
+              }
+            }
+          });
+          service.on('error', async (err: Error) => {
+            service.removeAllListeners();
+            await service.stop();
+            reject(err);
+          });
+          service.on('heartbeat', async (lsn, _timestamp, shouldRespond) => {
+            if (shouldRespond) {
+              heartbeatAckTimer = setTimeout(async () => {
+                logger().trace(`${lsn}: acknowledged heartbeat`);
+                await service.acknowledge(lsn);
+              }, 5000);
+            }
+          });
+          service
+            .subscribe(plugin, settings.postgresSlot)
+            .then(() => resolve(true))
+            .catch(async (err) => {
+              logger().error({ err }, 'Logical replication subscription error');
+              service.removeAllListeners();
+              await service.stop();
+              reject(err);
+            });
+        });
+      } catch (err) {
+        await sleep(1000);
+        logger().error({ err }, 'LogicalReplicationService error');
+      }
+    }
+  })();
   return [
     async () => {
-      flags.wasShutDown = true;
-      service.removeAllListeners();
+      logger().error('started cleanup');
+      stopped = true;
+      service?.removeAllListeners();
       service
-        .stop()
+        ?.stop()
         .catch((e) => logger().error(e, 'Error on service shutdown.'));
     },
   ];
-};
-
-const createServiceInstance = <T extends OutboxMessage>(
-  config: ServiceConfig,
-  errorListener: (err: Error) => Promise<void>,
-  messageHandler: (message: T) => Promise<void>,
-  errorHandler?: (
-    err: Error,
-    message: T,
-    ack: () => Promise<void>,
-  ) => Promise<void>,
-  mapAdditionalRows?: (row: object) => Record<string, unknown>,
-) => {
-  const service = new LogicalReplicationService(config.pgReplicationConfig, {
-    acknowledge: { auto: false, timeoutSeconds: 0 },
-  });
-  service.on('data', async (lsn: string, log: Pgoutput.Message) => {
-    await onData(
-      log,
-      async () => {
-        await service.acknowledge(lsn);
-      },
-      config.settings,
-      messageHandler,
-      errorHandler,
-      mapAdditionalRows,
-    );
-  });
-  service.on('error', errorListener);
-  service.on('heartbeat', async (lsn, _timestamp, shouldRespond) => {
-    if (shouldRespond) {
-      await service.acknowledge(lsn);
-    }
-  });
-  return service;
-};
-
-const onData = async <T extends OutboxMessage>(
-  message: Pgoutput.Message,
-  ack: () => Promise<void>,
-  settings: ServiceConfig['settings'],
-  messageHandler: (message: T) => Promise<void>,
-  errorHandler?: (
-    err: Error,
-    message: T,
-    ack: () => Promise<void>,
-  ) => Promise<void>,
-  mapAdditionalRows?: (row: object) => Record<string, unknown>,
-) => {
-  const msg = getRelevantMessage(message, settings, mapAdditionalRows);
-  if (msg) {
-    // 'OutboxMessage' is assignable to the constraint of type 'T',
-    // but 'T' could be instantiated with a different subtype of constraint 'OutboxMessage'
-    const message = msg as T;
-    logger().trace(
-      message,
-      `Received a WAL message for ${settings.dbSchema}.${settings.dbTable}`,
-    );
-    try {
-      await messageHandler(message);
-      await ack();
-    } catch (err) {
-      const error = ensureError(err);
-      logger().error({ ...message, err: error }, error.message);
-      try {
-        if (errorHandler) {
-          await errorHandler(error, message, async () => {
-            await ack();
-          });
-        }
-      } catch (error) {
-        logger().error(
-          { ...message, err: error },
-          'The errorHandler handling failed.',
-        );
-      }
-    }
-  }
 };
 
 const getRelevantMessage = <T extends OutboxMessage>(

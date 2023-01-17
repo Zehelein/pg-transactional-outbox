@@ -34,7 +34,7 @@ process.on('unhandledRejection', (err, promise) => {
 
   // Close all connections
   const cleanup = async () => {
-    await Promise.allSettled([shutdownRmq, shutdownOutSrv]);
+    await Promise.allSettled([shutdownRmq(), shutdownOutSrv()]);
     process.exit(0);
   };
   process.on('SIGINT', cleanup);

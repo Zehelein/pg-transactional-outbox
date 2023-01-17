@@ -80,24 +80,19 @@ export const verifyInbox = async (
   { id }: InboxMessage,
   client: PoolClient,
   { settings }: Pick<InboxServiceConfig, 'settings'>,
-): Promise<void> => {
+): Promise<true | InboxErrorType> => {
   // Get the inbox data and lock it for updates. Use NOWAIT to immediately fail if another process is locking it.
   const inboxResult = await client.query(
     /* sql*/ `SELECT processed_at FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT`,
     [id],
   );
   if (inboxResult.rowCount === 0) {
-    throw new InboxError(
-      `Received a WAL inbox message with id ${id} but found no database entry.`,
-      'INBOX_MESSAGE_NOT_FOUND',
-    );
+    return 'INBOX_MESSAGE_NOT_FOUND';
   }
   if (inboxResult.rows[0].processed_at) {
-    throw new InboxError(
-      `The inbox message ${id} was already processed.`,
-      'ALREADY_PROCESSED',
-    );
+    return 'ALREADY_PROCESSED';
   }
+  return true;
 };
 
 /**

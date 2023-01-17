@@ -86,26 +86,35 @@ const createMessageHandler = (
 ) => {
   return async (message: InboxMessage) => {
     await executeTransaction(pool, async (client) => {
-      await verifyInbox(message, client, config);
-      await Promise.all(
-        messageHandlers
-          .filter(
-            ({ aggregateType, eventType }) =>
-              aggregateType === message.aggregateType &&
-              eventType === message.eventType,
-          )
-          .map(({ handle }) => handle(message, client)),
-      );
-      await ackInbox(message, client, config);
+      const result = await verifyInbox(message, client, config);
+      if (result === true) {
+        await Promise.all(
+          messageHandlers
+            .filter(
+              ({ aggregateType, eventType }) =>
+                aggregateType === message.aggregateType &&
+                eventType === message.eventType,
+            )
+            .map(({ handle }) => handle(message, client)),
+        );
+        await ackInbox(message, client, config);
+      } else {
+        logger().warn(
+          message,
+          `Received inbox message cannot be processed: ${result}`,
+        );
+      }
     });
   };
 };
 
-/** Check if the message should be retried or if the error is a final error. */
-const isNonTransientError = (error: unknown) =>
-  error instanceof InboxError &&
-  (error.code === 'ALREADY_PROCESSED' ||
-    error.code === 'INBOX_MESSAGE_NOT_FOUND');
+/** Returns true if it is a transient error and should be retried - otherwise false. */
+const isTransientError = (error: unknown) =>
+  !(
+    error instanceof InboxError &&
+    (error.code === 'ALREADY_PROCESSED' ||
+      error.code === 'INBOX_MESSAGE_NOT_FOUND')
+  );
 
 /**
  * Handle specific error cases (message already processed/not found) by
@@ -113,24 +122,22 @@ const isNonTransientError = (error: unknown) =>
  * counter of the message and retry it later.
  */
 const createErrorResolver = (pool: Pool, config: InboxServiceConfig) => {
-  return async (
-    error: Error,
-    message: InboxMessage,
-    ack: () => Promise<void>,
-  ) => {
+  /**
+   * An error handler that will increase the inbox retries count on transient errors.
+   * It returns true if the message should be retried.
+   * @returns true to retry the message - otherwise false
+   */
+  return async (error: Error, message: InboxMessage): Promise<boolean> => {
     try {
-      if (isNonTransientError(error)) {
-        await ack();
-        logger().error({ ...message, err: error }, error.message);
+      if (isTransientError(error)) {
+        return true;
       } else {
-        await executeTransaction(pool, async (client) => {
-          logger().error(
-            { ...message, err: error },
-            'Message handling failed.',
-          );
+        return await executeTransaction(pool, async (client) => {
           const action = await nackInbox(message, client, config);
           if (action === 'RETRIES_EXCEEDED') {
-            await ack();
+            return false;
+          } else {
+            return true;
           }
         });
       }
@@ -139,6 +146,7 @@ const createErrorResolver = (pool: Pool, config: InboxServiceConfig) => {
         { ...message, err: error },
         'The message handling error handling failed.',
       );
+      return true;
     }
   };
 };
