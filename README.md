@@ -478,6 +478,13 @@ import { ClientBase } from 'pg';
 })();
 ```
 
+> **Please note:** This library does not automatically delete inbox messages
+> from the inbox table. Keeping them is required to ensure that a message is
+> only processed once (due to multiple deliveries or replay attacks). Please
+> define your own logic on how long the messages should stay in this table. This
+> can be a few hours but also some days. Messages that are older than this
+> defined duration should not be processed anymore.
+
 ## Testing
 
 The `__tests__` folder contains integration tests that test the functionality of
@@ -485,3 +492,9 @@ the outbox and inbox service implementation. The tests are using the
 `testcontainers` library to start up a new docker PostgreSQL server.
 
 You can simply run the `test` script to execute the tests.
+
+The script `logical-rep-service` starts a manual test of the used
+[LogicalReplicationService](https://github.com/kibae/pg-logical-replication)
+library. This can be used to see how the library acts on different outage
+scenarios like a lost database server or other issues. This script depends on
+the infrastructure that is crated with the `infra:up` script.

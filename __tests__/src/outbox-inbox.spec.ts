@@ -354,4 +354,110 @@ describe('Sending messages from a producer to a consumer works.', () => {
       uuids.map((id) => ({ aggregateId: id })).sort(compareEntities),
     );
   });
+
+  test('A single message is sent and received even with two outbox services', async () => {
+    // Arrange
+    const entityId = uuid();
+    const content = createContent(entityId);
+    let receivedFromOutbox1: OutboxMessage | null = null;
+    let receivedFromOutbox2: OutboxMessage | null = null;
+    const storeOutboxMessage = initializeOutboxMessageStorage(
+      aggregateType,
+      eventType,
+      configs.outboxServiceConfig,
+    );
+    const [shutdown1] = await initializeOutboxService(
+      configs.outboxServiceConfig,
+      async (msg) => {
+        receivedFromOutbox1 = msg;
+      },
+    );
+    await sleep(500); // enough time for the first one to start up
+    const [shutdown2] = await initializeOutboxService(
+      configs.outboxServiceConfig,
+      async (msg) => {
+        receivedFromOutbox2 = msg;
+      },
+    );
+    cleanup = async () => {
+      await Promise.all([shutdown1(), shutdown2()]);
+    };
+
+    // Act
+    await insertSourceEntity(loginPool, entityId, content, storeOutboxMessage);
+
+    // Assert
+    await sleep(500);
+    expect(receivedFromOutbox1).not.toBeNull();
+    // The second service does not start as only one reader per slot is allowed
+    expect(receivedFromOutbox2).toBeNull();
+  });
+
+  test('An inbox message is acknowledged if there is no handler for it.', async () => {
+    // Arrange
+    const msg1: OutboxMessage = {
+      id: uuid(),
+      aggregateId: uuid(),
+      aggregateType,
+      eventType,
+      payload: { content: 'some movie' },
+      createdAt: '2023-01-18T21:02:27.000Z',
+    };
+    const msg2: OutboxMessage = {
+      ...msg1,
+      id: uuid(),
+      aggregateId: uuid(),
+      eventType: 'something_else',
+    };
+    const processedMessages: InboxMessage[] = [];
+    const [storeInboxMessage, shutdownInboxStorage] =
+      await initializeInboxMessageStorage(configs.inboxServiceConfig);
+    const [shutdownInboxSrv] = await initializeInboxService(
+      configs.inboxServiceConfig,
+      [
+        {
+          aggregateType,
+          eventType,
+          handle: async (message: InboxMessage): Promise<void> => {
+            processedMessages.push(message);
+          },
+        },
+      ],
+    );
+    cleanup = async () => {
+      await shutdownInboxStorage();
+      await shutdownInboxSrv();
+    };
+
+    // Act
+    await storeInboxMessage(msg1);
+    await storeInboxMessage(msg2);
+
+    // Assert
+    await sleep(500);
+    expect(processedMessages).toHaveLength(1);
+    expect(processedMessages[0]).toMatchObject(msg1);
+
+    // Check that the second message is not received now either
+    await shutdownInboxSrv();
+    let receivedMsg2: InboxMessage | null = null;
+    const [shutdownInboxSrv2] = await initializeInboxService(
+      configs.inboxServiceConfig,
+      [
+        {
+          aggregateType,
+          eventType: 'something_else',
+          handle: async (message: InboxMessage): Promise<void> => {
+            receivedMsg2 = message;
+          },
+        },
+      ],
+    );
+    cleanup = async () => {
+      await shutdownInboxStorage();
+      await shutdownInboxSrv2();
+    };
+    await sleep(500);
+    expect(receivedMsg2).toBeNull();
+  });
 });

@@ -1,4 +1,3 @@
-import { ClientConfig } from 'pg';
 import {
   LogicalReplicationService,
   Pgoutput,

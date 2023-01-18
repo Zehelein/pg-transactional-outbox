@@ -3,7 +3,7 @@
 This example implements the transactional outbox and inbox pattern to send an
 event message when a movie is created. It uses RabbitMQ for transporting the
 message. RabbitMQ is an open-source message-broker software that implements the
-Advanced Message Queuing Protocol (AMQP). In our example it is used to exchange
+Advanced Message Queuing Protocol (AMQP). In our example, it is used to exchange
 "movie_created" messages between the producer and the consumer applications.
 
 ## Infrastructure
@@ -28,3 +28,15 @@ it to set up the corresponding database, login roles, and table structure.
 
 The package.json files include a "dev:watch" and "debug:watch" for development
 and a "start" script that can be used after the project was built.
+
+# Notes
+
+The RabbitMQ connection is using [Rascal](https://github.com/onebeyond/rascal)
+to send and receive messages. This library is built on top of
+[amqplib](https://www.npmjs.com/package/amqplib) and adds a lot of options to
+make message delivery more resilient.
+
+This example uses a rather minimalistic configuration. If you want to use it for
+production scenarios please check their documentation. You would at least need
+to configure redeliveries and retries, maybe add message encryption and other
+logic.
