@@ -8,7 +8,7 @@ The core functions of the library are the following:
 
 ## Outbox
 
-The `initializeOutboxMessageStore` function is a generator function to store
+The `initializeOutboxMessageStorage` function is a generator function to store
 outbox messages for a specific aggregate type (e.g. a movie or an order) and a
 corresponding event type (e.g. movie_created or order_cancelled). The generated
 function can then be used to store a message in the outbox table. Each outbox

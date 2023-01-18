@@ -289,14 +289,14 @@ select pg_create_logical_replication_slot('pg_transactional_inbox_slot', 'pgoutp
 The following code shows the producer side of the transactional outbox pattern.
 The two main functions are the `initializeOutboxService` to listen to the WAL
 messages when an outbox message was written to the outbox table. And the
-`initializeOutboxMessageStore` generator function to store outgoing messages in
-the outbox table (for a specific aggregate type and event type).
+`initializeOutboxMessageStorage` generator function to store outgoing messages
+in the outbox table (for a specific aggregate type and event type).
 
 ```TypeScript
 import {
   initializeOutboxService,
   OutboxMessage,
-  initializeOutboxMessageStore,
+  initializeOutboxMessageStorage,
 } from 'pg-transactional-outbox';
 import process from 'node:process';
 import { Client } from 'pg';
@@ -333,7 +333,7 @@ import { Client } from 'pg';
   // aggregate type (movie) and the event type (movie_created). It will be
   // called to insert the outgoing message into the outbox as part of the DB
   // transaction that is responsible for this event.
-  const storeOutboxMessage = initializeOutboxMessageStore('movie', 'movie_created', {
+  const storeOutboxMessage = initializeOutboxMessageStorage('movie', 'movie_created', {
     outboxSchema: 'public',
   });
 

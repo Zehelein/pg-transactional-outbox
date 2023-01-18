@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { resolve } from 'path';
-import { Client, ClientBase, Pool, PoolClient } from 'pg';
+import { ClientBase, Pool, PoolClient } from 'pg';
 import { v4 as uuid } from 'uuid';
 import {
   executeTransaction,
@@ -8,7 +8,7 @@ import {
   InboxMessageHandler,
   initializeInboxMessageStorage,
   initializeInboxService,
-  initializeOutboxMessageStore,
+  initializeOutboxMessageStorage,
   initializeOutboxService,
   logger,
   OutboxMessage,
@@ -21,12 +21,13 @@ import {
   TestConfigs,
   setupTestDb,
   sleep,
-  retryCallback,
   isDebugMode,
 } from './test-utils';
 
-jest.setTimeout(60_000);
-if (!isDebugMode()) {
+if (isDebugMode()) {
+  jest.setTimeout(600_000);
+} else {
+  jest.setTimeout(60_000);
   // Hide logs if the tests are not run in debug mode
   const fakePinoLogger = {
     child: () => fakePinoLogger,
@@ -46,10 +47,10 @@ const eventType = 'source_entity_created';
 const setupProducerAndConsumer = async (
   { inboxServiceConfig, outboxServiceConfig }: TestConfigs,
   inboxMessageHandlers: InboxMessageHandler[],
-  outboxPublisherWrapper?: (message: OutboxMessage) => boolean,
+  messagePublisherWrapper?: (message: OutboxMessage) => boolean,
 ): Promise<
   [
-    storeOutboxMessage: ReturnType<typeof initializeOutboxMessageStore>,
+    storeOutboxMessage: ReturnType<typeof initializeOutboxMessageStorage>,
     shutdown: () => Promise<void>,
   ]
 > => {
@@ -67,8 +68,8 @@ const setupProducerAndConsumer = async (
   };
   const messagePublisher = async (message: OutboxMessage): Promise<void> => {
     if (
-      outboxPublisherWrapper === undefined ||
-      outboxPublisherWrapper(message)
+      messagePublisherWrapper === undefined ||
+      messagePublisherWrapper(message)
     ) {
       await messageReceiver(message);
     }
@@ -79,7 +80,7 @@ const setupProducerAndConsumer = async (
     outboxServiceConfig,
     messagePublisher,
   );
-  const storeOutboxMessage = initializeOutboxMessageStore(
+  const storeOutboxMessage = initializeOutboxMessageStorage(
     aggregateType,
     eventType,
     outboxServiceConfig,
@@ -101,7 +102,7 @@ const insertSourceEntity = async (
   loginPool: Pool,
   id: string,
   content: string,
-  storeOutboxMessage: ReturnType<typeof initializeOutboxMessageStore>,
+  storeOutboxMessage: ReturnType<typeof initializeOutboxMessageStorage>,
 ) => {
   await executeTransaction(loginPool, async (client: PoolClient) => {
     const entity = await client.query(
@@ -121,25 +122,6 @@ const compareEntities = (
   { aggregateId: id1 }: { aggregateId: string },
   { aggregateId: id2 }: { aggregateId: string },
 ) => (id1 > id2 ? 1 : id2 > id1 ? -1 : 0);
-
-const createInfraOutage = async (
-  startedEnv: StartedDockerComposeEnvironment,
-) => {
-  try {
-    // Stop the environment and a bit later start the PG container again
-    await startedEnv.stop();
-  } catch (error) {
-    logger().error(error);
-  }
-  setTimeout(async () => {
-    try {
-      const postgresContainer = startedEnv.getContainer('postgres');
-      await postgresContainer.restart();
-    } catch (error) {
-      logger().error(error);
-    }
-  }, 3000);
-};
 
 describe('Sending messages from a producer to a consumer works.', () => {
   let dockerEnv: DockerComposeEnvironment;
@@ -173,8 +155,8 @@ describe('Sending messages from a producer to a consumer works.', () => {
   });
 
   afterAll(async () => {
-    loginPool.end().catch((e) => logger().error(e));
-    startedEnv.down().catch((e) => logger().error(e));
+    loginPool?.end().catch((e) => logger().error(e));
+    startedEnv?.down().catch((e) => logger().error(e));
   });
 
   test('A single message is sent and received', async () => {
@@ -321,24 +303,55 @@ describe('Sending messages from a producer to a consumer works.', () => {
     });
   });
 
-  test('Ensure reconnection possible after PostgreSQL outage.', async () => {
-    const ensureDbConnection = async () => {
-      let client: Client | undefined = undefined;
-      try {
-        client = new Client(configs.loginConnection);
-        await client.connect();
-        const one = await client.query(`SELECT 1 as one`);
-        expect(one).toMatchObject({
-          rowCount: 1,
-          rows: [{ one: 1 }],
-        });
-      } finally {
-        await client?.end();
-      }
+  test('100 messages are reliably sent even if some parts throw errors.', async () => {
+    // Arrange
+    const uuids = Array.from(Array(100), () => uuid());
+    const inboxMessageReceived: InboxMessage[] = [];
+    const inboxMessageHandler = {
+      aggregateType: aggregateType,
+      eventType: eventType,
+      handle: async (
+        message: InboxMessage,
+        _client: ClientBase,
+      ): Promise<void> => {
+        inboxMessageReceived.push(message);
+      },
     };
+    let maxErrors = 10;
+    const [storeOutboxMessage, shutdown] = await setupProducerAndConsumer(
+      configs,
+      [inboxMessageHandler],
+      () => {
+        if (Math.random() < 0.1 && maxErrors-- > 0) {
+          throw new Error('Some fake error in the message sending process.');
+        }
+        return true;
+      },
+    );
+    cleanup = shutdown;
+    // wait a bit so older WAL messages are received
+    await sleep(500);
 
-    await ensureDbConnection();
-    await createInfraOutage(startedEnv);
-    await retryCallback(ensureDbConnection, 10_000, 100);
+    // Act
+    await Promise.all(
+      uuids.map(async (msgId) =>
+        insertSourceEntity(
+          loginPool,
+          msgId,
+          JSON.stringify({ id: uuid(), content: 'movie' }),
+          storeOutboxMessage,
+        ),
+      ),
+    );
+
+    // Assert
+    const timeout = Date.now() + 60_000;
+    while (inboxMessageReceived.length !== 100 && Date.now() < timeout) {
+      await sleep(100);
+    }
+    expect(inboxMessageReceived).toHaveLength(100);
+    expect(inboxMessageReceived.sort(compareEntities)).toMatchObject(
+      uuids.map((id) => ({ aggregateId: id })).sort(compareEntities),
+    );
   });
 });

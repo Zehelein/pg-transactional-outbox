@@ -1,6 +1,6 @@
 import { Pool, PoolClient } from 'pg';
 import {
-  initializeOutboxMessageStore,
+  initializeOutboxMessageStorage,
   executeTransaction,
   ServiceConfig,
 } from 'pg-transactional-outbox';
@@ -33,7 +33,7 @@ export const addMovies = async (
   });
 
   // Create the outbox storage function for the movie created event
-  const storeOutboxMessage = initializeOutboxMessageStore(
+  const storeOutboxMessage = initializeOutboxMessageStorage(
     MovieAggregateType,
     MovieCreatedEventType,
     outboxConfig,

@@ -90,10 +90,10 @@ export const createService = async <T extends OutboxMessage>(
                   const retry = await errorHandler(err, message, async () => {
                     await service.acknowledge(lsn);
                   });
-                  if (retry) {
+                  if (retry && !service.isStop()) {
                     service.emit('error', error);
                   }
-                } else {
+                } else if (!service.isStop()) {
                   service.emit('error', error);
                 }
               }

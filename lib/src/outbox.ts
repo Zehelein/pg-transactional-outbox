@@ -11,7 +11,7 @@ import { OutboxServiceConfig } from './outbox-service';
  * @param config The configuration object that defines the outbox table schema.
  * @returns The function to store the outbox message data to the database.
  */
-export const initializeOutboxMessageStore = (
+export const initializeOutboxMessageStorage = (
   aggregateType: string,
   eventType: string,
   { settings: { dbSchema, dbTable } }: Pick<OutboxServiceConfig, 'settings'>,
