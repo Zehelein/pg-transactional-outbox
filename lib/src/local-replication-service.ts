@@ -185,3 +185,16 @@ const getOutboxMessage = <T extends OutboxMessage>(
   };
   return message as T;
 };
+
+/**
+ * This export is _only_ done for unit tests as the createService function is
+ * otherwise very hard to unit test. Exports are only done for jest tests.
+ */
+export const __only_for_unit_tests__: {
+  getRelevantMessage?: typeof getRelevantMessage;
+  getOutboxMessage?: typeof getOutboxMessage;
+} = {};
+if (process.env.JEST_WORKER_ID) {
+  __only_for_unit_tests__.getRelevantMessage = getRelevantMessage;
+  __only_for_unit_tests__.getOutboxMessage = getOutboxMessage;
+}
