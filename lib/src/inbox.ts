@@ -9,16 +9,6 @@ export interface InboxMessage extends OutboxMessage {
   retries: number;
 }
 
-/** An inbox related error. The code contains the reason on which issue ocurred. */
-export class InboxError extends Error {
-  code: InboxErrorType;
-
-  constructor(message: string, code: InboxErrorType) {
-    super(message);
-    this.code = code;
-  }
-}
-
 /**
  * Initialize the inbox message storage to store incoming messages in the inbox table.
  * @param config The configuration object that defines the values on how to connect to the database.
@@ -40,7 +30,7 @@ export const initializeInboxMessageStorage = async (
   /**
    * The function to store the inbox message data to the database.
    * @param message The received message that should be stored as inbox message
-   * @throws InboxError if the inbox message could not be stored
+   * @throws Error if the inbox message could not be stored
    */
   return [
     async (message: OutboxMessage): Promise<void> => {
@@ -53,9 +43,8 @@ export const initializeInboxMessageStorage = async (
           { ...message, err },
           'Could not store the inbox message',
         );
-        throw new InboxError(
+        throw new Error(
           `Could not store the inbox message with id ${message.id}`,
-          'STORE_INBOX_MESSAGE_FAILED',
         );
       }
     },
@@ -80,7 +69,7 @@ export const verifyInbox = async (
   { id }: InboxMessage,
   client: PoolClient,
   { settings }: Pick<InboxServiceConfig, 'settings'>,
-): Promise<true | InboxErrorType> => {
+): Promise<true | 'INBOX_MESSAGE_NOT_FOUND' | 'ALREADY_PROCESSED'> => {
   // Get the inbox data and lock it for updates. Use NOWAIT to immediately fail if another process is locking it.
   const inboxResult = await client.query(
     /* sql*/ `SELECT processed_at FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT`,
@@ -145,12 +134,6 @@ export const nackInbox = async (
     return 'RETRIES_EXCEEDED';
   }
 };
-
-type InboxErrorType =
-  | 'INBOX_MESSAGE_NOT_FOUND'
-  | 'ALREADY_PROCESSED'
-  | 'MESSAGE_HANDLING_ERROR'
-  | 'STORE_INBOX_MESSAGE_FAILED';
 
 const insertInbox = async (
   message: OutboxMessage,

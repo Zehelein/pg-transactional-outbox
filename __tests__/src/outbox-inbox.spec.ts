@@ -3,6 +3,7 @@ import { resolve } from 'path';
 import { ClientBase, Pool, PoolClient } from 'pg';
 import { v4 as uuid } from 'uuid';
 import {
+  disableLogger,
   executeTransaction,
   InboxMessage,
   InboxMessageHandler,
@@ -12,7 +13,6 @@ import {
   initializeOutboxService,
   logger,
   OutboxMessage,
-  setLogger,
 } from 'pg-transactional-outbox';
 import { DockerComposeEnvironment } from 'testcontainers';
 import { StartedDockerComposeEnvironment } from 'testcontainers/dist/docker-compose-environment/started-docker-compose-environment';
@@ -28,19 +28,7 @@ if (isDebugMode()) {
   jest.setTimeout(600_000);
 } else {
   jest.setTimeout(60_000);
-  // Hide logs if the tests are not run in debug mode
-  const fakePinoLogger = {
-    child: () => fakePinoLogger,
-    debug: () => {},
-    error: () => {},
-    fatal: () => {},
-    info: () => {},
-    trace: () => {},
-    warn: () => {},
-    silent: () => {},
-    level: 'silent',
-  };
-  setLogger(fakePinoLogger);
+  disableLogger(); // Hide logs if the tests are not run in debug mode
 }
 const aggregateType = 'source_entity';
 const eventType = 'source_entity_created';

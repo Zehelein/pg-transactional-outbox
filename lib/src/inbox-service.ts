@@ -1,11 +1,5 @@
 import { ClientBase, ClientConfig, Pool } from 'pg';
-import {
-  InboxMessage,
-  InboxError,
-  verifyInbox,
-  ackInbox,
-  nackInbox,
-} from './inbox';
+import { InboxMessage, verifyInbox, ackInbox, nackInbox } from './inbox';
 import { createService, ServiceConfig } from './local-replication-service';
 import { logger } from './logger';
 import { executeTransaction } from './utils';
@@ -108,14 +102,6 @@ const createMessageHandler = (
   };
 };
 
-/** Returns true if it is a transient error and should be retried - otherwise false. */
-const isTransientError = (error: unknown) =>
-  !(
-    error instanceof InboxError &&
-    (error.code === 'ALREADY_PROCESSED' ||
-      error.code === 'INBOX_MESSAGE_NOT_FOUND')
-  );
-
 /**
  * Handle specific error cases (message already processed/not found) by
  * acknowledging the inbox WAL message. For other errors: increase the retry
@@ -124,29 +110,25 @@ const isTransientError = (error: unknown) =>
 const createErrorResolver = (pool: Pool, config: InboxServiceConfig) => {
   /**
    * An error handler that will increase the inbox retries count on transient errors.
-   * It returns true if the message should be retried.
+   * It returns true if the message should nevertheless be acknowledged.
    * @returns true to retry the message - otherwise false
    */
-  return async (error: Error, message: InboxMessage): Promise<boolean> => {
+  return async (message: InboxMessage, _error: Error): Promise<boolean> => {
     try {
-      if (isTransientError(error)) {
-        return true;
-      } else {
-        return await executeTransaction(pool, async (client) => {
-          const action = await nackInbox(message, client, config);
-          if (action === 'RETRIES_EXCEEDED') {
-            return false;
-          } else {
-            return true;
-          }
-        });
-      }
+      return await executeTransaction(pool, async (client) => {
+        const action = await nackInbox(message, client, config);
+        if (action === 'RETRIES_EXCEEDED') {
+          return true; // giving up - acknowledge the WAL message
+        } else {
+          return false; // retry WAL message
+        }
+      });
     } catch (error) {
       logger().error(
         { ...message, err: error },
         'The message handling error handling failed.',
       );
-      return true;
+      return false; // retry WAL message
     }
   };
 };

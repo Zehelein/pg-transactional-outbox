@@ -10,7 +10,7 @@ import {
   initializeInboxMessageStorage,
   logger,
   OutboxMessage,
-  setLogger,
+  disableLogger,
   initializeInboxService,
 } from 'pg-transactional-outbox';
 import { DockerComposeEnvironment } from 'testcontainers';
@@ -27,19 +27,7 @@ if (isDebugMode()) {
   jest.setTimeout(600_000);
 } else {
   jest.setTimeout(90_000);
-  // Hide logs if the tests are not run in debug mode
-  const fakePinoLogger = {
-    child: () => fakePinoLogger,
-    debug: () => {},
-    error: () => {},
-    fatal: () => {},
-    info: () => {},
-    trace: () => {},
-    warn: () => {},
-    silent: () => {},
-    level: 'silent',
-  };
-  setLogger(fakePinoLogger);
+  disableLogger(); // Hide logs if the tests are not run in debug mode
 }
 const aggregateType = 'source_entity';
 const eventType = 'source_entity_created';

@@ -9,7 +9,7 @@
   "private": true,
   "scripts": {
     "clean": "rimraf dist && rimraf tsconfig.tsbuildinfo",
-    "prepack": "tsc",
+    "prepack": "yarn clean && tsc",
     "test": "jest",
     "dev:watch": "tsc-watch"
   },

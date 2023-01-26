@@ -6,6 +6,7 @@ import {
   OutboxMessage,
   __only_for_unit_tests__ as tests,
 } from './local-replication-service';
+import { disableLogger } from './logger';
 import { sleep } from './utils';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
@@ -13,9 +14,12 @@ if (isDebugMode()) {
   jest.setTimeout(600_000);
 } else {
   jest.setTimeout(7_000); // for the 5sec heartbeat
+  disableLogger(); // Hide logs if the tests are not run in debug mode
 }
 
-const listeners: {
+const repService: {
+  // We expose the callback methods that are normally called from the "on"
+  // "data/error/heartbeat" emitted events to be able to manually call them.
   handleData?: (lsn: string, log: any) => Promise<void> | void;
   handleError?: (err: Error) => void;
   handleHeartbeat?: (
@@ -38,13 +42,13 @@ jest.mock('pg-logical-replication', () => {
         on: (event: 'data' | 'error' | 'heartbeat', listener: any) => {
           switch (event) {
             case 'data':
-              listeners.handleData = listener;
+              repService.handleData = listener;
               break;
             case 'error':
-              listeners.handleError = listener;
+              repService.handleError = listener;
               break;
             case 'heartbeat':
-              listeners.handleHeartbeat = listener;
+              repService.handleHeartbeat = listener;
               break;
           }
         },
@@ -58,8 +62,8 @@ jest.mock('pg-logical-replication', () => {
           }),
         isStop: () => true,
       };
-      listeners.acknowledge = lrs.acknowledge;
-      listeners.stop = lrs.stop;
+      repService.acknowledge = lrs.acknowledge;
+      repService.stop = lrs.stop;
       return lrs;
     }),
   };
@@ -179,17 +183,17 @@ describe('Local replication service unit tests', () => {
     });
   });
 
-  describe('getOutboxMessage', () => {
+  describe('mapMessage', () => {
     it('should return undefined if input is not an object', () => {
-      expect(tests?.getOutboxMessage?.('not an object')).toBeUndefined();
-      expect(tests?.getOutboxMessage?.(null)).toBeUndefined();
-      expect(tests?.getOutboxMessage?.(undefined)).toBeUndefined();
+      expect(tests?.mapMessage?.('not an object')).toBeUndefined();
+      expect(tests?.mapMessage?.(null)).toBeUndefined();
+      expect(tests?.mapMessage?.(undefined)).toBeUndefined();
     });
 
     it('should return undefined if input is missing required properties', () => {
-      expect(tests?.getOutboxMessage?.({})).toBeUndefined();
+      expect(tests?.mapMessage?.({})).toBeUndefined();
       expect(
-        tests?.getOutboxMessage?.({
+        tests?.mapMessage?.({
           id: '123',
           aggregate_type: 'test_type',
         }),
@@ -198,7 +202,7 @@ describe('Local replication service unit tests', () => {
 
     it('should return undefined if input has wrong types for required properties', () => {
       expect(
-        tests?.getOutboxMessage?.({
+        tests?.mapMessage?.({
           id: 123, // not a string
           aggregate_type: 'test_type',
           aggregate_id: 'test_id',
@@ -218,7 +222,7 @@ describe('Local replication service unit tests', () => {
         created_at: new Date('2023-01-18T21:02:27.000Z'),
         payload: { test: 'payload' },
       };
-      const message = tests?.getOutboxMessage?.(input);
+      const message = tests?.mapMessage?.(input);
       expect(message).toBeDefined();
       expect(message).toEqual({
         id: input.id,
@@ -243,7 +247,7 @@ describe('Local replication service unit tests', () => {
       const mapAdditionalRows = (row: object) => ({
         additional_property: (row as typeof input).additional_property,
       });
-      const message = tests?.getOutboxMessage?.(input, mapAdditionalRows);
+      const message = tests?.mapMessage?.(input, mapAdditionalRows);
       expect(message).toBeDefined();
       expect(message).toEqual({
         id: '123',
@@ -267,11 +271,11 @@ describe('Local replication service unit tests', () => {
       errorHandler = jest.fn();
       mapAdditionalRows = jest.fn();
 
-      listeners.handleData = undefined;
-      listeners.handleError = undefined;
-      listeners.handleHeartbeat = undefined;
-      listeners.acknowledge = undefined;
-      listeners.stop = undefined;
+      repService.handleData = undefined;
+      repService.handleError = undefined;
+      repService.handleHeartbeat = undefined;
+      repService.acknowledge = undefined;
+      repService.stop = undefined;
     });
 
     it('should call messageHandler and acknowledge the message when no errors are thrown', async () => {
@@ -294,10 +298,10 @@ describe('Local replication service unit tests', () => {
         payload: { result: 'success' },
         createdAt: '2023-01-18T21:02:27.000Z',
       };
-      expect(listeners.handleData).toBeDefined();
+      expect(repService.handleData).toBeDefined();
 
       // Act
-      await listeners.handleData!('0/00000001', {
+      await repService.handleData!('0/00000001', {
         tag: 'insert',
         relation,
         new: {
@@ -311,15 +315,15 @@ describe('Local replication service unit tests', () => {
       });
 
       // Assert
-      expect(listeners.handleError).toBeDefined();
-      expect(listeners.handleHeartbeat).toBeDefined();
+      expect(repService.handleError).toBeDefined();
+      expect(repService.handleHeartbeat).toBeDefined();
       expect(messageHandler).toHaveBeenCalledWith(message);
       expect(errorHandler).not.toHaveBeenCalled();
       expect(mapAdditionalRows).toHaveBeenCalled();
-      expect(listeners.acknowledge).toHaveBeenCalledWith('0/00000001');
-      expect(listeners.stop).not.toHaveBeenCalled();
+      expect(repService.acknowledge).toHaveBeenCalledWith('0/00000001');
+      expect(repService.stop).not.toHaveBeenCalled();
       await cleanup();
-      expect(listeners.stop).toHaveBeenCalledTimes(1);
+      expect(repService.stop).toHaveBeenCalledTimes(1);
     });
 
     it('should call messageHandler but not acknowledge the message when an error is thrown', async () => {
@@ -335,9 +339,9 @@ describe('Local replication service unit tests', () => {
         async () => {
           throw testError;
         },
-        async (error, msg, _ack) => {
-          expect(error).toStrictEqual(testError);
+        async (msg, error) => {
           expect(msg).toStrictEqual(message);
+          expect(error).toStrictEqual(testError);
           errorHandlerCalled = true;
           return true;
         },
@@ -351,10 +355,10 @@ describe('Local replication service unit tests', () => {
         payload: { result: 'success' },
         createdAt: '2023-01-18T21:02:27.000Z',
       };
-      expect(listeners.handleData).toBeDefined();
+      expect(repService.handleData).toBeDefined();
 
       // Act
-      await listeners.handleData!('0/00000001', {
+      await repService.handleData!('0/00000001', {
         tag: 'insert',
         relation,
         new: {
@@ -368,35 +372,34 @@ describe('Local replication service unit tests', () => {
       });
 
       // Assert
-      expect(listeners.handleError).toBeDefined();
-      expect(listeners.handleHeartbeat).toBeDefined();
+      expect(repService.handleError).toBeDefined();
+      expect(repService.handleHeartbeat).toBeDefined();
       expect(errorHandlerCalled).toBe(true);
       expect(mapAdditionalRows).toHaveBeenCalled();
       expect(errorHandler).not.toHaveBeenCalled();
-      expect(listeners.acknowledge).not.toHaveBeenCalled();
-      expect(listeners.stop).not.toHaveBeenCalled();
+      expect(repService.acknowledge).not.toHaveBeenCalled();
+      expect(repService.stop).not.toHaveBeenCalled();
       await cleanup();
-      expect(listeners.stop).toHaveBeenCalledTimes(1);
+      expect(repService.stop).toHaveBeenCalledTimes(1);
     });
 
-    it('should call messageHandler and acknowledge the message when an error is thrown', async () => {
+    it('should call messageHandler and not acknowledge the message when an error is thrown', async () => {
       // Arrange
       const config = {
         pgReplicationConfig: {},
         settings,
       };
-      const testError = new Error('Non recoverable error');
+      const testError = new Error('Unit test error');
       let errorHandlerCalled = false;
       const [cleanup] = await createService<OutboxMessage>(
         config,
         async () => {
           throw testError;
         },
-        async (error, msg, ack) => {
-          expect(error).toStrictEqual(testError);
+        async (msg, error) => {
           expect(msg).toStrictEqual(message);
+          expect(error).toStrictEqual(testError);
           errorHandlerCalled = true;
-          await ack();
           return true;
         },
         mapAdditionalRows,
@@ -409,10 +412,10 @@ describe('Local replication service unit tests', () => {
         payload: { result: 'success' },
         createdAt: '2023-01-18T21:02:27.000Z',
       };
-      expect(listeners.handleData).toBeDefined();
+      expect(repService.handleData).toBeDefined();
 
       // Act
-      await listeners.handleData!('0/00000001', {
+      await repService.handleData!('0/00000001', {
         tag: 'insert',
         relation,
         new: {
@@ -426,15 +429,15 @@ describe('Local replication service unit tests', () => {
       });
 
       // Assert
-      expect(listeners.handleError).toBeDefined();
-      expect(listeners.handleHeartbeat).toBeDefined();
+      expect(repService.handleError).toBeDefined();
+      expect(repService.handleHeartbeat).toBeDefined();
       expect(errorHandlerCalled).toBe(true);
       expect(errorHandler).not.toHaveBeenCalled();
       expect(mapAdditionalRows).toHaveBeenCalled();
-      expect(listeners.acknowledge).toHaveBeenCalled();
-      expect(listeners.stop).not.toHaveBeenCalled();
+      expect(repService.acknowledge).not.toHaveBeenCalled();
+      expect(repService.stop).not.toHaveBeenCalled();
       await cleanup();
-      expect(listeners.stop).toHaveBeenCalledTimes(1);
+      expect(repService.stop).toHaveBeenCalledTimes(1);
     });
 
     it('A heartbeat should be acknowledged after 5 seconds', async () => {
@@ -449,25 +452,25 @@ describe('Local replication service unit tests', () => {
         errorHandler,
         mapAdditionalRows,
       );
-      expect(listeners.handleHeartbeat).toBeDefined();
+      expect(repService.handleHeartbeat).toBeDefined();
 
       // Act
-      await listeners.handleHeartbeat!('0/00000001', 123, true);
+      await repService.handleHeartbeat!('0/00000001', 123, true);
 
       // Assert
-      expect(listeners.handleData).toBeDefined();
-      expect(listeners.handleError).toBeDefined();
+      expect(repService.handleData).toBeDefined();
+      expect(repService.handleError).toBeDefined();
       expect(messageHandler).not.toHaveBeenCalled();
       expect(mapAdditionalRows).not.toHaveBeenCalled();
       expect(errorHandler).not.toHaveBeenCalled();
-      expect(listeners.acknowledge).not.toHaveBeenCalled();
+      expect(repService.acknowledge).not.toHaveBeenCalled();
       await sleep(4000);
-      expect(listeners.acknowledge).not.toHaveBeenCalled();
+      expect(repService.acknowledge).not.toHaveBeenCalled();
       await sleep(1010);
-      expect(listeners.acknowledge).toHaveBeenCalled();
-      expect(listeners.stop).not.toHaveBeenCalled();
+      expect(repService.acknowledge).toHaveBeenCalled();
+      expect(repService.stop).not.toHaveBeenCalled();
       await cleanup();
-      expect(listeners.stop).toHaveBeenCalledTimes(1);
+      expect(repService.stop).toHaveBeenCalledTimes(1);
     });
 
     it('A heartbeat should not be acknowledged after 5 seconds when a message acknowledgement comes in between', async () => {
@@ -482,13 +485,13 @@ describe('Local replication service unit tests', () => {
         errorHandler,
         mapAdditionalRows,
       );
-      expect(listeners.handleData).toBeDefined();
-      expect(listeners.handleHeartbeat).toBeDefined();
+      expect(repService.handleData).toBeDefined();
+      expect(repService.handleHeartbeat).toBeDefined();
 
       // Act
-      await listeners.handleHeartbeat!('0/00000001', 123, true);
+      await repService.handleHeartbeat!('0/00000001', 123, true);
       await sleep(1000);
-      await listeners.handleData!('0/00000002', {
+      await repService.handleData!('0/00000002', {
         tag: 'insert',
         relation,
         new: {
@@ -502,16 +505,16 @@ describe('Local replication service unit tests', () => {
       });
 
       // Assert
-      expect(listeners.handleError).toBeDefined();
+      expect(repService.handleError).toBeDefined();
       expect(messageHandler).toHaveBeenCalled();
       expect(mapAdditionalRows).toHaveBeenCalled();
       expect(errorHandler).not.toHaveBeenCalled();
-      expect(listeners.acknowledge).toHaveBeenCalledWith('0/00000002');
+      expect(repService.acknowledge).toHaveBeenCalledWith('0/00000002');
       await sleep(4010);
-      expect(listeners.acknowledge).toHaveBeenCalledTimes(1);
-      expect(listeners.stop).not.toHaveBeenCalled();
+      expect(repService.acknowledge).toHaveBeenCalledTimes(1);
+      expect(repService.stop).not.toHaveBeenCalled();
       await cleanup();
-      expect(listeners.stop).toHaveBeenCalledTimes(1);
+      expect(repService.stop).toHaveBeenCalledTimes(1);
     });
   });
 });

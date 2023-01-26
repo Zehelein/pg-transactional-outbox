@@ -6,11 +6,6 @@ export {
   InboxMessageHandler,
   InboxServiceConfig,
 } from './inbox-service';
-export {
-  initializeInboxMessageStorage,
-  InboxMessage,
-  InboxError,
-} from './inbox';
-
-export { logger, setLogger } from './logger';
+export { initializeInboxMessageStorage, InboxMessage } from './inbox';
+export { logger, setLogger, disableLogger } from './logger';
 export { executeTransaction, ensureError } from './utils';

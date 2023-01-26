@@ -40,18 +40,14 @@ export interface ServiceConfig {
  * Initiate the outbox/inbox table to listen for WAL messages.
  * @param config The replication connection settings and general service settings
  * @param messageHandler The message handler that handles the outbox/inbox message
- * @param errorHandler A handler that can decide if the message should be retried (true; restarts the service) or not (false)
+ * @param errorHandler A handler that can decide if the WAL message should be acknowledged (true) or not (restarts the logical replication service)
  * @param mapAdditionalRows The inbox table requires an additional row to be mapped to the inbox message
  * @returns A function to stop the service
  */
 export const createService = async <T extends OutboxMessage>(
   { pgReplicationConfig, settings }: ServiceConfig,
   messageHandler: (message: T) => Promise<void>,
-  errorHandler?: (
-    err: Error,
-    message: T,
-    ack: () => Promise<void>,
-  ) => Promise<boolean>,
+  errorHandler?: (message: T, err: Error) => Promise<boolean>,
   mapAdditionalRows?: (row: object) => Record<string, unknown>,
 ): Promise<[shutdown: { (): Promise<void> }]> => {
   const plugin = new PgoutputPlugin({
@@ -87,10 +83,10 @@ export const createService = async <T extends OutboxMessage>(
                 const err = ensureError(error);
                 logger().error({ ...message, err }, err.message);
                 if (errorHandler) {
-                  const retry = await errorHandler(err, message, async () => {
+                  const acknowledge = await errorHandler(message, err);
+                  if (acknowledge && !service.isStop()) {
                     await service.acknowledge(lsn);
-                  });
-                  if (retry && !service.isStop()) {
+                  } else if (!service.isStop()) {
                     service.emit('error', error);
                   }
                 } else if (!service.isStop()) {
@@ -140,6 +136,7 @@ export const createService = async <T extends OutboxMessage>(
   ];
 };
 
+/** Get and map the inbox/outbox message if the WAL log event is such an event. Otherwise returns undefined. */
 const getRelevantMessage = <T extends OutboxMessage>(
   log: Pgoutput.Message,
   { dbSchema, dbTable }: ServiceConfig['settings'],
@@ -148,10 +145,11 @@ const getRelevantMessage = <T extends OutboxMessage>(
   log.tag === 'insert' &&
   log.relation.schema === dbSchema &&
   log.relation.name === dbTable
-    ? getOutboxMessage(log.new, mapAdditionalRows)
+    ? mapMessage(log.new, mapAdditionalRows)
     : undefined;
 
-const getOutboxMessage = <T extends OutboxMessage>(
+/** Maps the WAL log entry to an outbox or inbox message */
+const mapMessage = <T extends OutboxMessage>(
   input: unknown,
   mapAdditionalRows?: (row: object) => Record<string, unknown>,
 ): T | undefined => {
@@ -192,9 +190,9 @@ const getOutboxMessage = <T extends OutboxMessage>(
  */
 export const __only_for_unit_tests__: {
   getRelevantMessage?: typeof getRelevantMessage;
-  getOutboxMessage?: typeof getOutboxMessage;
+  mapMessage?: typeof mapMessage;
 } = {};
 if (process.env.JEST_WORKER_ID) {
   __only_for_unit_tests__.getRelevantMessage = getRelevantMessage;
-  __only_for_unit_tests__.getOutboxMessage = getOutboxMessage;
+  __only_for_unit_tests__.mapMessage = mapMessage;
 }

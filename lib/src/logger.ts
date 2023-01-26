@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-empty-function */
 /* eslint-disable @typescript-eslint/no-var-requires */
 import pino, { BaseLogger } from 'pino';
 
@@ -9,6 +10,24 @@ let outboxLogger: BaseLogger = pino();
  */
 export const setLogger = (logger: BaseLogger): void => {
   outboxLogger = logger;
+};
+
+/**
+ * Disable the logger.
+ */
+export const disableLogger = (): void => {
+  const disabled = {
+    child: () => disabled,
+    fatal: () => {},
+    error: () => {},
+    warn: () => {},
+    info: () => {},
+    debug: () => {},
+    trace: () => {},
+    silent: () => {},
+    level: 'silent',
+  };
+  outboxLogger = disabled;
 };
 
 /**
