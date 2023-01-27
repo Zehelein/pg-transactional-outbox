@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import inspector from 'inspector';
 import { Pgoutput } from 'pg-logical-replication';
@@ -35,7 +36,6 @@ jest.mock('pg-logical-replication', () => {
     ...jest.requireActual('pg-logical-replication'),
     LogicalReplicationService: jest.fn().mockImplementation(() => {
       const lrs = {
-        // on: jest.fn(),
         handleData: undefined,
         handleError: undefined,
         handleHeartbeat: undefined,
@@ -109,6 +109,7 @@ describe('Local replication service unit tests', () => {
   describe('getRelevantMessage', () => {
     const mapAdditionalRows = jest.fn();
     it('should return undefined if log tag is not "insert"', () => {
+      // Arrange
       const update: Pgoutput.MessageUpdate = {
         tag: 'update',
         relation: relation,
@@ -116,10 +117,16 @@ describe('Local replication service unit tests', () => {
         old: { id: 1, name: 'old_name' },
         new: { id: 1, name: 'new_name' },
       };
-      expect(tests?.getRelevantMessage?.(update, settings)).toBeUndefined();
+
+      // Act
+      const message = tests?.getRelevantMessage?.(update, settings);
+
+      // Assert
+      expect(message).toBeUndefined();
     });
 
     it('should return undefined if log relation schema is not the same as settings', () => {
+      // Arrange
       const log: Pgoutput.MessageInsert = {
         tag: 'insert',
         relation: {
@@ -128,10 +135,16 @@ describe('Local replication service unit tests', () => {
         },
         new: {},
       };
-      expect(tests?.getRelevantMessage?.(log, settings)).toBeUndefined();
+
+      // Act
+      const message = tests?.getRelevantMessage?.(log, settings);
+
+      // Assert
+      expect(message).toBeUndefined();
     });
 
     it('should return undefined if log relation name is not the same as settings', () => {
+      // Arrange
       const log: Pgoutput.MessageInsert = {
         tag: 'insert',
         relation: {
@@ -140,7 +153,12 @@ describe('Local replication service unit tests', () => {
         },
         new: {},
       };
-      expect(tests?.getRelevantMessage?.(log, settings)).toBeUndefined();
+
+      // Act
+      const message = tests?.getRelevantMessage?.(log, settings);
+
+      // Assert
+      expect(message).toBeUndefined();
     });
 
     it('should return the outbox message if log relation schema and name are the same as settings', () => {
@@ -157,12 +175,14 @@ describe('Local replication service unit tests', () => {
           created_at: new Date('2023-01-18T21:02:27.000Z'),
         },
       };
+
       // Act
       const message = tests?.getRelevantMessage?.(
         log,
         settings,
         mapAdditionalRows,
       );
+
       // Assert
       expect(message).toEqual({
         id: 'test_id',
@@ -185,12 +205,14 @@ describe('Local replication service unit tests', () => {
 
   describe('mapMessage', () => {
     it('should return undefined if input is not an object', () => {
+      // Act + Assert
       expect(tests?.mapMessage?.('not an object')).toBeUndefined();
       expect(tests?.mapMessage?.(null)).toBeUndefined();
       expect(tests?.mapMessage?.(undefined)).toBeUndefined();
     });
 
     it('should return undefined if input is missing required properties', () => {
+      // Act + Assert
       expect(tests?.mapMessage?.({})).toBeUndefined();
       expect(
         tests?.mapMessage?.({
@@ -201,6 +223,7 @@ describe('Local replication service unit tests', () => {
     });
 
     it('should return undefined if input has wrong types for required properties', () => {
+      // Act + Assert
       expect(
         tests?.mapMessage?.({
           id: 123, // not a string
@@ -214,6 +237,7 @@ describe('Local replication service unit tests', () => {
     });
 
     it('should return an OutboxMessage if input is valid', () => {
+      // Arrange
       const input = {
         id: '123',
         aggregate_type: 'test_type',
@@ -222,7 +246,11 @@ describe('Local replication service unit tests', () => {
         created_at: new Date('2023-01-18T21:02:27.000Z'),
         payload: { test: 'payload' },
       };
+
+      // Act
       const message = tests?.mapMessage?.(input);
+
+      // Assert
       expect(message).toBeDefined();
       expect(message).toEqual({
         id: input.id,
@@ -235,6 +263,7 @@ describe('Local replication service unit tests', () => {
     });
 
     it('should map additional properties if mapAdditionalRows is provided', () => {
+      // Arrange
       const input = {
         id: '123',
         aggregate_type: 'test_type',
@@ -247,7 +276,11 @@ describe('Local replication service unit tests', () => {
       const mapAdditionalRows = (row: object) => ({
         additional_property: (row as typeof input).additional_property,
       });
+
+      // Act
       const message = tests?.mapMessage?.(input, mapAdditionalRows);
+
+      // Assert
       expect(message).toBeDefined();
       expect(message).toEqual({
         id: '123',

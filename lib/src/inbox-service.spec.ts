@@ -19,15 +19,11 @@ const nackInboxSpy = jest.spyOn(inboxSpy, 'nackInbox');
 
 const repService: {
   // We expose the callback methods from the underlying LogicalReplicationService
-  // that are normally called from the "on" "data/error/heartbeat" emitted events
-  // to be able to manually call them.
+  // that are normally called from the "on" "data/error" emitted events to be
+  // able to manually call them. This bypasses also the service error
+  // catching/restart logic which helps to run the test only once.
   handleData?: (lsn: string, log: any) => Promise<void> | void;
   handleError?: (err: Error) => void;
-  handleHeartbeat?: (
-    lsn: string,
-    timestamp: number,
-    shouldRespond: boolean,
-  ) => Promise<void> | void;
   acknowledge?: jest.Mock<any, any>;
   stop?: jest.Mock<any, any>;
 } = {};
@@ -39,17 +35,13 @@ jest.mock('pg-logical-replication', () => {
         // on: jest.fn(),
         handleData: undefined,
         handleError: undefined,
-        handleHeartbeat: undefined,
-        on: (event: 'data' | 'error' | 'heartbeat', listener: any) => {
+        on: (event: 'data' | 'error', listener: any) => {
           switch (event) {
             case 'data':
               repService.handleData = listener;
               break;
             case 'error':
               repService.handleError = listener;
-              break;
-            case 'heartbeat':
-              repService.handleHeartbeat = listener;
               break;
           }
         },
@@ -88,11 +80,7 @@ jest.mock('pg', () => {
               rowCount: dbMessage ? 1 : 0,
               rows: dbMessage ? [{ processed_at: dbMessage.processed_at }] : [],
             };
-            break;
           }
-          case 'UPDATE test_schema.test_table SET processed_at = $1 WHERE id = $2':
-          default:
-            break;
         }
       }),
       on: jest.fn(),
@@ -193,15 +181,6 @@ const relation: Pgoutput.MessageRelation = {
       typeName: 'int4',
       parser: (raw: any) => raw,
     },
-    {
-      name: 'name',
-      flags: 0,
-      typeOid: 25,
-      typeMod: -1,
-      typeSchema: 'pg_catalog',
-      typeName: 'text',
-      parser: (raw: any) => raw,
-    },
   ],
   keyColumns: ['id'],
 };
@@ -210,7 +189,6 @@ describe('Inbox service unit tests - initializeInboxService', () => {
   beforeEach(() => {
     repService.handleData = undefined;
     repService.handleError = undefined;
-    repService.handleHeartbeat = undefined;
     repService.acknowledge = undefined;
     repService.stop = undefined;
     ackInboxSpy.mockReset();
@@ -244,7 +222,6 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     ]);
     expect(repService.handleData).toBeDefined();
     expect(repService.handleError).toBeDefined();
-    expect(repService.handleHeartbeat).toBeDefined();
 
     // Act
     await repService.handleData!('0/00000001', {
@@ -301,7 +278,6 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     ]);
     expect(repService.handleData).toBeDefined();
     expect(repService.handleError).toBeDefined();
-    expect(repService.handleHeartbeat).toBeDefined();
 
     // Act
     await repService.handleData!('0/00000001', {
@@ -355,7 +331,6 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       ]);
       expect(repService.handleData).toBeDefined();
       expect(repService.handleError).toBeDefined();
-      expect(repService.handleHeartbeat).toBeDefined();
 
       // Act
       await repService.handleData!('0/00000001', {
@@ -405,7 +380,6 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     ]);
     expect(repService.handleData).toBeDefined();
     expect(repService.handleError).toBeDefined();
-    expect(repService.handleHeartbeat).toBeDefined();
 
     // Act
     await repService.handleData!('0/00000001', {
@@ -456,7 +430,6 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     ]);
     expect(repService.handleData).toBeDefined();
     expect(repService.handleError).toBeDefined();
-    expect(repService.handleHeartbeat).toBeDefined();
 
     // Act
     await repService.handleData!('0/00000001', {
