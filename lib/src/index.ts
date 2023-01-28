@@ -1,4 +1,4 @@
-export { OutboxMessage, ServiceConfig } from './local-replication-service';
+export { ServiceConfig } from './local-replication-service';
 export { initializeOutboxService, OutboxServiceConfig } from './outbox-service';
 export { initializeOutboxMessageStorage } from './outbox';
 export {
@@ -6,6 +6,7 @@ export {
   InboxMessageHandler,
   InboxServiceConfig,
 } from './inbox-service';
-export { initializeInboxMessageStorage, InboxMessage } from './inbox';
+export { initializeInboxMessageStorage } from './inbox';
 export { logger, setLogger, disableLogger } from './logger';
+export { OutboxMessage, InboxMessage, MessageError } from './models';
 export { executeTransaction, ensureError } from './utils';

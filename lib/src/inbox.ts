@@ -1,17 +1,12 @@
 import { Pool, PoolClient } from 'pg';
 import { executeTransaction } from './utils';
 import { logger } from './logger';
-import { OutboxMessage } from './local-replication-service';
 import { InboxServiceConfig } from './inbox-service';
-
-/** The inbox message for storing it to the DB and receiving it back from the WAL */
-export interface InboxMessage extends OutboxMessage {
-  retries: number;
-}
+import { MessageError, OutboxMessage, InboxMessage } from './models';
 
 /**
  * Initialize the inbox message storage to store incoming messages in the inbox table.
- * @param config The configuration object that defines the values on how to connect to the database.
+ * @param config The configuration object that defines the values on how to connect to the database and general settings.
  * @returns The function to store the inbox message data to the database and the shutdown action.
  */
 export const initializeInboxMessageStorage = async (
@@ -43,8 +38,9 @@ export const initializeInboxMessageStorage = async (
           { ...message, err },
           'Could not store the inbox message',
         );
-        throw new Error(
+        throw new MessageError(
           `Could not store the inbox message with id ${message.id}`,
+          message,
         );
       }
     },
@@ -114,8 +110,8 @@ export const nackInbox = async (
   { id }: InboxMessage,
   client: PoolClient,
   { settings }: Pick<InboxServiceConfig, 'settings'>,
-  maxRetries = 5,
 ): Promise<'RETRY' | 'RETRIES_EXCEEDED'> => {
+  const maxRetries = settings.maxRetries ?? 5;
   const response = await client.query(
     /* sql*/ `
     UPDATE ${settings.dbSchema}.${settings.dbTable} SET retries = retries + 1 WHERE id = $1

@@ -4,10 +4,10 @@ import inspector from 'inspector';
 import { Pgoutput } from 'pg-logical-replication';
 import {
   createService,
-  OutboxMessage,
   __only_for_unit_tests__ as tests,
 } from './local-replication-service';
 import { disableLogger } from './logger';
+import { OutboxMessage } from './models';
 import { sleep } from './utils';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;

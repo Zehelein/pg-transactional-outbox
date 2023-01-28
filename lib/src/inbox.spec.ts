@@ -3,14 +3,13 @@ import inspector from 'inspector';
 import { InboxServiceConfig } from './inbox-service';
 import {
   ackInbox,
-  InboxMessage,
   initializeInboxMessageStorage,
   nackInbox,
   verifyInbox,
 } from './inbox';
 import { disableLogger } from './logger';
 import { Client, Pool, PoolClient } from 'pg';
-import { OutboxMessage } from './local-replication-service';
+import { InboxMessage, OutboxMessage } from './models';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
@@ -32,6 +31,7 @@ const message: OutboxMessage = {
 const inboxMessage: InboxMessage = {
   ...message,
   retries: 0,
+  processedAt: null,
 };
 
 const config: InboxServiceConfig = {
@@ -54,6 +54,7 @@ const config: InboxServiceConfig = {
     dbTable: 'test_table',
     postgresPub: 'test_pub',
     postgresSlot: 'test_slot',
+    maxRetries: 7,
   },
 };
 
@@ -168,7 +169,7 @@ describe('Inbox unit tests', () => {
   });
 
   describe('nackInbox', () => {
-    it.each([0, 1, 2, 3, 4])(
+    it.each([1, 2, 3, 4, 5, 6])(
       'should return RETRY when retries are less than maxRetries: %p',
       async (retries) => {
         // Arrange
@@ -181,9 +182,9 @@ describe('Inbox unit tests', () => {
 
         // Act
         const result = await nackInbox(
-          { ...inboxMessage, retries },
+          { ...inboxMessage, retries: retries - 1 },
           client,
-          config,
+          config, // defines 7 for max retries (default: 5)
         );
 
         // Assert
@@ -197,7 +198,7 @@ describe('Inbox unit tests', () => {
       },
     );
 
-    it.each([5, 6, 999])(
+    it.each([7, 8, 999])(
       'should return RETRIES_EXCEEDED when retries are equal or larger than maxRetries: %p',
       async (retries) => {
         // Arrange
@@ -210,9 +211,9 @@ describe('Inbox unit tests', () => {
 
         // Act
         const result = await nackInbox(
-          { ...inboxMessage, retries },
+          { ...inboxMessage, retries: retries - 1 },
           client,
-          config,
+          config, // defines 7 for max retries (default: 5)
         );
 
         // Assert

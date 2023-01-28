@@ -1,7 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import { ClientBase } from 'pg';
-import { OutboxMessage } from './local-replication-service';
 import { OutboxServiceConfig } from './outbox-service';
+import { MessageError, OutboxMessage } from './models';
 
 /**
  * Pre-configure the specific kind of outbox message to generate and receive a
@@ -38,8 +38,19 @@ export const initializeOutboxMessageStorage = (
       RETURNING id, created_at;`,
       [outboxId, aggregateType, aggregateId, eventType, payload],
     );
+    const attemptedMessage = {
+      aggregateType,
+      aggregateId,
+      eventType,
+      payload,
+      id: 'unknown',
+      createdAt: 'unknown',
+    };
     if (outboxResult.rowCount < 1) {
-      throw new Error('Could not insert the message into the outbox!');
+      throw new MessageError(
+        'Could not insert the message into the outbox!',
+        attemptedMessage,
+      );
     }
     // Immediately delete the outbox entry - it was already written to the WAL
     await dbClient.query(
@@ -48,11 +59,8 @@ export const initializeOutboxMessageStorage = (
       [outboxId],
     );
     return {
+      ...attemptedMessage,
       id: outboxId,
-      aggregateType,
-      aggregateId,
-      eventType,
-      payload,
       createdAt: outboxResult.rows[0].created_at,
     };
   };

@@ -1,16 +1,24 @@
 import { ClientBase, ClientConfig, Pool } from 'pg';
-import { InboxMessage, verifyInbox, ackInbox, nackInbox } from './inbox';
+import { verifyInbox, ackInbox, nackInbox } from './inbox';
 import { createService, ServiceConfig } from './local-replication-service';
 import { logger } from './logger';
+import { InboxMessage } from './models';
 import { executeTransaction } from './utils';
 
 /** The inbox service configuration */
-export interface InboxServiceConfig extends ServiceConfig {
+export type InboxServiceConfig = ServiceConfig & {
   /**
    * Database connection details. The user needs update permission to the inbox.
    */
   pgConfig: ClientConfig;
-}
+
+  settings: ServiceConfig['settings'] & {
+    /**
+     * The maximum number of retries to handle an incoming inbox message. Defaults to 5.
+     */
+    maxRetries?: number;
+  };
+};
 
 /**
  * Message handler for a specific aggregate type and event type.
@@ -135,8 +143,16 @@ const createErrorResolver = (pool: Pool, config: InboxServiceConfig) => {
 
 /** The local replication service maps by default only the outbox properties */
 const mapInboxRetries = (input: object) => {
-  if ('retries' in input && typeof input.retries === 'number') {
-    return { retries: input.retries };
+  if (
+    'retries' in input &&
+    typeof input.retries === 'number' &&
+    'processed_at' in input &&
+    (input.processed_at == null || input.processed_at instanceof Date)
+  ) {
+    return {
+      retries: input.retries,
+      processedAt: input.processed_at?.toISOString(),
+    };
   }
   return {};
 };

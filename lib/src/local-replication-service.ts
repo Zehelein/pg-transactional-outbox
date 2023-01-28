@@ -5,17 +5,8 @@ import {
   PgoutputPlugin,
 } from 'pg-logical-replication';
 import { logger } from './logger';
+import { OutboxMessage } from './models';
 import { ensureError, sleep } from './utils';
-
-/** The outbox message for storing it to the DB and receiving it back from the WAL */
-export interface OutboxMessage {
-  id: string;
-  aggregateType: string;
-  aggregateId: string;
-  eventType: string;
-  payload: unknown;
-  createdAt: string;
-}
 
 export interface ServiceConfig {
   /**
@@ -33,6 +24,8 @@ export interface ServiceConfig {
     postgresPub: string;
     /** The name of the used PostgreSQL logical replication slot */
     postgresSlot: string;
+    /** When there is a message processing error it restarts the logical replication subscription with a delay. This setting defines this delay in milliseconds. Default is 1000. */
+    restartDelay?: number;
   };
 }
 
@@ -119,7 +112,7 @@ export const createService = async <T extends OutboxMessage>(
             });
         });
       } catch (err) {
-        await sleep(1000);
+        await sleep(settings.restartDelay ?? 1000);
         logger().error({ err }, 'LogicalReplicationService error');
       }
     }
@@ -186,7 +179,7 @@ const mapMessage = <T extends OutboxMessage>(
 
 /**
  * This export is _only_ done for unit tests as the createService function is
- * otherwise very hard to unit test. Exports are only done for jest tests.
+ * otherwise very hard to unit test. Exports work only for jest tests!
  */
 export const __only_for_unit_tests__: {
   getRelevantMessage?: typeof getRelevantMessage;
