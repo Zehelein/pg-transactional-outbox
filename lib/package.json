@@ -24,6 +24,8 @@
     "transactional-outbox",
     "inbox",
     "transactional-inbox",
+    "outbox-pattern",
+    "inbox-pattern",
     "postgresql",
     "postgres",
     "logical-replication",

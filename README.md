@@ -24,6 +24,12 @@ tests. You can find an introduction to the transactional outbox and inbox
 pattern in the [README.md](./lib/README.md). This should likely be your starting
 point.
 
+## Data Flow
+
+![postgresql_outbox_pattern](https://user-images.githubusercontent.com/9946441/215294397-b9b622a1-f923-4d28-a3e0-2ca9f849b63b.png)
+_Components involved in the transactional outbox and inbox pattern
+implementation_
+
 ## Outbox
 
 The `initializeOutboxMessageStorage` function is a generator function to store

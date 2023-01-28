@@ -70,6 +70,10 @@ significant consequences.
 
 # Patterns
 
+![postgresql_outbox_pattern](https://user-images.githubusercontent.com/9946441/215294397-b9b622a1-f923-4d28-a3e0-2ca9f849b63b.png)
+_Components involved in the transactional outbox and inbox pattern
+implementation_
+
 ## What is the transactional outbox pattern
 
 The transactional outbox pattern is a design pattern that allows you to reliably
@@ -87,14 +91,16 @@ exactly-once processing (in combination with the transactional inbox pattern):
    same database transactions. The message includes the necessary information to
    send the message to the intended recipient(s), such as the message payload
    and the destination topic or queue. This ensures that either everything is
-   persisted in the database or nothing.
+   persisted in the database or nothing. This is the `outbox storage` in the
+   above diagram.
 3. A background process checks if a new entry appeared in the "outbox" table and
-   loads the data
-4. Now the message is sent. This can be done via a message broker, an event
+   loads the data.
+4. Now the message can be sent. This can be done via a message broker, an event
    stream, or any other option. The outbox table entry is then marked as
    processed _only_ if the message was successfully sent. In case of a
    message-sending error, or if the outbox entry could not be marked as
-   processed, the message is sent again.
+   processed, the message is sent again. The `outbox service` is responsible for
+   this step.
 
 The third step can be implemented via the Polling-Publisher pattern or via the
 Transactional log tailing pattern.
@@ -104,10 +110,11 @@ Transactional log tailing pattern.
   results in no newly found entries.
 - Transactional (also called capture-based) log tailing reads from the
   transactional log or change stream that contains the changes to the outbox
-  table. For PostgreSQL, this is the Write-Ahead Log (WAL) which is described
-  further down in more detail. Using this approach, the transactional outbox
-  pattern can be implemented with minimal impact on the database, as the WAL
-  tailing process does not need to hold locks or block other transactions.
+  table. For PostgreSQL, this is handled with the Write-Ahead Log (WAL) and
+  logical replication which is described further down in more detail. Using this
+  approach, the transactional outbox pattern can be implemented with minimal
+  impact on the database, as the WAL tailing process does not need to hold locks
+  or block other transactions.
 
 You can read more about the transactional outbox pattern in this
 [microservices.io](https://microservices.io/patterns/data/transactional-outbox.html)
@@ -117,7 +124,7 @@ article.
 
 The transactional outbox pattern solves the challenges from the producing side.
 
-The _transactional inbox_ pattern targets the message receiver. It is a design
+The _transactional inbox_ pattern targets the message consumer. It is a design
 pattern that allows you to reliably receive and process messages within the
 context of a database transaction. It is used to ensure that messages are only
 processed if the transaction is committed and that they are not lost or
@@ -131,9 +138,12 @@ exactly-once processing (in combination with the transactional outbox pattern):
 2. A background process consumes messages from the queue and inserts them into
    an "inbox" table in the database. The process uses the unique message
    identifier to store the message in the inbox as the primary key. This ensures
-   that each message is only written once to this database table.
-3. A consumer process reads the messages from the transactional inbox table and
-   processes them.
+   that each message is only written once to this database table. The
+   `inbox storage` component from the above diagram handles this step.
+3. A consumer process receives the messages that were stored in the inbox table
+   and processes them. It uses a transaction to store service relevant data and
+   mark the inbox message as processed. This is done by the `inbox service` in
+   the above diagram.
 
 Step three can be implemented again as a Polling-Publisher or via the
 Transactional log tailing approach like for the outbox pattern.
