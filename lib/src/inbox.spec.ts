@@ -69,7 +69,7 @@ jest.mock('pg', () => {
       removeAllListeners: jest.fn(),
     })),
     Client: jest.fn().mockImplementation(() => ({
-      query: jest.fn(async (sql: string, _params: [any]) => {
+      query: jest.fn(async (sql: string, _params: [unknown]) => {
         if (
           sql.indexOf(
             `INSERT INTO ${config.settings.dbSchema}.${config.settings.dbTable}`,

@@ -1,12 +1,37 @@
 {
   "name": "pg-transactional-outbox",
-  "version": "0.1.1",
-  "description": "A PostgreSQL based transactional outbox and inbox pattern implementation.",
+  "version": "0.1.2",
+  "description": "A PostgreSQL based transactional outbox and inbox pattern implementation to support exactly once message processing (with at least once message delivery).",
   "main": "./dist/index.js",
-  "types": "dist/index.d.ts",
-  "author": "Frank Zehelein",
+  "types": "./dist/index.d.ts",
+  "author": {
+    "name": "Frank Zehelein",
+    "email": "f_npm@zehelein.de",
+    "url": "https://zehelein.de/"
+  },
+  "homepage": "https://github.com/Zehelein/pg-transactional-outbox/tree/master/lib#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zehelein/pg-transactional-outbox.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Zehelein/pg-transactional-outbox/issues"
+  },
   "license": "MIT",
   "private": false,
+  "keywords": [
+    "outbox",
+    "transactional-outbox",
+    "inbox",
+    "transactional-inbox",
+    "postgresql",
+    "postgres",
+    "logical-replication",
+    "pgoutput",
+    "microservices",
+    "typescript",
+    "nodejs"
+  ],
   "scripts": {
     "clean": "rimraf dist && rimraf tsconfig.tsbuildinfo",
     "prepack": "yarn clean && tsc",

@@ -1,7 +1,20 @@
 {
   "name": "pg-transactional-outbox-project",
   "version": "1.0.0",
-  "main": "./dist/index.js",
+  "description": "A PostgreSQL based transactional outbox and inbox pattern implementation to support exactly once message processing (with at least once message delivery).",
+  "author": {
+    "name": "Frank Zehelein",
+    "email": "f_npm@zehelein.de",
+    "url": "https://zehelein.de/"
+  },
+  "homepage": "https://github.com/Zehelein/pg-transactional-outbox/tree/master/lib#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zehelein/pg-transactional-outbox.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Zehelein/pg-transactional-outbox/issues"
+  },
   "license": "MIT",
   "scripts": {
     "lib": "yarn workspace pg-transactional-outbox",
@@ -10,6 +23,19 @@
     "infra:down": "cd infra && docker compose -f docker-compose.yml down"
   },
   "private": true,
+  "keywords": [
+    "outbox",
+    "transactional-outbox",
+    "inbox",
+    "transactional-inbox",
+    "postgresql",
+    "postgres",
+    "logical-replication",
+    "pgoutput",
+    "microservices",
+    "typescript",
+    "nodejs"
+  ],
   "workspaces": [
     "lib",
     "examples/rabbitmq/*",

@@ -63,6 +63,7 @@ describe('Utils Unit Tests', () => {
           release: jest.fn(),
           listeners: jest.fn().mockReturnValue([]),
         }),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any;
       callback = jest.fn().mockResolvedValue('SELECT 1;');
     });
