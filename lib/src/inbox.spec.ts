@@ -138,6 +138,14 @@ describe('Inbox unit tests', () => {
       result = await verifyInbox(inboxMessage, client, config);
       expect(result).toBe('ALREADY_PROCESSED');
 
+      // Test for RETRIES_EXCEEDED (one row found but has too many retries)
+      client.query = jest.fn().mockResolvedValue({
+        rowCount: 1,
+        rows: [{ retries: (config.settings.maxRetries ?? 5) + 1 }],
+      });
+      result = await verifyInbox(inboxMessage, client, config);
+      expect(result).toBe('RETRIES_EXCEEDED');
+
       // Test for success (one row found that was not processed yet)
       client.query = jest.fn().mockResolvedValue({
         rowCount: 1,
@@ -146,6 +154,46 @@ describe('Inbox unit tests', () => {
       result = await verifyInbox(inboxMessage, client, config);
       expect(result).toBe(true);
     });
+
+    it.each([0, 1, 2, 3, 4, 5, 6])(
+      'should return "true" when retries are less or equal than maxRetries: %p',
+      async (retries) => {
+        // Arrange
+        const pool = new Pool();
+        const client = await pool.connect();
+        client.query = jest.fn().mockResolvedValue({
+          rowCount: 1,
+          rows: [{ retries }],
+        });
+
+        // Act
+        // config defines 7 for max retries (default: 5)
+        const result = await verifyInbox(inboxMessage, client, config);
+
+        // Assert
+        expect(result).toBe(true);
+      },
+    );
+
+    it.each([7, 8, 999])(
+      'should return RETRIES_EXCEEDED when retries are equal or larger than maxRetries: %p',
+      async (retries) => {
+        // Arrange
+        const pool = new Pool();
+        const client = await pool.connect();
+        client.query = jest.fn().mockResolvedValue({
+          rowCount: 1,
+          rows: [{ retries }],
+        });
+
+        // Act
+        // config defines 7 for max retries (default: 5)
+        const result = await verifyInbox(inboxMessage, client, config);
+
+        // Assert
+        expect(result).toBe('RETRIES_EXCEEDED');
+      },
+    );
   });
 
   describe('ackInbox', () => {
@@ -169,65 +217,7 @@ describe('Inbox unit tests', () => {
   });
 
   describe('nackInbox', () => {
-    it.each([1, 2, 3, 4, 5, 6])(
-      'should return RETRY when retries are less than maxRetries: %p',
-      async (retries) => {
-        // Arrange
-        const pool = new Pool();
-        const client = await pool.connect();
-        client.query = jest.fn().mockResolvedValue({
-          rowCount: 1,
-          rows: [{ retries }], // query response --> after the increment
-        });
-
-        // Act
-        const result = await nackInbox(
-          { ...inboxMessage, retries: retries - 1 },
-          client,
-          config, // defines 7 for max retries (default: 5)
-        );
-
-        // Assert
-        expect(client.query).toHaveBeenCalledWith(
-          expect.stringContaining(
-            'UPDATE test_schema.test_table SET retries = retries + 1 WHERE id = $1',
-          ),
-          [inboxMessage.id],
-        );
-        expect(result).toBe('RETRY');
-      },
-    );
-
-    it.each([7, 8, 999])(
-      'should return RETRIES_EXCEEDED when retries are equal or larger than maxRetries: %p',
-      async (retries) => {
-        // Arrange
-        const pool = new Pool();
-        const client = await pool.connect();
-        client.query = jest.fn().mockResolvedValue({
-          rowCount: 1,
-          rows: [{ retries }], // query response --> after the increment
-        });
-
-        // Act
-        const result = await nackInbox(
-          { ...inboxMessage, retries: retries - 1 },
-          client,
-          config, // defines 7 for max retries (default: 5)
-        );
-
-        // Assert
-        expect(client.query).toHaveBeenCalledWith(
-          expect.stringContaining(
-            'UPDATE test_schema.test_table SET retries = retries + 1 WHERE id = $1',
-          ),
-          [inboxMessage.id],
-        );
-        expect(result).toBe('RETRIES_EXCEEDED');
-      },
-    );
-
-    it('should return RETRIES_EXCEEDED when the corresponding inbox row was not found', async () => {
+    it('The nack logic still tries to increment retries even when the corresponding inbox row was not found', async () => {
       // Arrange
       const pool = new Pool();
       const client = await pool.connect();
@@ -237,7 +227,7 @@ describe('Inbox unit tests', () => {
       });
 
       // Act
-      const result = await nackInbox({ ...inboxMessage }, client, config);
+      await nackInbox({ ...inboxMessage }, client, config);
 
       // Assert
       expect(client.query).toHaveBeenCalledWith(
@@ -246,7 +236,6 @@ describe('Inbox unit tests', () => {
         ),
         [inboxMessage.id],
       );
-      expect(result).toBe('RETRIES_EXCEEDED');
     });
   });
 });

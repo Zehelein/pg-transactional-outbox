@@ -65,10 +65,12 @@ export const verifyInbox = async (
   { id }: InboxMessage,
   client: PoolClient,
   { settings }: Pick<InboxServiceConfig, 'settings'>,
-): Promise<true | 'INBOX_MESSAGE_NOT_FOUND' | 'ALREADY_PROCESSED'> => {
+): Promise<
+  true | 'INBOX_MESSAGE_NOT_FOUND' | 'ALREADY_PROCESSED' | 'RETRIES_EXCEEDED'
+> => {
   // Get the inbox data and lock it for updates. Use NOWAIT to immediately fail if another process is locking it.
   const inboxResult = await client.query(
-    /* sql*/ `SELECT processed_at FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT`,
+    /* sql*/ `SELECT processed_at, retries FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT`,
     [id],
   );
   if (inboxResult.rowCount === 0) {
@@ -76,6 +78,9 @@ export const verifyInbox = async (
   }
   if (inboxResult.rows[0].processed_at) {
     return 'ALREADY_PROCESSED';
+  }
+  if (inboxResult.rows[0].retries >= (settings.maxRetries ?? 5)) {
+    return 'RETRIES_EXCEEDED';
   }
   return true;
 };
@@ -104,31 +109,18 @@ export const ackInbox = async (
  * @param client The database client. Must be part of the transaction where the message handling changes are done.
  * @param config The configuration settings that defines inbox database schema.
  * @param maxRetries Retry a message up to max retries.
- * @returns "RETRY" if the maximum number of retries was not reached - otherwise "RETRIES_EXCEEDED"
  */
 export const nackInbox = async (
   { id }: InboxMessage,
   client: PoolClient,
   { settings }: Pick<InboxServiceConfig, 'settings'>,
-): Promise<'RETRY' | 'RETRIES_EXCEEDED'> => {
-  const maxRetries = settings.maxRetries ?? 5;
-  const response = await client.query(
+): Promise<void> => {
+  await client.query(
     /* sql*/ `
-    UPDATE ${settings.dbSchema}.${settings.dbTable} SET retries = retries + 1 WHERE id = $1
-    RETURNING retries;
+    UPDATE ${settings.dbSchema}.${settings.dbTable} SET retries = retries + 1 WHERE id = $1;
     `,
     [id],
   );
-  if (response.rowCount > 0 && response.rows[0].retries < maxRetries) {
-    logger().warn(id, 'Increased the retry counter on the inbox message.');
-    return 'RETRY';
-  } else {
-    logger().error(
-      id,
-      `Retries for the inbox message exceeded the maximum number of ${maxRetries} retries`,
-    );
-    return 'RETRIES_EXCEEDED';
-  }
 };
 
 const insertInbox = async (

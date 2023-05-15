@@ -111,32 +111,26 @@ const createMessageHandler = (
 };
 
 /**
- * Handle specific error cases (message already processed/not found) by
- * acknowledging the inbox WAL message. For other errors: increase the retry
- * counter of the message and retry it later.
+ * Increase the retry counter of the message and retry it later.
  */
 const createErrorResolver = (pool: Pool, config: InboxServiceConfig) => {
   /**
    * An error handler that will increase the inbox retries count on transient errors.
-   * It returns true if the message should nevertheless be acknowledged.
-   * @returns true to retry the message - otherwise false
+   * @param message: the InboxMessage that failed to be processed
+   * @param error: the error that was thrown while processing the message
    */
-  return async (message: InboxMessage, _error: Error): Promise<boolean> => {
+  return async (message: InboxMessage, _error: Error): Promise<void> => {
     try {
-      return await executeTransaction(pool, async (client) => {
-        const action = await nackInbox(message, client, config);
-        if (action === 'RETRIES_EXCEEDED') {
-          return true; // giving up - acknowledge the WAL message
-        } else {
-          return false; // retry WAL message
-        }
+      await executeTransaction(pool, async (client) => {
+        // This could be extended to check for transient vs. persistent errors
+        // to acknowledge persistent errors to not further retry the message.
+        await nackInbox(message, client, config);
       });
     } catch (error) {
       logger().error(
         { ...message, err: error },
-        'The message handling error handling failed.',
+        'The error handling of the message failed.',
       );
-      return false; // retry WAL message
     }
   };
 };

@@ -48,7 +48,7 @@ jest.mock('pg-logical-replication', () => {
           new Promise(() => {
             /** never return */
           }),
-        isStop: () => true,
+        isStop: () => false,
       };
       repService.acknowledge = lrs.acknowledge;
       repService.stop = lrs.stop;

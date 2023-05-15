@@ -54,7 +54,7 @@ jest.mock('pg-logical-replication', () => {
           new Promise(() => {
             /** never return */
           }),
-        isStop: () => true,
+        isStop: () => false,
       };
       repService.acknowledge = lrs.acknowledge;
       repService.stop = lrs.stop;
@@ -75,7 +75,7 @@ jest.mock('pg', () => {
     Client: jest.fn().mockImplementation(() => ({
       query: jest.fn(async (sql: string, params: [any]) => {
         switch (sql) {
-          case 'SELECT processed_at FROM test_schema.test_table WHERE id = $1 FOR UPDATE NOWAIT': {
+          case 'SELECT processed_at, retries FROM test_schema.test_table WHERE id = $1 FOR UPDATE NOWAIT': {
             const dbMessage = inboxDbMessage(params[0] as string);
             return {
               rowCount: dbMessage ? 1 : 0,

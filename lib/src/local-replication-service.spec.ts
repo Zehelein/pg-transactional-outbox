@@ -60,7 +60,7 @@ jest.mock('pg-logical-replication', () => {
           new Promise(() => {
             /** never return */
           }),
-        isStop: () => true,
+        isStop: () => false,
       };
       repService.acknowledge = lrs.acknowledge;
       repService.stop = lrs.stop;
@@ -376,7 +376,6 @@ describe('Local replication service unit tests', () => {
           expect(msg).toStrictEqual(message);
           expect(error).toStrictEqual(testError);
           errorHandlerCalled = true;
-          return true;
         },
         mapAdditionalRows,
       );
@@ -433,7 +432,6 @@ describe('Local replication service unit tests', () => {
           expect(msg).toStrictEqual(message);
           expect(error).toStrictEqual(testError);
           errorHandlerCalled = true;
-          return true;
         },
         mapAdditionalRows,
       );

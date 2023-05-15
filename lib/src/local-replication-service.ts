@@ -40,7 +40,7 @@ export interface ServiceConfig {
 export const createService = async <T extends OutboxMessage>(
   { pgReplicationConfig, settings }: ServiceConfig,
   messageHandler: (message: T) => Promise<void>,
-  errorHandler?: (message: T, err: Error) => Promise<boolean>,
+  errorHandler?: (message: T, err: Error) => Promise<void>,
   mapAdditionalRows?: (row: object) => Record<string, unknown>,
 ): Promise<[shutdown: { (): Promise<void> }]> => {
   const plugin = new PgoutputPlugin({
@@ -59,6 +59,12 @@ export const createService = async <T extends OutboxMessage>(
             acknowledge: { auto: false, timeoutSeconds: 0 },
           });
           service.on('data', async (lsn: string, log: Pgoutput.Message) => {
+            if (service.isStop()) {
+              logger().error(
+                'Received data even though the service is stopped',
+              );
+              return;
+            }
             const msg = getRelevantMessage(log, settings, mapAdditionalRows);
             if (msg) {
               // 'OutboxMessage' is assignable to the constraint of type 'T',
@@ -76,13 +82,9 @@ export const createService = async <T extends OutboxMessage>(
                 const err = ensureError(error);
                 logger().error({ ...message, err }, err.message);
                 if (errorHandler) {
-                  const acknowledge = await errorHandler(message, err);
-                  if (acknowledge && !service.isStop()) {
-                    await service.acknowledge(lsn);
-                  } else if (!service.isStop()) {
-                    service.emit('error', error);
-                  }
-                } else if (!service.isStop()) {
+                  await errorHandler(message, err);
+                }
+                if (!service.isStop()) {
                   service.emit('error', error);
                 }
               }
