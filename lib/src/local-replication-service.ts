@@ -103,6 +103,9 @@ export const createService = async <T extends OutboxMessage>(
               }, 5000);
             }
           });
+          service.on('start', async () => {
+            logger().debug('Logical replication subscription started');
+          });
           service
             .subscribe(plugin, settings.postgresSlot)
             .then(() => resolve(true))
