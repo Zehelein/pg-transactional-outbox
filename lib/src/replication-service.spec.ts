@@ -5,7 +5,7 @@ import { Pgoutput } from 'pg-logical-replication';
 import {
   createService,
   __only_for_unit_tests__ as tests,
-} from './local-replication-service';
+} from './replication-service';
 import { disableLogger } from './logger';
 import { OutboxMessage } from './models';
 import { sleep } from './utils';
@@ -491,6 +491,45 @@ describe('Local replication service unit tests', () => {
       expect(mapAdditionalRows).not.toHaveBeenCalled();
       expect(errorHandler).not.toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
+      expect(client.connect).toHaveBeenCalledTimes(1);
+      await cleanup();
+      expect(client.end).toHaveBeenCalledTimes(1);
+    });
+
+    it('Parallel messages wait to be executed sequentially', async () => {
+      // Arrange
+      const sleepTime = 50;
+      const config = {
+        pgReplicationConfig: {},
+        settings,
+      };
+      let count = 0;
+      const delayedMessageHandler = async () => {
+        count++;
+        await sleep(sleepTime);
+      };
+      const [cleanup] = createService<OutboxMessage>(
+        config,
+        delayedMessageHandler,
+        errorHandler,
+        mapAdditionalRows,
+      );
+      await continueEventLoop();
+
+      // Act
+      for (let i = 0; i < 10; i++) {
+        sendReplicationChunk();
+      }
+      await continueEventLoop();
+
+      // Assert
+      expect(count).toBeLessThan(10);
+      await sleep(9 * sleepTime);
+      expect(count).toBeLessThan(10);
+      await sleep(sleepTime + 100);
+      expect(count).toBe(10);
+      expect(errorHandler).not.toHaveBeenCalled();
+      expect(client.connection.sendCopyFromChunk).toHaveBeenCalledTimes(10);
       expect(client.connect).toHaveBeenCalledTimes(1);
       await cleanup();
       expect(client.end).toHaveBeenCalledTimes(1);

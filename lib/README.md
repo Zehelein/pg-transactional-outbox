@@ -270,6 +270,11 @@ CREATE PUBLICATION pg_transactional_outbox_pub FOR TABLE public.outbox WITH (pub
 select pg_create_logical_replication_slot('pg_transactional_outbox_slot', 'pgoutput');
 ```
 
+> **NOTE**: the replication slot name is database **server** unique! This means
+> if you use the transactional inbox pattern on multiple databases within the
+> same PostgreSQL server instance you must use different replication slot names
+> for each of them.
+
 ## Database setup for the consumer
 
 Corresponding to the outbox table, the consumer service must have the inbox

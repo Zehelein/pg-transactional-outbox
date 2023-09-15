@@ -1,10 +1,7 @@
 import { on } from 'events';
 import { Client, ClientConfig, Connection } from 'pg';
-import {
-  Pgoutput,
-  PgoutputPlugin,
-  ReplicationClientConfig,
-} from 'pg-logical-replication';
+import { Mutex, withTimeout } from 'async-mutex';
+import { Pgoutput, PgoutputPlugin } from 'pg-logical-replication';
 import { AbstractPlugin } from 'pg-logical-replication/dist/output-plugins/abstract.plugin';
 import { logger } from './logger';
 import { OutboxMessage } from './models';
@@ -29,8 +26,12 @@ export interface ServiceConfigSettings {
   postgresPub: string;
   /** The name of the used PostgreSQL logical replication slot */
   postgresSlot: string;
-  /** When there is a message processing error it restarts the logical replication subscription with a delay. This setting defines this delay in milliseconds. Default is 1000. */
+  /** When there is a message processing error it restarts the logical replication subscription with a delay. This setting defines this delay in milliseconds. Default is 250ms. */
   restartDelay?: number;
+  /** When the replication slot is in use e.g. by another service, this service will still continue to try to connect in case the other service stops. Default is 10s. */
+  restartDelaySlotInUse?: number;
+  /** Message handlers that do not finish can block further messages from being processed. The timeout ensures to continue with the next items. Default is 15s. */
+  messageHandlerTimeout?: number;
 }
 
 /** connection exists on the Client but is not typed */
@@ -75,12 +76,20 @@ export const createService = <T extends OutboxMessage>(
     const applyRestart = (promise: Promise<unknown>) => {
       promise
         .catch((e) => {
-          logger().error(e);
+          const err = ensureError(e);
+          logger().error(err);
+          return err;
         })
-        .then(() => stopClient(client))
-        .then(() => {
+        .then((err) => {
+          stopClient(client);
+          return err;
+        })
+        .then((err) => {
           if (!restartTimeout) {
-            restartTimeout = setTimeout(start, settings.restartDelay ?? 500);
+            restartTimeout = setTimeout(
+              start,
+              getRestartTimeout(err, settings),
+            );
           }
         });
     };
@@ -226,6 +235,18 @@ const stopClient = async (client: ReplicationClient | undefined) => {
   }
 };
 
+const getRestartTimeout = (
+  error: unknown,
+  settings: ServiceConfigSettings,
+): number => {
+  const err = error as Error & { code?: string; routine?: string };
+  if (err?.code === '55006' && err?.routine === 'ReplicationSlotAcquire') {
+    return settings.restartDelaySlotInUse ?? 10_000;
+  } else {
+    return settings.restartDelay ?? 250;
+  }
+};
+
 // The acknowledge function is based on the https://github.com/kibae/pg-logical-replication library
 const acknowledge = (client: ReplicationClient, lsn: string): boolean => {
   if (!client?.connection) {
@@ -279,7 +300,7 @@ const acknowledge = (client: ReplicationClient, lsn: string): boolean => {
 };
 
 // The acknowledge function is based on the https://github.com/kibae/pg-logical-replication library
-// but with an async loop
+// but with an async loop and a mutex to guarantee sequential processing
 const LOG_FLAG = 0x77; // 119 in base 10
 const KEEP_ALIVE_FLAG = 0x6b; // 107 in base 10
 const handleIncomingData = async <T extends OutboxMessage>(
@@ -293,41 +314,50 @@ const handleIncomingData = async <T extends OutboxMessage>(
   if (!client.connection) {
     throw new Error('Client not connected.');
   }
-  // TODO: Add a semaphore to ensure sequential message processing
+  const mutex = withTimeout(
+    new Mutex(),
+    settings.messageHandlerTimeout ?? 15_000,
+  );
   for await (const [data] of on(client.connection, 'copyData')) {
-    const {
-      chunk: buffer,
-    }: {
-      length: number;
-      chunk: Buffer;
-      name: string;
-    } = data;
-    if (buffer[0] !== LOG_FLAG && buffer[0] !== KEEP_ALIVE_FLAG) {
-      logger().warn({ bufferStart: buffer[0] }, 'Unknown message');
-      return;
-    }
-    const lsn =
-      buffer.readUInt32BE(1).toString(16).toUpperCase() +
-      '/' +
-      buffer.readUInt32BE(5).toString(16).toUpperCase();
-
-    if (buffer[0] === LOG_FLAG) {
-      const xLogData = plugin.parse(buffer.subarray(25));
-      await handleInboxOutboxMessage<T>(
-        client,
-        settings,
-        messageHandler,
-        errorHandler,
-        mapAdditionalRows,
-        xLogData,
-        lsn,
-      );
-    } else if (buffer[0] === KEEP_ALIVE_FLAG) {
-      // Primary keep alive message
-      const shouldRespond = !!buffer.readInt8(17);
-      if (shouldRespond) {
-        acknowledge(client, lsn);
+    const release = await mutex.acquire();
+    try {
+      // The semaphore ensure the sequential message processing to guarantee the correct order
+      const {
+        chunk: buffer,
+      }: {
+        length: number;
+        chunk: Buffer;
+        name: string;
+      } = data;
+      if (buffer[0] !== LOG_FLAG && buffer[0] !== KEEP_ALIVE_FLAG) {
+        logger().warn({ bufferStart: buffer[0] }, 'Unknown message');
+        return;
       }
+      const lsn =
+        buffer.readUInt32BE(1).toString(16).toUpperCase() +
+        '/' +
+        buffer.readUInt32BE(5).toString(16).toUpperCase();
+
+      if (buffer[0] === LOG_FLAG) {
+        const xLogData = plugin.parse(buffer.subarray(25));
+        await handleInboxOutboxMessage<T>(
+          client,
+          settings,
+          messageHandler,
+          errorHandler,
+          mapAdditionalRows,
+          xLogData,
+          lsn,
+        );
+      } else if (buffer[0] === KEEP_ALIVE_FLAG) {
+        // Primary keep alive message
+        const shouldRespond = !!buffer.readInt8(17);
+        if (shouldRespond) {
+          acknowledge(client, lsn);
+        }
+      }
+    } finally {
+      release();
     }
   }
 };

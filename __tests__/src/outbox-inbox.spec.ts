@@ -108,12 +108,7 @@ const insertSourceEntity = async (
   });
 };
 
-const compareEntities = (
-  { aggregateId: id1 }: { aggregateId: string },
-  { aggregateId: id2 }: { aggregateId: string },
-) => (id1 > id2 ? 1 : id2 > id1 ? -1 : 0);
-
-describe('Sending messages from a producer to a consumer works.', () => {
+describe('Outbox and inbox integration tests', () => {
   let dockerEnv: DockerComposeEnvironment;
   let startedEnv: StartedDockerComposeEnvironment;
   let loginPool: Pool;
@@ -190,7 +185,7 @@ describe('Sending messages from a producer to a consumer works.', () => {
     });
   });
 
-  test('Ten messages are sent and received', async () => {
+  test('Ten messages are sent and received in the same sort order', async () => {
     // Arrange
     const receivedInboxMessages: InboxMessage[] = [];
     const inboxMessageHandler = {
@@ -233,15 +228,13 @@ describe('Sending messages from a producer to a consumer works.', () => {
       await sleep(100);
     }
     expect(receivedInboxMessages).toHaveLength(10);
-    expect(receivedInboxMessages.sort(compareEntities)).toMatchObject(
-      ids
-        .map((id) => ({
-          aggregateType,
-          eventType,
-          aggregateId: id,
-          payload: { id, content: createContent(id) },
-        }))
-        .sort(compareEntities),
+    expect(receivedInboxMessages).toMatchObject(
+      ids.map((id) => ({
+        aggregateType,
+        eventType,
+        aggregateId: id,
+        payload: { id, content: createContent(id) },
+      })),
     );
   });
 
@@ -293,7 +286,7 @@ describe('Sending messages from a producer to a consumer works.', () => {
     });
   });
 
-  test('100 messages are reliably sent even if some parts throw errors.', async () => {
+  test('100 messages are reliably sent and received in the same order even if some parts throw errors.', async () => {
     // Arrange
     const uuids = Array.from(Array(100), () => uuid());
     const inboxMessageReceived: InboxMessage[] = [];
@@ -307,7 +300,7 @@ describe('Sending messages from a producer to a consumer works.', () => {
         inboxMessageReceived.push(message);
       },
     };
-    let maxErrors = 5;
+    let maxErrors = 10;
     const [storeOutboxMessage, shutdown] = await setupProducerAndConsumer(
       configs,
       [inboxMessageHandler],
@@ -325,16 +318,15 @@ describe('Sending messages from a producer to a consumer works.', () => {
     await sleep(500);
 
     // Act
-    await Promise.all(
-      uuids.map(async (msgId) =>
-        insertSourceEntity(
-          loginPool,
-          msgId,
-          JSON.stringify({ id: uuid(), content: 'movie' }),
-          storeOutboxMessage,
-        ),
-      ),
-    );
+    for (const msgId of uuids) {
+      // Sequentially insert the messages to test message processing sort order
+      await insertSourceEntity(
+        loginPool,
+        msgId,
+        JSON.stringify({ id: uuid(), content: 'movie' }),
+        storeOutboxMessage,
+      );
+    }
 
     // Assert
     const timeout = Date.now() + 30_000;
@@ -347,8 +339,8 @@ describe('Sending messages from a producer to a consumer works.', () => {
     }
     expect(timeout).toBeGreaterThanOrEqual(Date.now());
     expect(inboxMessageReceived).toHaveLength(100);
-    expect(inboxMessageReceived.sort(compareEntities)).toMatchObject(
-      uuids.map((id) => ({ aggregateId: id })).sort(compareEntities),
+    expect(inboxMessageReceived.map((msg) => msg.aggregateId)).toStrictEqual(
+      uuids,
     );
   });
 
@@ -456,5 +448,50 @@ describe('Sending messages from a producer to a consumer works.', () => {
     };
     await sleep(500);
     expect(receivedMsg2).toBeNull();
+  });
+
+  test('An inbox message is is retried up to 5 times if it throws an error.', async () => {
+    // Arrange
+    const msg: OutboxMessage = {
+      id: uuid(),
+      aggregateId: uuid(),
+      aggregateType,
+      eventType,
+      payload: { content: 'some movie' },
+      createdAt: '2023-01-18T21:02:27.000Z',
+    };
+    const [storeInboxMessage, shutdownInboxStorage] =
+      await initializeInboxMessageStorage(configs.inboxServiceConfig);
+    let inboxHandlerCounter = 0;
+    const [shutdownInboxSrv] = await initializeInboxService(
+      configs.inboxServiceConfig,
+      [
+        {
+          aggregateType,
+          eventType,
+          handle: async (): Promise<void> => {
+            inboxHandlerCounter++;
+            throw Error('Handling the inbox message failed');
+          },
+        },
+      ],
+    );
+    cleanup = async () => {
+      await shutdownInboxStorage();
+      await shutdownInboxSrv();
+    };
+
+    // Act
+    await storeInboxMessage(msg);
+
+    // Assert
+    await sleep(1000);
+    expect(inboxHandlerCounter).toBe(5);
+    const inboxResult = await loginPool.query(
+      `SELECT retries FROM ${configs.inboxServiceConfig.settings.dbSchema}.${configs.inboxServiceConfig.settings.dbTable} WHERE id = $1;`,
+      [msg.id],
+    );
+    expect(inboxResult.rowCount).toBe(1);
+    expect(inboxResult.rows[0].retries).toBe(5);
   });
 });

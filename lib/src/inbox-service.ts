@@ -1,6 +1,6 @@
 import { ClientBase, ClientConfig, Pool } from 'pg';
 import { verifyInbox, ackInbox, nackInbox } from './inbox';
-import { createService, ServiceConfig } from './local-replication-service';
+import { createService, ServiceConfig } from './replication-service';
 import { logger } from './logger';
 import { InboxMessage } from './models';
 import { executeTransaction } from './utils';

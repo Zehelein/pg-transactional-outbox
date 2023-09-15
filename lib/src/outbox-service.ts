@@ -1,4 +1,4 @@
-import { createService, ServiceConfig } from './local-replication-service';
+import { createService, ServiceConfig } from './replication-service';
 import { OutboxMessage } from './models';
 
 export type OutboxServiceConfig = ServiceConfig;

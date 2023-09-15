@@ -3,6 +3,29 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
+## [0.1.6] - 2023-09-15
+
+### Changed
+
+- The logical replication service will now guarantee sequential message
+  processing in the order how the messages were received. So far the messages
+  were only started in the desired order but could finish in different order
+  depending how long the message handler ran.
+
+### Added
+
+- Only one service can connect to the publication of a replication slot. When
+  services are scaled, the first one will succeed to connect but the others will
+  fail. There is now a new setting `restartDelaySlotInUse` to define the delay
+  before trying to connect again if the replication slot is in use.
+
+## [0.1.5] - 2023-09-11
+
+### Added
+
+- Debug log for replication start added. This way the actual start of the
+  service and restarts can be tracked.
+
 ## [0.1.4] - 2023-05-15
 
 ### Changed

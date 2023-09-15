@@ -80,7 +80,7 @@ const createInfraOutage = async (
   }, 3000);
 };
 
-describe('Testing outbox and inbox resilience', () => {
+describe('Outbox and inbox resilience integration tests', () => {
   let dockerEnv: DockerComposeEnvironment;
   let startedEnv: StartedDockerComposeEnvironment;
   let loginPool: Pool;

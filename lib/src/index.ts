@@ -1,4 +1,4 @@
-export { ServiceConfig } from './local-replication-service';
+export { ServiceConfig } from './replication-service';
 export { initializeOutboxService, OutboxServiceConfig } from './outbox-service';
 export { initializeOutboxMessageStorage } from './outbox';
 export {
