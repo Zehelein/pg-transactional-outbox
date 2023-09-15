@@ -1,12 +1,14 @@
-import { ClientConfig } from 'pg';
+import { on } from 'events';
+import { Client, ClientConfig, Connection } from 'pg';
 import {
-  LogicalReplicationService,
   Pgoutput,
   PgoutputPlugin,
+  ReplicationClientConfig,
 } from 'pg-logical-replication';
+import { AbstractPlugin } from 'pg-logical-replication/dist/output-plugins/abstract.plugin';
 import { logger } from './logger';
 import { OutboxMessage } from './models';
-import { ensureError, sleep } from './utils';
+import { ensureError } from './utils';
 
 export interface ServiceConfig {
   /**
@@ -15,19 +17,26 @@ export interface ServiceConfig {
    */
   pgReplicationConfig: ClientConfig;
   /** service specific configurations */
-  settings: {
-    /** The database schema name where the table is located */
-    dbSchema: string;
-    /** The database table of the inbox/outbox */
-    dbTable: string;
-    /** The name of the used PostgreSQL replication */
-    postgresPub: string;
-    /** The name of the used PostgreSQL logical replication slot */
-    postgresSlot: string;
-    /** When there is a message processing error it restarts the logical replication subscription with a delay. This setting defines this delay in milliseconds. Default is 1000. */
-    restartDelay?: number;
-  };
+  settings: ServiceConfigSettings;
 }
+
+export interface ServiceConfigSettings {
+  /** The database schema name where the table is located */
+  dbSchema: string;
+  /** The database table of the inbox/outbox */
+  dbTable: string;
+  /** The name of the used PostgreSQL replication */
+  postgresPub: string;
+  /** The name of the used PostgreSQL logical replication slot */
+  postgresSlot: string;
+  /** When there is a message processing error it restarts the logical replication subscription with a delay. This setting defines this delay in milliseconds. Default is 1000. */
+  restartDelay?: number;
+}
+
+/** connection exists on the Client but is not typed */
+type ReplicationClient = Client & {
+  connection: Connection & { sendCopyFromChunk: (buffer: Buffer) => void };
+};
 
 /**
  * Initiate the outbox/inbox table to listen for WAL messages.
@@ -37,99 +46,67 @@ export interface ServiceConfig {
  * @param mapAdditionalRows The inbox table requires an additional row to be mapped to the inbox message
  * @returns A function to stop the service
  */
-export const createService = async <T extends OutboxMessage>(
+export const createService = <T extends OutboxMessage>(
   { pgReplicationConfig, settings }: ServiceConfig,
   messageHandler: (message: T) => Promise<void>,
   errorHandler?: (message: T, err: Error) => Promise<void>,
   mapAdditionalRows?: (row: object) => Record<string, unknown>,
-): Promise<[shutdown: { (): Promise<void> }]> => {
+): [shutdown: { (): Promise<void> }] => {
   const plugin = new PgoutputPlugin({
     protoVersion: 1,
     publicationNames: [settings.postgresPub],
   });
-  let service: LogicalReplicationService;
+  let client: ReplicationClient | undefined;
+  let restartTimeout: NodeJS.Timeout | undefined;
   let stopped = false;
-  // Run the service in an endless background loop until it gets stopped
-  (async () => {
-    while (!stopped) {
-      try {
-        await new Promise((resolve, reject) => {
-          let heartbeatAckTimer: NodeJS.Timeout | undefined = undefined;
-          service = new LogicalReplicationService(pgReplicationConfig, {
-            acknowledge: { auto: false, timeoutSeconds: 0 },
-          });
-          service.on('data', async (lsn: string, log: Pgoutput.Message) => {
-            if (service.isStop()) {
-              logger().error(
-                'Received data even though the service is stopped',
-              );
-              return;
-            }
-            const msg = getRelevantMessage(log, settings, mapAdditionalRows);
-            if (msg) {
-              // 'OutboxMessage' is assignable to the constraint of type 'T',
-              // but 'T' could be instantiated with a different subtype of constraint 'OutboxMessage'
-              const message = msg as T;
-              logger().trace(
-                message,
-                `Received a WAL message for ${settings.dbSchema}.${settings.dbTable}`,
-              );
-              try {
-                await messageHandler(message);
-                clearTimeout(heartbeatAckTimer);
-                await service.acknowledge(lsn);
-              } catch (error) {
-                const err = ensureError(error);
-                logger().error({ ...message, err }, err.message);
-                if (errorHandler) {
-                  await errorHandler(message, err);
-                }
-                if (!service.isStop()) {
-                  service.emit('error', error);
-                }
-              }
-            }
-          });
-          service.on('error', async (err: Error) => {
-            service.removeAllListeners();
-            await service.stop();
-            reject(err);
-          });
-          service.on('heartbeat', async (lsn, _timestamp, shouldRespond) => {
-            if (shouldRespond) {
-              heartbeatAckTimer = setTimeout(async () => {
-                logger().trace(`${lsn}: acknowledged heartbeat`);
-                await service.acknowledge(lsn);
-              }, 5000);
-            }
-          });
-          service.on('start', async () => {
-            logger().debug('Logical replication subscription started');
-          });
-          service
-            .subscribe(plugin, settings.postgresSlot)
-            .then(() => resolve(true))
-            .catch(async (err) => {
-              logger().error({ err }, 'Logical replication subscription error');
-              service.removeAllListeners();
-              await service.stop();
-              reject(err);
-            });
-        });
-      } catch (err) {
-        await sleep(settings.restartDelay ?? 1000);
-        logger().error({ err }, 'LogicalReplicationService error');
-      }
+  // Run the service in a self restarting background event "loop" until it gets stopped
+  (function start() {
+    if (stopped) {
+      return;
     }
+    restartTimeout = undefined;
+    client = new Client({
+      ...pgReplicationConfig,
+      replication: 'database',
+      stop: false,
+    } as ClientConfig) as ReplicationClient;
+
+    // On errors stop the DB client and reconnect from a clean state
+    const applyRestart = (promise: Promise<unknown>) => {
+      promise
+        .catch((e) => {
+          logger().error(e);
+        })
+        .then(() => stopClient(client))
+        .then(() => {
+          if (!restartTimeout) {
+            restartTimeout = setTimeout(start, settings.restartDelay ?? 500);
+          }
+        });
+    };
+
+    // Start background functions to connect the DB client and handle replication data
+    applyRestart(subscribe(client, plugin, settings.postgresSlot));
+    applyRestart(
+      handleIncomingData(
+        client,
+        plugin,
+        settings,
+        messageHandler,
+        errorHandler,
+        mapAdditionalRows,
+      ),
+    );
   })();
+
   return [
-    async () => {
-      logger().error('started cleanup');
+    async (): Promise<void> => {
+      logger().debug('started cleanup');
       stopped = true;
-      service?.removeAllListeners();
-      service
-        ?.stop()
-        .catch((e) => logger().error(e, 'Error on service shutdown.'));
+      if (restartTimeout) {
+        clearTimeout(restartTimeout);
+      }
+      await stopClient(client);
     },
   ];
 };
@@ -180,6 +157,179 @@ const mapMessage = <T extends OutboxMessage>(
     ...additional,
   };
   return message as T;
+};
+
+const subscribe = async (
+  client: ReplicationClient,
+  plugin: AbstractPlugin,
+  slotName: string,
+  uptoLsn?: string,
+) => {
+  const lastLsn = uptoLsn || '0/00000000';
+
+  await client.connect();
+  client.on('error', (e) => {
+    logger().error(e, 'client error');
+  });
+  client.connection.on('error', (e) => {
+    logger().error(e, 'connection error');
+  });
+  client.connection.once('replicationStart', () => {
+    logger().trace('Replication started');
+  });
+
+  return plugin.start(client, slotName, lastLsn);
+};
+
+async function handleInboxOutboxMessage<T extends OutboxMessage>(
+  client: ReplicationClient,
+  settings: ServiceConfigSettings,
+  messageHandler: (message: T) => Promise<void>,
+  errorHandler: ((message: T, err: Error) => Promise<void>) | undefined,
+  mapAdditionalRows: ((row: object) => Record<string, unknown>) | undefined,
+  xLogData: Pgoutput.Message,
+  lsn: string,
+) {
+  const message = getRelevantMessage<T>(xLogData, settings, mapAdditionalRows);
+  if (!message) {
+    acknowledge(client, lsn); // acknowledge messages that the service cannot use
+    return;
+  }
+
+  try {
+    logger().trace(
+      message,
+      `Received a WAL message for ${settings.dbSchema}.${settings.dbTable}`,
+    );
+    await messageHandler(message as T);
+    acknowledge(client, lsn);
+  } catch (e) {
+    logger().error(xLogData, 'Error handling and acknowledging message');
+    const err = ensureError(e);
+    if (errorHandler) {
+      await errorHandler(message, err);
+    }
+    throw e;
+  }
+}
+
+const stopClient = async (client: ReplicationClient | undefined) => {
+  if (!client) {
+    return;
+  }
+  try {
+    client.connection?.removeAllListeners();
+    client.removeAllListeners();
+    await client.end();
+  } catch (e) {
+    logger().warn(e, 'Stopping the PostgreSQL client gave an error.');
+  }
+};
+
+// The acknowledge function is based on the https://github.com/kibae/pg-logical-replication library
+const acknowledge = (client: ReplicationClient, lsn: string): boolean => {
+  if (!client?.connection) {
+    return false;
+  }
+
+  const slice = lsn.split('/');
+  let [upperWAL, lowerWAL]: [number, number] = [
+    parseInt(slice[0], 16),
+    parseInt(slice[1], 16),
+  ];
+
+  // Timestamp as microseconds since midnight 2000-01-01
+  const now = Date.now() - 946080000000;
+  const upperTimestamp = Math.floor(now / 4294967.296);
+  const lowerTimestamp = Math.floor(now - upperTimestamp * 4294967.296);
+
+  if (lowerWAL === 4294967295) {
+    // [0xff, 0xff, 0xff, 0xff]
+    upperWAL = upperWAL + 1;
+    lowerWAL = 0;
+  } else {
+    lowerWAL = lowerWAL + 1;
+  }
+
+  const response = Buffer.alloc(34);
+  response.fill(0x72); // 'r'
+
+  // Last WAL Byte + 1 received and written to disk locally
+  response.writeUInt32BE(upperWAL, 1);
+  response.writeUInt32BE(lowerWAL, 5);
+
+  // Last WAL Byte + 1 flushed to disk in the standby
+  response.writeUInt32BE(upperWAL, 9);
+  response.writeUInt32BE(lowerWAL, 13);
+
+  // Last WAL Byte + 1 applied in the standby
+  response.writeUInt32BE(upperWAL, 17);
+  response.writeUInt32BE(lowerWAL, 21);
+
+  // Timestamp as microseconds since midnight 2000-01-01
+  response.writeUInt32BE(upperTimestamp, 25);
+  response.writeUInt32BE(lowerTimestamp, 29);
+
+  // If 1, requests server to respond immediately - can be used to verify connectivity
+  response.writeInt8(0, 33);
+
+  client.connection.sendCopyFromChunk(response);
+
+  return true;
+};
+
+// The acknowledge function is based on the https://github.com/kibae/pg-logical-replication library
+// but with an async loop
+const LOG_FLAG = 0x77; // 119 in base 10
+const KEEP_ALIVE_FLAG = 0x6b; // 107 in base 10
+const handleIncomingData = async <T extends OutboxMessage>(
+  client: ReplicationClient,
+  plugin: AbstractPlugin,
+  settings: ServiceConfigSettings,
+  messageHandler: (message: T) => Promise<void>,
+  errorHandler?: (message: T, err: Error) => Promise<void>,
+  mapAdditionalRows?: (row: object) => Record<string, unknown>,
+): Promise<void> => {
+  if (!client.connection) {
+    throw new Error('Client not connected.');
+  }
+  // TODO: Add a semaphore to ensure sequential message processing
+  for await (const [data] of on(client.connection, 'copyData')) {
+    const {
+      chunk: buffer,
+    }: {
+      length: number;
+      chunk: Buffer;
+      name: string;
+    } = data;
+    if (buffer[0] !== LOG_FLAG && buffer[0] !== KEEP_ALIVE_FLAG) {
+      logger().warn({ bufferStart: buffer[0] }, 'Unknown message');
+      return;
+    }
+    const lsn =
+      buffer.readUInt32BE(1).toString(16).toUpperCase() +
+      '/' +
+      buffer.readUInt32BE(5).toString(16).toUpperCase();
+
+    if (buffer[0] === LOG_FLAG) {
+      const xLogData = plugin.parse(buffer.subarray(25));
+      await handleInboxOutboxMessage<T>(
+        client,
+        settings,
+        messageHandler,
+        errorHandler,
+        mapAdditionalRows,
+        xLogData,
+        lsn,
+      );
+    } else if (buffer[0] === KEEP_ALIVE_FLAG) {
+      // Primary keep alive message
+      const shouldRespond = !!buffer.readInt8(17);
+      if (shouldRespond) {
+        acknowledge(client, lsn);
+      }
+    }
+  }
 };
 
 /**

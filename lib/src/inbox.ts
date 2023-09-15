@@ -139,6 +139,6 @@ const insertInbox = async (
     [id, aggregateType, aggregateId, eventType, payload, createdAt],
   );
   if (inboxResult.rowCount < 1) {
-    logger().warn(message, 'The message already existed');
+    logger().warn(message, `The message with id ${id} already existed`);
   }
 };

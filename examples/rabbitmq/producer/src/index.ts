@@ -24,10 +24,7 @@ process.on('unhandledRejection', (err, promise) => {
   const [rmqPublisher, shutdownRmq] = await initializeRabbitMqPublisher(config);
 
   // Initialize and start the outbox subscription
-  const [shutdownOutSrv] = await initializeOutboxService(
-    outboxConfig,
-    rmqPublisher,
-  );
+  const [shutdownOutSrv] = initializeOutboxService(outboxConfig, rmqPublisher);
 
   // Add movies and produce outbox messages on a timer
   await addMovies(config, outboxConfig);

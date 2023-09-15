@@ -9,6 +9,8 @@ import {
 import { disableLogger } from './logger';
 import { OutboxMessage } from './models';
 import { sleep } from './utils';
+import EventEmitter from 'events';
+import { Client, Connection } from 'pg';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
@@ -18,62 +20,77 @@ if (isDebugMode()) {
   disableLogger(); // Hide logs if the tests are not run in debug mode
 }
 
-const repService: {
-  // We expose the callback methods that are normally called from the "on"
-  // "data/error/heartbeat" emitted events to be able to manually call them.
-  handleData?: (lsn: string, log: any) => Promise<void> | void;
-  handleError?: (err: Error) => void;
-  handleHeartbeat?: (
-    lsn: string,
-    timestamp: number,
-    shouldRespond: boolean,
-  ) => Promise<void> | void;
-  acknowledge?: jest.Mock<any, any>;
-  stop?: jest.Mock<any, any>;
-} = {};
+const continueEventLoop = () => sleep(1);
+
+type ReplicationClient = Client & {
+  connection: Connection & { sendCopyFromChunk: (buffer: Buffer) => void };
+};
+
+// Mock the replication plugin to parse the input always as outboxDbMessage
 jest.mock('pg-logical-replication', () => {
   return {
-    ...jest.requireActual('pg-logical-replication'),
-    LogicalReplicationService: jest.fn().mockImplementation(() => {
-      const lrs = {
-        handleData: undefined,
-        handleError: undefined,
-        handleHeartbeat: undefined,
-        on: (event: 'data' | 'error' | 'heartbeat', listener: any) => {
-          switch (event) {
-            case 'data':
-              repService.handleData = listener;
-              break;
-            case 'error':
-              repService.handleError = listener;
-              break;
-            case 'heartbeat':
-              repService.handleHeartbeat = listener;
-              break;
-          }
+    PgoutputPlugin: jest.fn().mockImplementation(() => {
+      return {
+        parse: jest.fn().mockReturnValue({
+          tag: 'insert',
+          relation,
+          new: dbMessage,
+        }),
+        start: async () => {
+          await new Promise(() => true);
         },
-        acknowledge: jest.fn(),
-        removeAllListeners: jest.fn(),
-        emit: jest.fn(),
-        stop: jest.fn(() => Promise.resolve()),
-        subscribe: () =>
-          new Promise(() => {
-            /** never return */
-          }),
-        isStop: () => false,
       };
-      repService.acknowledge = lrs.acknowledge;
-      repService.stop = lrs.stop;
-      return lrs;
     }),
   };
 });
+
+// Mock the DB client to send data and to check that it was (not) called for acknowledgement
+let client: ReplicationClient;
+jest.mock('pg', () => {
+  return {
+    Client: jest.fn().mockImplementation(() => {
+      return client;
+    }),
+  };
+});
+
+// Send a valid chunk that represents log message
+const replicationChunk = Buffer.from([
+  119, 0, 0, 0, 0, 93, 162, 168, 0, 0, 0, 0, 0, 9, 162, 168, 0, 0, 2, 168, 74,
+  108, 17, 127, 72, 66, 0, 0, 0, 0, 9, 162, 254, 96, 0, 2, 168, 74, 108, 17,
+  119, 203, 0, 1, 233, 183,
+]);
+const sendReplicationChunk = (chunk = replicationChunk) => {
+  (client as any).connection.emit('copyData', {
+    chunk,
+    length: chunk.length,
+    name: 'copyData',
+  });
+};
 
 const settings = {
   dbSchema: 'test_schema',
   dbTable: 'test_table',
   postgresPub: 'test_pub',
   postgresSlot: 'test_slot',
+};
+
+const dbMessage = {
+  id: 'message_id',
+  aggregate_type: 'test_type',
+  event_type: 'test_event_type',
+  aggregate_id: 'test_aggregate_id',
+  payload: { result: 'success' },
+  created_at: new Date('2023-01-18T21:02:27.000Z'),
+};
+
+const message = {
+  id: dbMessage.id,
+  aggregateType: dbMessage.aggregate_type,
+  aggregateId: dbMessage.aggregate_id,
+  eventType: dbMessage.event_type,
+  payload: dbMessage.payload,
+  createdAt: '2023-01-18T21:02:27.000Z',
 };
 
 const relation: Pgoutput.MessageRelation = {
@@ -304,11 +321,17 @@ describe('Local replication service unit tests', () => {
       errorHandler = jest.fn();
       mapAdditionalRows = jest.fn();
 
-      repService.handleData = undefined;
-      repService.handleError = undefined;
-      repService.handleHeartbeat = undefined;
-      repService.acknowledge = undefined;
-      repService.stop = undefined;
+      const connection = new EventEmitter();
+      (connection as any).sendCopyFromChunk = jest.fn();
+
+      client = {
+        query: jest.fn(),
+        connect: jest.fn(),
+        connection,
+        removeAllListeners: jest.fn(),
+        on: jest.fn(),
+        end: jest.fn(),
+      } as unknown as ReplicationClient;
     });
 
     it('should call messageHandler and acknowledge the message when no errors are thrown', async () => {
@@ -317,46 +340,26 @@ describe('Local replication service unit tests', () => {
         pgReplicationConfig: {},
         settings,
       };
-      const [cleanup] = await createService<OutboxMessage>(
+      const [cleanup] = createService<OutboxMessage>(
         config,
         messageHandler,
         errorHandler,
         mapAdditionalRows,
       );
-      const message = {
-        id: 'test_id',
-        aggregateType: 'test_type',
-        aggregateId: 'test_aggregate_id',
-        eventType: 'test_event_type',
-        payload: { result: 'success' },
-        createdAt: '2023-01-18T21:02:27.000Z',
-      };
-      expect(repService.handleData).toBeDefined();
+      await continueEventLoop();
 
       // Act
-      await repService.handleData!('0/00000001', {
-        tag: 'insert',
-        relation,
-        new: {
-          id: 'test_id',
-          aggregate_type: 'test_type',
-          aggregate_id: 'test_aggregate_id',
-          event_type: 'test_event_type',
-          payload: { result: 'success' },
-          created_at: new Date('2023-01-18T21:02:27.000Z'),
-        },
-      });
+      sendReplicationChunk();
+      await continueEventLoop();
 
       // Assert
-      expect(repService.handleError).toBeDefined();
-      expect(repService.handleHeartbeat).toBeDefined();
       expect(messageHandler).toHaveBeenCalledWith(message);
       expect(errorHandler).not.toHaveBeenCalled();
       expect(mapAdditionalRows).toHaveBeenCalled();
-      expect(repService.acknowledge).toHaveBeenCalledWith('0/00000001');
-      expect(repService.stop).not.toHaveBeenCalled();
+      expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
+      expect(client.connect).toHaveBeenCalledTimes(1);
       await cleanup();
-      expect(repService.stop).toHaveBeenCalledTimes(1);
+      expect(client.end).toHaveBeenCalledTimes(1);
     });
 
     it('should call messageHandler but not acknowledge the message when an error is thrown', async () => {
@@ -367,7 +370,7 @@ describe('Local replication service unit tests', () => {
       };
       const testError = new Error('Transient error');
       let errorHandlerCalled = false;
-      const [cleanup] = await createService<OutboxMessage>(
+      const [cleanup] = createService<OutboxMessage>(
         config,
         async () => {
           throw testError;
@@ -379,40 +382,20 @@ describe('Local replication service unit tests', () => {
         },
         mapAdditionalRows,
       );
-      const message = {
-        id: 'test_id',
-        aggregateType: 'test_type',
-        aggregateId: 'test_aggregate_id',
-        eventType: 'test_event_type',
-        payload: { result: 'success' },
-        createdAt: '2023-01-18T21:02:27.000Z',
-      };
-      expect(repService.handleData).toBeDefined();
+      await continueEventLoop();
 
       // Act
-      await repService.handleData!('0/00000001', {
-        tag: 'insert',
-        relation,
-        new: {
-          id: 'test_id',
-          aggregate_type: 'test_type',
-          aggregate_id: 'test_aggregate_id',
-          event_type: 'test_event_type',
-          payload: { result: 'success' },
-          created_at: new Date('2023-01-18T21:02:27.000Z'),
-        },
-      });
+      sendReplicationChunk();
+      await continueEventLoop();
 
       // Assert
-      expect(repService.handleError).toBeDefined();
-      expect(repService.handleHeartbeat).toBeDefined();
       expect(errorHandlerCalled).toBe(true);
       expect(mapAdditionalRows).toHaveBeenCalled();
       expect(errorHandler).not.toHaveBeenCalled();
-      expect(repService.acknowledge).not.toHaveBeenCalled();
-      expect(repService.stop).not.toHaveBeenCalled();
+      expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
+      expect(client.connect).toHaveBeenCalledTimes(1);
       await cleanup();
-      expect(repService.stop).toHaveBeenCalledTimes(1);
+      expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
     });
 
     it('should call messageHandler and not acknowledge the message when an error is thrown', async () => {
@@ -423,7 +406,7 @@ describe('Local replication service unit tests', () => {
       };
       const testError = new Error('Unit test error');
       let errorHandlerCalled = false;
-      const [cleanup] = await createService<OutboxMessage>(
+      const [cleanup] = createService<OutboxMessage>(
         config,
         async () => {
           throw testError;
@@ -435,117 +418,82 @@ describe('Local replication service unit tests', () => {
         },
         mapAdditionalRows,
       );
-      const message = {
-        id: 'test_id',
-        aggregateType: 'test_type',
-        aggregateId: 'test_aggregate_id',
-        eventType: 'test_event_type',
-        payload: { result: 'success' },
-        createdAt: '2023-01-18T21:02:27.000Z',
-      };
-      expect(repService.handleData).toBeDefined();
+      await continueEventLoop();
 
       // Act
-      await repService.handleData!('0/00000001', {
-        tag: 'insert',
-        relation,
-        new: {
-          id: 'test_id',
-          aggregate_type: 'test_type',
-          aggregate_id: 'test_aggregate_id',
-          event_type: 'test_event_type',
-          payload: { result: 'success' },
-          created_at: new Date('2023-01-18T21:02:27.000Z'),
-        },
-      });
+      sendReplicationChunk();
+      await continueEventLoop();
 
       // Assert
-      expect(repService.handleError).toBeDefined();
-      expect(repService.handleHeartbeat).toBeDefined();
       expect(errorHandlerCalled).toBe(true);
       expect(errorHandler).not.toHaveBeenCalled();
       expect(mapAdditionalRows).toHaveBeenCalled();
-      expect(repService.acknowledge).not.toHaveBeenCalled();
-      expect(repService.stop).not.toHaveBeenCalled();
+      expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
+      expect(client.connect).toHaveBeenCalledTimes(1);
       await cleanup();
-      expect(repService.stop).toHaveBeenCalledTimes(1);
+      expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
     });
 
-    it('A heartbeat should be acknowledged after 5 seconds', async () => {
+    it('A keep alive to which the service should respond is acknowledged', async () => {
       // Arrange
       const config = {
         pgReplicationConfig: {},
         settings,
       };
-      const [cleanup] = await createService<OutboxMessage>(
+      const [cleanup] = createService<OutboxMessage>(
         config,
         messageHandler,
         errorHandler,
         mapAdditionalRows,
       );
-      expect(repService.handleHeartbeat).toBeDefined();
+      await continueEventLoop();
 
       // Act
-      await repService.handleHeartbeat!('0/00000001', 123, true);
+      const mandatoryKeepAliveChunk = Buffer.from([
+        107, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+      ]);
+      sendReplicationChunk(mandatoryKeepAliveChunk);
+      await continueEventLoop();
 
       // Assert
-      expect(repService.handleData).toBeDefined();
-      expect(repService.handleError).toBeDefined();
       expect(messageHandler).not.toHaveBeenCalled();
       expect(mapAdditionalRows).not.toHaveBeenCalled();
       expect(errorHandler).not.toHaveBeenCalled();
-      expect(repService.acknowledge).not.toHaveBeenCalled();
-      await sleep(4000);
-      expect(repService.acknowledge).not.toHaveBeenCalled();
-      await sleep(1010);
-      expect(repService.acknowledge).toHaveBeenCalled();
-      expect(repService.stop).not.toHaveBeenCalled();
+      expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
+      expect(client.connect).toHaveBeenCalledTimes(1);
       await cleanup();
-      expect(repService.stop).toHaveBeenCalledTimes(1);
+      expect(client.end).toHaveBeenCalledTimes(1);
     });
 
-    it('A heartbeat should not be acknowledged after 5 seconds when a message acknowledgement comes in between', async () => {
+    it('A keep alive to which the service is not required to respond is not acknowledged', async () => {
       // Arrange
       const config = {
         pgReplicationConfig: {},
         settings,
       };
-      const [cleanup] = await createService<OutboxMessage>(
+      const [cleanup] = createService<OutboxMessage>(
         config,
         messageHandler,
         errorHandler,
         mapAdditionalRows,
       );
-      expect(repService.handleData).toBeDefined();
-      expect(repService.handleHeartbeat).toBeDefined();
+      await continueEventLoop();
 
       // Act
-      await repService.handleHeartbeat!('0/00000001', 123, true);
-      await sleep(1000);
-      await repService.handleData!('0/00000002', {
-        tag: 'insert',
-        relation,
-        new: {
-          id: 'test_id',
-          aggregate_type: 'test_type',
-          aggregate_id: 'test_aggregate_id',
-          event_type: 'test_event_type',
-          payload: { result: 'success' },
-          created_at: new Date('2023-01-18T21:02:27.000Z'),
-        },
-      });
+      const optionalKeepAliveChunk = Buffer.from([
+        107, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      ]);
+      sendReplicationChunk(optionalKeepAliveChunk);
+      await continueEventLoop();
 
       // Assert
-      expect(repService.handleError).toBeDefined();
-      expect(messageHandler).toHaveBeenCalled();
-      expect(mapAdditionalRows).toHaveBeenCalled();
+      expect(messageHandler).not.toHaveBeenCalled();
+      expect(mapAdditionalRows).not.toHaveBeenCalled();
       expect(errorHandler).not.toHaveBeenCalled();
-      expect(repService.acknowledge).toHaveBeenCalledWith('0/00000002');
-      await sleep(4010);
-      expect(repService.acknowledge).toHaveBeenCalledTimes(1);
-      expect(repService.stop).not.toHaveBeenCalled();
+      expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
+      expect(client.connect).toHaveBeenCalledTimes(1);
       await cleanup();
-      expect(repService.stop).toHaveBeenCalledTimes(1);
+      expect(client.end).toHaveBeenCalledTimes(1);
     });
   });
 });

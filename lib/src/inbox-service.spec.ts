@@ -1,11 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import inspector from 'inspector';
-import { Client, Pool, PoolClient } from 'pg';
+import { Client, Connection, Pool, PoolClient } from 'pg';
 import { Pgoutput } from 'pg-logical-replication';
 import { InboxServiceConfig, initializeInboxService } from './inbox-service';
 import { disableLogger } from './logger';
 import * as inboxSpy from './inbox';
+import EventEmitter from 'events';
+import { sleep } from './utils';
+
+type MessageIdType = 'not_processed_id' | 'processed_id' | 'retries_exceeded';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
@@ -15,80 +19,78 @@ if (isDebugMode()) {
   jest.setTimeout(7_000);
 }
 
-const ackInboxSpy = jest.spyOn(inboxSpy, 'ackInbox');
-const nackInboxSpy = jest.spyOn(inboxSpy, 'nackInbox');
+const continueEventLoop = () => sleep(1);
 
-const repService: {
-  // We expose the callback methods from the underlying LogicalReplicationService
-  // that are normally called from the "on" "data/error" emitted events to be
-  // able to manually call them. This bypasses also the service error
-  // catching/restart logic which helps to run the test only once.
-  handleData?: (lsn: string, log: any) => Promise<void> | void;
-  handleError?: (err: Error) => void;
-  acknowledge?: jest.Mock<any, any>;
-  stop?: jest.Mock<any, any>;
-} = {};
+type ReplicationClient = Client & {
+  connection: Connection & { sendCopyFromChunk: (buffer: Buffer) => void };
+};
+
+// Mock the replication plugin to parse the input always as outboxDbMessage
 jest.mock('pg-logical-replication', () => {
   return {
-    ...jest.requireActual('pg-logical-replication'),
-    LogicalReplicationService: jest.fn().mockImplementation(() => {
-      const lrs = {
-        // on: jest.fn(),
-        handleData: undefined,
-        handleError: undefined,
-        on: (event: 'data' | 'error', listener: any) => {
-          switch (event) {
-            case 'data':
-              repService.handleData = listener;
-              break;
-            case 'error':
-              repService.handleError = listener;
-              break;
-          }
+    PgoutputPlugin: jest.fn().mockImplementation(() => {
+      return {
+        parse: jest.fn((buffer: Buffer) => {
+          return {
+            tag: 'insert',
+            relation,
+            new: inboxDbMessageByFlag(buffer),
+          };
+        }),
+        start: async () => {
+          await new Promise(() => true);
         },
-        acknowledge: jest.fn(),
-        removeAllListeners: jest.fn(),
-        emit: jest.fn(),
-        stop: jest.fn(() => Promise.resolve()),
-        subscribe: () =>
-          new Promise(() => {
-            /** never return */
-          }),
-        isStop: () => false,
       };
-      repService.acknowledge = lrs.acknowledge;
-      repService.stop = lrs.stop;
-      return lrs;
     }),
   };
 });
 
+// Mock the DB client to send data and to check that it was (not) called for acknowledgement
+let client: ReplicationClient;
 jest.mock('pg', () => {
   return {
-    ...jest.requireActual('pg'),
     Pool: jest.fn().mockImplementation(() => ({
       connect: jest.fn(() => new Client()),
       on: jest.fn(),
       end: jest.fn(() => Promise.resolve()),
       removeAllListeners: jest.fn(),
     })),
-    Client: jest.fn().mockImplementation(() => ({
-      query: jest.fn(async (sql: string, params: [any]) => {
-        switch (sql) {
-          case 'SELECT processed_at, retries FROM test_schema.test_table WHERE id = $1 FOR UPDATE NOWAIT': {
-            const dbMessage = inboxDbMessage(params[0] as string);
-            return {
-              rowCount: dbMessage ? 1 : 0,
-              rows: dbMessage ? [{ processed_at: dbMessage.processed_at }] : [],
-            };
-          }
-        }
-      }),
-      on: jest.fn(),
-      release: jest.fn(),
-    })),
+    Client: jest.fn().mockImplementation(() => {
+      return client;
+    }),
   };
 });
+
+// Send a valid chunk that represents a log message
+const sendReplicationChunk = (id: MessageIdType) => {
+  const data = [
+    119, 0, 0, 0, 0, 93, 162, 168, 0, 0, 0, 0, 0, 9, 162, 168, 0, 0, 2, 168, 74,
+    108, 17, 127, 72, 66, 0, 0, 0, 0, 9, 162, 254, 96, 0, 2, 168, 74, 108, 17,
+    119, 203, 0, 1, 233, 183,
+  ];
+  // The first 25 bits are cut off so it starts at "66" what goes into plugin parse
+  // Set this position to a specific number to map it to a message
+  switch (id) {
+    case 'processed_id':
+      data[25] = 0;
+      break;
+    case 'not_processed_id':
+      data[25] = 1;
+      break;
+    case 'retries_exceeded':
+      data[25] = 2;
+      break;
+  }
+  const chunk = Buffer.from(data);
+  (client as any).connection.emit('copyData', {
+    chunk,
+    length: chunk.length,
+    name: 'copyData',
+  });
+};
+
+const ackInboxSpy = jest.spyOn(inboxSpy, 'ackInbox');
+const nackInboxSpy = jest.spyOn(inboxSpy, 'nackInbox');
 
 jest.mock('./utils', () => {
   return {
@@ -109,39 +111,51 @@ jest.mock('./utils', () => {
 
 const aggregate_type = 'test_type';
 const event_type = 'test_event_type';
-const inboxDbMessage = (id: string) =>
-  [
-    {
-      id: 'not_processed_id',
-      aggregate_type,
-      event_type,
-      aggregate_id: 'test_aggregate_id',
-      payload: { result: 'success' },
-      created_at: new Date('2023-01-18T21:02:27.000Z'),
-      retries: 2,
-      processed_at: null,
-    },
-    {
-      id: 'processed_id',
-      aggregate_type,
-      event_type,
-      aggregate_id: 'test_aggregate_id',
-      payload: { result: 'success' },
-      created_at: new Date('2023-01-18T21:02:27.000Z'),
-      retries: 0,
-      processed_at: new Date('2023-01-18T21:02:27.000Z'),
-    },
-    {
-      id: 'retries_exceeded',
-      aggregate_type,
-      event_type,
-      aggregate_id: 'test_aggregate_id',
-      payload: { result: 'success' },
-      created_at: new Date('2023-01-18T21:02:27.000Z'),
-      retries: 4, // 5 is max by default
-      processed_at: null,
-    },
-  ].find((m) => m.id === id);
+const inboxDbMessages = [
+  {
+    id: 'not_processed_id' as MessageIdType,
+    aggregate_type,
+    event_type,
+    aggregate_id: 'test_aggregate_id',
+    payload: { result: 'success' },
+    created_at: new Date('2023-01-18T21:02:27.000Z'),
+    retries: 2,
+    processed_at: null,
+  },
+  {
+    id: 'processed_id' as MessageIdType,
+    aggregate_type,
+    event_type,
+    aggregate_id: 'test_aggregate_id',
+    payload: { result: 'success' },
+    created_at: new Date('2023-01-18T21:02:27.000Z'),
+    retries: 0,
+    processed_at: new Date('2023-01-18T21:02:27.000Z'),
+  },
+  {
+    id: 'retries_exceeded' as MessageIdType,
+    aggregate_type,
+    event_type,
+    aggregate_id: 'test_aggregate_id',
+    payload: { result: 'success' },
+    created_at: new Date('2023-01-18T21:02:27.000Z'),
+    retries: 4, // 5 is max by default
+    processed_at: null,
+  },
+];
+const inboxDbMessageById = (id: MessageIdType) =>
+  inboxDbMessages.find((m) => m.id === id);
+
+const inboxDbMessageByFlag = (buffer: Buffer) => {
+  switch (buffer[0]) {
+    case 0:
+      return inboxDbMessageById('processed_id');
+    case 1:
+      return inboxDbMessageById('not_processed_id');
+    case 2:
+      return inboxDbMessageById('retries_exceeded');
+  }
+};
 
 const config: InboxServiceConfig = {
   pgConfig: {
@@ -188,10 +202,29 @@ const relation: Pgoutput.MessageRelation = {
 
 describe('Inbox service unit tests - initializeInboxService', () => {
   beforeEach(() => {
-    repService.handleData = undefined;
-    repService.handleError = undefined;
-    repService.acknowledge = undefined;
-    repService.stop = undefined;
+    const connection = new EventEmitter();
+    (connection as any).sendCopyFromChunk = jest.fn();
+
+    client = {
+      query: jest.fn((sql: string, params: [any]) => {
+        switch (sql) {
+          case 'SELECT processed_at, retries FROM test_schema.test_table WHERE id = $1 FOR UPDATE NOWAIT': {
+            const dbMessage = inboxDbMessageById(params[0] as MessageIdType);
+            return {
+              rowCount: dbMessage ? 1 : 0,
+              rows: dbMessage ? [{ processed_at: dbMessage.processed_at }] : [],
+            };
+          }
+        }
+      }),
+      connect: jest.fn(),
+      connection,
+      removeAllListeners: jest.fn(),
+      on: jest.fn(),
+      end: jest.fn(),
+      release: jest.fn(),
+    } as unknown as ReplicationClient;
+
     ackInboxSpy.mockReset();
     nackInboxSpy.mockReset();
   });
@@ -221,29 +254,24 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         handle: unusedMessageHandler,
       },
     ]);
-    expect(repService.handleData).toBeDefined();
-    expect(repService.handleError).toBeDefined();
 
     // Act
-    await repService.handleData!('0/00000001', {
-      tag: 'insert',
-      relation,
-      new: inboxDbMessage('not_processed_id'),
-    });
+    sendReplicationChunk('not_processed_id');
+    await continueEventLoop();
 
     // Assert
     expect(messageHandler).toHaveBeenCalledWith(message, expect.any(Object));
     expect(unusedMessageHandler).not.toHaveBeenCalled();
-    expect(repService.acknowledge).toHaveBeenCalledWith('0/00000001');
+    expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
     expect(ackInboxSpy).toHaveBeenCalledWith(
       message,
       expect.any(Object),
       expect.any(Object),
     );
     expect(nackInboxSpy).not.toHaveBeenCalled();
-    expect(repService.stop).not.toHaveBeenCalled();
+    expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
-    expect(repService.stop).toHaveBeenCalledTimes(1);
+    expect(client.end).toHaveBeenCalledTimes(1);
   });
 
   it('should call all the correct messageHandlers and acknowledge the WAL message when no errors are thrown', async () => {
@@ -277,15 +305,10 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         handle: unusedMessageHandler,
       },
     ]);
-    expect(repService.handleData).toBeDefined();
-    expect(repService.handleError).toBeDefined();
 
     // Act
-    await repService.handleData!('0/00000001', {
-      tag: 'insert',
-      relation,
-      new: inboxDbMessage('not_processed_id'),
-    });
+    sendReplicationChunk('not_processed_id');
+    await continueEventLoop();
 
     // Assert
     expect(messageHandler1).toHaveBeenCalledWith(message, expect.any(Object));
@@ -297,13 +320,12 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     );
     expect(nackInboxSpy).not.toHaveBeenCalled();
     expect(unusedMessageHandler).not.toHaveBeenCalled();
-    expect(repService.acknowledge).toHaveBeenCalledWith('0/00000001');
-    expect(repService.stop).not.toHaveBeenCalled();
+    expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
     await cleanup();
-    expect(repService.stop).toHaveBeenCalledTimes(1);
+    expect(client.end).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['processed_id', 'not_found'])(
+  it.each(['processed_id' as MessageIdType, 'not_found' as MessageIdType])(
     'should not call a messageHandler but acknowledge the WAL message when the inbox DB message was already process or not found: %p',
     async (messageId) => {
       // Arrange
@@ -330,26 +352,21 @@ describe('Inbox service unit tests - initializeInboxService', () => {
           handle: unusedMessageHandler,
         },
       ]);
-      expect(repService.handleData).toBeDefined();
-      expect(repService.handleError).toBeDefined();
 
       // Act
-      await repService.handleData!('0/00000001', {
-        tag: 'insert',
-        relation,
-        new: inboxDbMessage('processed_id'),
-      });
+      sendReplicationChunk(messageId);
+      await continueEventLoop();
 
       // Assert
       expect(messageHandler).not.toHaveBeenCalled();
       expect(unusedMessageHandler).not.toHaveBeenCalled();
-      expect(repService.acknowledge).toHaveBeenCalledWith('0/00000001');
+      expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
       // As the inbox DB message was not found or already processed --> no ack/nack needed
       expect(ackInboxSpy).not.toHaveBeenCalled();
       expect(nackInboxSpy).not.toHaveBeenCalled();
-      expect(repService.stop).not.toHaveBeenCalled();
+      expect(client.connect).toHaveBeenCalledTimes(1);
       await cleanup();
-      expect(repService.stop).toHaveBeenCalledTimes(1);
+      expect(client.end).toHaveBeenCalledTimes(1);
     },
   );
 
@@ -369,7 +386,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       {
         aggregateType: message.aggregateType,
         eventType: message.eventType,
-        handle: async () => {
+        handle: () => {
           throw new Error('Unit Test');
         },
       },
@@ -379,28 +396,23 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         handle: unusedMessageHandler,
       },
     ]);
-    expect(repService.handleData).toBeDefined();
-    expect(repService.handleError).toBeDefined();
 
     // Act
-    await repService.handleData!('0/00000001', {
-      tag: 'insert',
-      relation,
-      new: inboxDbMessage('not_processed_id'),
-    });
+    sendReplicationChunk('not_processed_id');
+    await continueEventLoop();
 
     // Assert
     expect(unusedMessageHandler).not.toHaveBeenCalled();
-    expect(repService.acknowledge).not.toHaveBeenCalled();
+    expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
     expect(ackInboxSpy).not.toHaveBeenCalled();
     expect(nackInboxSpy).toHaveBeenCalledWith(
       message,
       expect.any(Object),
       expect.any(Object),
     );
-    expect(repService.stop).not.toHaveBeenCalled();
+    expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
-    expect(repService.stop).toHaveBeenCalledTimes(1);
+    expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
   });
 
   it('should call a messageHandler on a message that has reached the retry limit and thus acknowledge the WAL message when the message handler throws an error', async () => {
@@ -419,7 +431,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       {
         aggregateType: message.aggregateType,
         eventType: message.eventType,
-        handle: async () => {
+        handle: () => {
           throw new Error('Unit Test');
         },
       },
@@ -429,27 +441,22 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         handle: unusedMessageHandler,
       },
     ]);
-    expect(repService.handleData).toBeDefined();
-    expect(repService.handleError).toBeDefined();
 
     // Act
-    await repService.handleData!('0/00000001', {
-      tag: 'insert',
-      relation,
-      new: inboxDbMessage('retries_exceeded'),
-    });
+    sendReplicationChunk('retries_exceeded');
+    await continueEventLoop();
 
     // Assert
     expect(unusedMessageHandler).not.toHaveBeenCalled();
-    expect(repService.acknowledge).not.toHaveBeenCalled();
+    expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
     expect(ackInboxSpy).not.toHaveBeenCalled();
     expect(nackInboxSpy).toHaveBeenCalledWith(
       message,
       expect.any(Object),
       expect.any(Object),
     );
-    expect(repService.stop).not.toHaveBeenCalled();
+    expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
-    expect(repService.stop).toHaveBeenCalledTimes(1);
+    expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
   });
 });

@@ -47,6 +47,7 @@
     "@typescript-eslint/explicit-module-boundary-types": "warn",
     "@typescript-eslint/explicit-function-return-type": "off",
     "@typescript-eslint/consistent-type-definitions": ["error", "interface"],
+    "require-await": "warn",
     "curly": ["warn", "all"],
     "eqeqeq": ["error", "allow-null"],
     "import/no-cycle": "off" // TODO: Enabling this slows down VSCode ESLint plugin - https://github.com/microsoft/vscode-eslint/issues/1431

@@ -13,8 +13,10 @@ import {
   disableLogger,
   initializeInboxService,
 } from 'pg-transactional-outbox';
-import { DockerComposeEnvironment } from 'testcontainers';
-import { StartedDockerComposeEnvironment } from 'testcontainers/dist/docker-compose-environment/started-docker-compose-environment';
+import {
+  DockerComposeEnvironment,
+  StartedDockerComposeEnvironment,
+} from 'testcontainers';
 import {
   getConfigs,
   TestConfigs,
@@ -101,13 +103,13 @@ describe('Testing outbox and inbox resilience', () => {
     });
   });
 
-  afterEach(async () => {
+  afterEach(() => {
     if (cleanup) {
       cleanup().catch((e) => logger().error(e));
     }
   });
 
-  afterAll(async () => {
+  afterAll(() => {
     loginPool?.end().catch((e) => logger().error(e));
     startedEnv?.down().catch((e) => logger().error(e));
   });
@@ -143,7 +145,7 @@ describe('Testing outbox and inbox resilience', () => {
     // the outbox service starts. The outbox service will retry for a while
     await createInfraOutage(startedEnv);
     // Start the service - it should succeed after PG is up again
-    const [shutdown] = await initializeOutboxService(
+    const [shutdown] = initializeOutboxService(
       configs.outboxServiceConfig,
       async (msg) => {
         sentMessages.push(msg);

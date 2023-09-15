@@ -4,6 +4,9 @@ import inspector from 'inspector';
 import { Pgoutput } from 'pg-logical-replication';
 import { OutboxServiceConfig, initializeOutboxService } from './outbox-service';
 import { disableLogger } from './logger';
+import { Client, Connection } from 'pg';
+import { EventEmitter } from 'stream';
+import { sleep } from './utils';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
@@ -13,49 +16,53 @@ if (isDebugMode()) {
   jest.setTimeout(7_000);
 }
 
-const repService: {
-  // We expose the callback methods from the underlying LogicalReplicationService
-  // that are normally called from the "on" "data/error/heartbeat" emitted events
-  // to be able to manually call them. This bypasses also the service error
-  // catching/restart logic which helps to run the test only once.
-  handleData?: (lsn: string, log: any) => Promise<void> | void;
-  handleError?: (err: Error) => void;
-  acknowledge?: jest.Mock<any, any>;
-  stop?: jest.Mock<any, any>;
-} = {};
+const continueEventLoop = () => sleep(1);
+
+type ReplicationClient = Client & {
+  connection: Connection & { sendCopyFromChunk: (buffer: Buffer) => void };
+};
+
+// Mock the replication plugin to parse the input always as outboxDbMessage
 jest.mock('pg-logical-replication', () => {
   return {
-    ...jest.requireActual('pg-logical-replication'),
-    LogicalReplicationService: jest.fn().mockImplementation(() => {
-      const lrs = {
-        handleData: undefined,
-        handleError: undefined,
-        on: (event: 'data' | 'error', listener: any) => {
-          switch (event) {
-            case 'data':
-              repService.handleData = listener;
-              break;
-            case 'error':
-              repService.handleError = listener;
-              break;
-          }
+    PgoutputPlugin: jest.fn().mockImplementation(() => {
+      return {
+        parse: jest.fn().mockReturnValue({
+          tag: 'insert',
+          relation,
+          new: outboxDbMessage,
+        }),
+        start: async () => {
+          await new Promise(() => true);
         },
-        acknowledge: jest.fn(),
-        removeAllListeners: jest.fn(),
-        emit: jest.fn(),
-        stop: jest.fn(() => Promise.resolve()),
-        subscribe: () =>
-          new Promise(() => {
-            /** never return */
-          }),
-        isStop: () => false,
       };
-      repService.acknowledge = lrs.acknowledge;
-      repService.stop = lrs.stop;
-      return lrs;
     }),
   };
 });
+
+// Mock the DB client to send data and to check that it was (not) called for acknowledgement
+let client: ReplicationClient;
+jest.mock('pg', () => {
+  return {
+    Client: jest.fn().mockImplementation(() => {
+      return client;
+    }),
+  };
+});
+
+// Send a valid chunk that represents log message
+const replicationChunk = Buffer.from([
+  119, 0, 0, 0, 0, 93, 162, 168, 0, 0, 0, 0, 0, 9, 162, 168, 0, 0, 2, 168, 74,
+  108, 17, 127, 72, 66, 0, 0, 0, 0, 9, 162, 254, 96, 0, 2, 168, 74, 108, 17,
+  119, 203, 0, 1, 233, 183,
+]);
+const sendReplicationChunk = (chunk = replicationChunk) => {
+  (client as any).connection.emit('copyData', {
+    chunk,
+    length: chunk.length,
+    name: 'copyData',
+  });
+};
 
 const outboxDbMessage = {
   id: 'message_id',
@@ -113,58 +120,83 @@ const relation: Pgoutput.MessageRelation = {
 
 describe('Outbox service unit tests - initializeOutboxService', () => {
   beforeEach(() => {
-    repService.handleData = undefined;
-    repService.handleError = undefined;
-    repService.acknowledge = undefined;
-    repService.stop = undefined;
+    const connection = new EventEmitter();
+    (connection as any).sendCopyFromChunk = jest.fn();
+
+    client = {
+      query: jest.fn(),
+      connect: jest.fn(),
+      connection,
+      removeAllListeners: jest.fn(),
+      on: jest.fn(),
+      end: jest.fn(),
+    } as unknown as ReplicationClient;
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
   });
 
   it('should call the messageHandler and acknowledge the WAL message when no errors are thrown', async () => {
     // Arrange
     const messageHandler = jest.fn(() => Promise.resolve());
-    const [cleanup] = await initializeOutboxService(config, messageHandler);
-    expect(repService.handleData).toBeDefined();
-    expect(repService.handleError).toBeDefined();
+    const [shutdown] = initializeOutboxService(config, messageHandler);
+    await continueEventLoop();
 
     // Act
-    await repService.handleData!('0/00000001', {
-      tag: 'insert',
-      relation,
-      new: outboxDbMessage,
-    });
+    sendReplicationChunk();
+    await continueEventLoop();
 
     // Assert
     expect(messageHandler).toHaveBeenCalledWith(outboxMessage);
-    expect(repService.acknowledge).toHaveBeenCalledWith('0/00000001');
-    expect(repService.stop).not.toHaveBeenCalled();
-    await cleanup();
-    expect(repService.stop).toHaveBeenCalledTimes(1);
+    expect(client.connection.sendCopyFromChunk).toHaveBeenCalledWith(
+      expect.any(Buffer), // acknowledge
+    );
+    expect(client.connect).toHaveBeenCalledTimes(1);
+    await shutdown();
+    expect(client.end).toHaveBeenCalledTimes(1);
   });
 
   it('should call the messageHandler but not acknowledge the WAL message when the message handler throws an error', async () => {
     // Arrange
-    const throwErrorMessageHandler = jest.fn(async () => {
+    const messageHandler = jest.fn(async () => {
       throw new Error('Unit Test');
     });
-    const [cleanup] = await initializeOutboxService(
-      config,
-      throwErrorMessageHandler,
-    );
-    expect(repService.handleData).toBeDefined();
-    expect(repService.handleError).toBeDefined();
+    const [shutdown] = initializeOutboxService(config, messageHandler);
+    await continueEventLoop();
 
     // Act
-    await repService.handleData!('0/00000001', {
-      tag: 'insert',
-      relation,
-      new: outboxDbMessage,
-    });
+    sendReplicationChunk();
+    await continueEventLoop();
 
     // Assert
-    expect(throwErrorMessageHandler).toHaveBeenCalledWith(outboxMessage);
-    expect(repService.acknowledge).not.toHaveBeenCalled();
-    expect(repService.stop).not.toHaveBeenCalled();
-    await cleanup();
-    expect(repService.stop).toHaveBeenCalledTimes(1);
+    expect(messageHandler).toHaveBeenCalledWith(outboxMessage);
+    expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
+    expect(client.connect).toHaveBeenCalledTimes(1);
+    await shutdown();
+    expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
+  });
+
+  it('should call acknowledge when receiving a keep alive message', async () => {
+    // Arrange
+    const messageHandler = jest.fn(async () => {
+      throw new Error('Unit Test');
+    });
+    const [shutdown] = initializeOutboxService(config, messageHandler);
+    await continueEventLoop();
+    const keepAliveChunk = Buffer.from([
+      107, 0, 0, 0, 0, 9, 163, 25, 136, 0, 2, 168, 78, 55, 139, 118, 225, 0,
+    ]);
+
+    // Act
+    sendReplicationChunk(keepAliveChunk);
+    await continueEventLoop();
+
+    // Assert
+    expect(messageHandler).not.toHaveBeenCalledWith(outboxMessage);
+    expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
+    expect(client.connect).toHaveBeenCalledTimes(1);
+    await shutdown();
+    expect(client.end).toHaveBeenCalledTimes(1);
   });
 });

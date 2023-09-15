@@ -353,7 +353,7 @@ import { Client } from 'pg';
   // Initialize and start the outbox subscription. This service receives all the
   // outbox table inserts from the WAL. It executes the messagePublisher function
   // with every received outbox message. It cares for the at least once delivery.
-  const [shutdown] = await initializeOutboxService(config, messagePublisher);
+  const [shutdown] = initializeOutboxService(config, messagePublisher);
 
   // Initialize the outbox storage function. This function encapsulates the
   // aggregate type (movie) and the event type (movie_created). It will be

@@ -64,7 +64,10 @@ export const initializeRabbitMqHandler = async (
           ackOrNack();
         }
       })
-      .on('error', (e) => logger.error(e, 'RabbitMQ subscription error.'));
+      .on('error', (e) => logger.error(e, 'RabbitMQ subscription error.'))
+      .on('subscribed' as any, () =>
+        logger.trace('RabbitMQ subscription success.'),
+      );
   });
 
   return [broker.shutdown];

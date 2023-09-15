@@ -14,8 +14,10 @@ import {
   logger,
   OutboxMessage,
 } from 'pg-transactional-outbox';
-import { DockerComposeEnvironment } from 'testcontainers';
-import { StartedDockerComposeEnvironment } from 'testcontainers/dist/docker-compose-environment/started-docker-compose-environment';
+import {
+  DockerComposeEnvironment,
+  StartedDockerComposeEnvironment,
+} from 'testcontainers';
 import {
   getConfigs,
   TestConfigs,
@@ -64,7 +66,7 @@ const setupProducerAndConsumer = async (
   };
 
   // Outbox
-  const [outSrvShutdown] = await initializeOutboxService(
+  const [outSrvShutdown] = initializeOutboxService(
     outboxServiceConfig,
     messagePublisher,
   );
@@ -305,13 +307,15 @@ describe('Sending messages from a producer to a consumer works.', () => {
         inboxMessageReceived.push(message);
       },
     };
-    let maxErrors = 10;
+    let maxErrors = 5;
     const [storeOutboxMessage, shutdown] = await setupProducerAndConsumer(
       configs,
       [inboxMessageHandler],
-      () => {
+      (m: OutboxMessage) => {
         if (Math.random() < 0.1 && maxErrors-- > 0) {
-          throw new Error('Some fake error in the message sending process.');
+          throw new Error(
+            `Some fake error when processing message with id ${m.id}.`,
+          );
         }
         return true;
       },
@@ -333,10 +337,15 @@ describe('Sending messages from a producer to a consumer works.', () => {
     );
 
     // Assert
-    const timeout = Date.now() + 60_000;
+    const timeout = Date.now() + 30_000;
+    let lastLength = 0;
     while (inboxMessageReceived.length !== 100 && Date.now() < timeout) {
+      if (inboxMessageReceived.length > lastLength) {
+        lastLength = inboxMessageReceived.length;
+      }
       await sleep(100);
     }
+    expect(timeout).toBeGreaterThanOrEqual(Date.now());
     expect(inboxMessageReceived).toHaveLength(100);
     expect(inboxMessageReceived.sort(compareEntities)).toMatchObject(
       uuids.map((id) => ({ aggregateId: id })).sort(compareEntities),
@@ -354,14 +363,14 @@ describe('Sending messages from a producer to a consumer works.', () => {
       eventType,
       configs.outboxServiceConfig,
     );
-    const [shutdown1] = await initializeOutboxService(
+    const [shutdown1] = initializeOutboxService(
       configs.outboxServiceConfig,
       async (msg) => {
         receivedFromOutbox1 = msg;
       },
     );
     await sleep(500); // enough time for the first one to start up
-    const [shutdown2] = await initializeOutboxService(
+    const [shutdown2] = initializeOutboxService(
       configs.outboxServiceConfig,
       async (msg) => {
         receivedFromOutbox2 = msg;

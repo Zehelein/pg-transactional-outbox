@@ -50,7 +50,7 @@ export const initializeInboxService = async (
   const pool = createPgPool(config);
   const messageHandler = createMessageHandler(messageHandlers, pool, config);
   const errorResolver = createErrorResolver(pool, config);
-  const [shutdown] = await createService(
+  const [shutdown] = createService(
     config,
     messageHandler,
     errorResolver,
