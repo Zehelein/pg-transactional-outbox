@@ -28,9 +28,9 @@ export interface ServiceConfigSettings {
   postgresSlot: string;
   /** When there is a message processing error it restarts the logical replication subscription with a delay. This setting defines this delay in milliseconds. Default is 250ms. */
   restartDelay?: number;
-  /** When the replication slot is in use e.g. by another service, this service will still continue to try to connect in case the other service stops. Default is 10s. */
+  /** When the replication slot is in use e.g. by another service, this service will still continue to try to connect in case the other service stops. Delay is given in milliseconds, the default is 10s. */
   restartDelaySlotInUse?: number;
-  /** Message handlers that do not finish can block further messages from being processed. The timeout ensures to continue with the next items. Default is 15s. */
+  /** Message handlers that do not finish can block further messages from being processed. The timeout (in milliseconds) ensures to continue with the next items. Default is 15s. */
   messageHandlerTimeout?: number;
 }
 
