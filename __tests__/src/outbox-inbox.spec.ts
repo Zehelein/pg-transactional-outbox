@@ -494,4 +494,52 @@ describe('Outbox and inbox integration tests', () => {
     expect(inboxResult.rowCount).toBe(1);
     expect(inboxResult.rows[0].retries).toBe(5);
   });
+
+  test('Two messages are processed in order even if the first takes longer.', async () => {
+    // Arrange
+    const uuid1 = uuid();
+    const uuid2 = uuid();
+    const inboxMessageReceived: InboxMessage[] = [];
+    const inboxMessageHandler = {
+      aggregateType: aggregateType,
+      eventType: eventType,
+      handle: async (
+        message: InboxMessage,
+        _client: ClientBase,
+      ): Promise<void> => {
+        if (message.aggregateId === uuid1) {
+          await sleep(250);
+        }
+        inboxMessageReceived.push(message);
+      },
+    };
+    const [storeOutboxMessage, shutdown] = await setupProducerAndConsumer(
+      configs,
+      [inboxMessageHandler],
+    );
+    cleanup = shutdown;
+    await sleep(1);
+
+    // Act
+    await insertSourceEntity(
+      loginPool,
+      uuid1,
+      JSON.stringify({ id: uuid1, content: 'movie' }),
+      storeOutboxMessage,
+    );
+    await insertSourceEntity(
+      loginPool,
+      uuid2,
+      JSON.stringify({ id: uuid2, content: 'movie' }),
+      storeOutboxMessage,
+    );
+
+    // Assert
+    await sleep(200);
+    expect(inboxMessageReceived).toHaveLength(0);
+    await sleep(200);
+    expect(inboxMessageReceived).toHaveLength(2);
+    expect(inboxMessageReceived[0].aggregateId).toBe(uuid1);
+    expect(inboxMessageReceived[1].aggregateId).toBe(uuid2);
+  });
 });
