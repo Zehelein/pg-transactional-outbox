@@ -3,6 +3,12 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
+## [0.1.7] - 2023-09-18
+
+### Changed
+
+- Improved published package contents to exclude unit test files.
+
 ## [0.1.6] - 2023-09-15
 
 ### Changed
