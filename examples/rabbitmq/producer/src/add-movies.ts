@@ -13,7 +13,7 @@ export const MovieCreatedEventType = 'movie_created';
 /**
  * A business logic function to add business data (movies) to the database and
  * register an outbox message event "movie_created" for every inserted movie.
- * It uses a one second timeout to insert a movie and an outbox message every
+ * It uses a small timeout to insert a movie and an outbox message every
  * second.
  * @param config The configuration object with details on how to connect to the database with the login role.
  */

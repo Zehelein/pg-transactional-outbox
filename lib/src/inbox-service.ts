@@ -97,7 +97,7 @@ const createMessageHandler = (
                 aggregateType === message.aggregateType &&
                 eventType === message.eventType,
             )
-            .map(({ handle }) => handle(message, client)),
+            .map((messageHandler) => messageHandler.handle(message, client)),
         );
         await ackInbox(message, client, config);
       } else {
