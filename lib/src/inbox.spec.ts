@@ -22,7 +22,7 @@ if (isDebugMode()) {
 const message: OutboxMessage = {
   id: 'message_id',
   aggregateType: 'test_type',
-  eventType: 'test_event_type',
+  messageType: 'test_message_type',
   aggregateId: 'test_aggregate_id',
   payload: { result: 'success' },
   createdAt: '2023-01-18T21:02:27.000Z',
@@ -106,9 +106,8 @@ describe('Inbox unit tests', () => {
   describe('initializeInboxMessageStorage', () => {
     test('it initializes the inbox message storage and stores a message without an error', async () => {
       // Act
-      const [storeInboxMessage, shutdown] = await initializeInboxMessageStorage(
-        config,
-      );
+      const [storeInboxMessage, shutdown] =
+        await initializeInboxMessageStorage(config);
 
       // Assert
       await expect(storeInboxMessage(message)).resolves.not.toThrow();

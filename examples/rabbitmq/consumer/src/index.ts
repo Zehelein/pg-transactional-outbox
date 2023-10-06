@@ -11,7 +11,7 @@ import { logger } from './logger';
 import { initializeRabbitMqHandler } from './rabbitmq-handler';
 import {
   MovieAggregateType,
-  MovieCreatedEventType,
+  MovieCreatedMessageType,
   storePublishedMovie,
 } from './receive-movie';
 
@@ -36,14 +36,14 @@ process.on('unhandledRejection', (err, promise) => {
   const [shutdownRmq] = await initializeRabbitMqHandler(
     config,
     storeInboxMessage,
-    [MovieCreatedEventType],
+    [MovieCreatedMessageType],
   );
 
   // Initialize and start the inbox subscription
   const [shutdownInSrv] = await initializeInboxService(inboxConfig, [
     {
       aggregateType: MovieAggregateType,
-      eventType: MovieCreatedEventType,
+      messageType: MovieCreatedMessageType,
       handle: storePublishedMovie,
     },
   ]);

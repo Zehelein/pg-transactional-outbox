@@ -3,7 +3,7 @@ import { InboxMessage } from 'pg-transactional-outbox';
 import { logger } from './logger';
 
 export const MovieAggregateType = 'movie';
-export const MovieCreatedEventType = 'movie_created';
+export const MovieCreatedMessageType = 'movie_created';
 
 /**
  * Stores the published video in the database

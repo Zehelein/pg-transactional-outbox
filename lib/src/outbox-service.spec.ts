@@ -67,7 +67,7 @@ const sendReplicationChunk = (chunk = replicationChunk) => {
 const outboxDbMessage = {
   id: 'message_id',
   aggregate_type: 'test_type',
-  event_type: 'test_event_type',
+  message_type: 'test_message_type',
   aggregate_id: 'test_aggregate_id',
   payload: { result: 'success' },
   created_at: new Date('2023-01-18T21:02:27.000Z'),
@@ -77,7 +77,7 @@ const outboxMessage = {
   id: outboxDbMessage.id,
   aggregateType: outboxDbMessage.aggregate_type,
   aggregateId: outboxDbMessage.aggregate_id,
-  eventType: outboxDbMessage.event_type,
+  messageType: outboxDbMessage.message_type,
   payload: outboxDbMessage.payload,
   createdAt: '2023-01-18T21:02:27.000Z',
 };

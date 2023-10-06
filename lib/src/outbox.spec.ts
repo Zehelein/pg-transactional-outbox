@@ -71,11 +71,11 @@ describe('Outbox unit tests', () => {
         .mockReturnValueOnce({});
       const aggregateId = 'test-aggregate-id';
       const aggregateType = 'movie';
-      const eventType = 'created';
+      const messageType = 'created';
       const payload = { test: 'data' };
       const storeOutboxMessage = initializeOutboxMessageStorage(
         aggregateType,
-        eventType,
+        messageType,
         config,
       );
 
@@ -88,13 +88,13 @@ describe('Outbox unit tests', () => {
         expect.stringContaining(
           `INSERT INTO ${config.settings.dbSchema}.${config.settings.dbTable}`,
         ),
-        [expect.any(String), aggregateType, aggregateId, eventType, payload],
+        [expect.any(String), aggregateType, aggregateId, messageType, payload],
       );
       expect(result).toEqual({
         id: expect.any(String),
         aggregateType,
         aggregateId,
-        eventType,
+        messageType,
         payload,
         createdAt: expect.any(Date),
       });

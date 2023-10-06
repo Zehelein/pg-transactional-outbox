@@ -1,5 +1,5 @@
 import { BrokerConfig, PublicationConfig } from 'rascal';
-import { MovieCreatedEventType, MovieAggregateType } from './add-movies';
+import { MovieCreatedMessageType, MovieAggregateType } from './add-movies';
 import { Config } from './config';
 
 /**
@@ -46,7 +46,7 @@ export const getMessagingConfig = (config: Config): BrokerConfig => {
           },
         },
         publications: {
-          ...buildPublication(MovieAggregateType, MovieCreatedEventType),
+          ...buildPublication(MovieAggregateType, MovieCreatedMessageType),
         },
       },
     },
@@ -54,17 +54,17 @@ export const getMessagingConfig = (config: Config): BrokerConfig => {
   return cfg;
 };
 
-/** Build a publication configuration - the event type is also used as the publish topic */
+/** Build a publication configuration - the message type is also used as the publish topic */
 const buildPublication = (
   aggregateType: string,
-  eventType: string,
+  messageType: string,
 ): {
   [key: string]: PublicationConfig;
 } => {
   return {
-    [MovieCreatedEventType]: {
+    [MovieCreatedMessageType]: {
       exchange: 'event',
-      routingKey: `producer.${aggregateType}.${eventType}`,
+      routingKey: `producer.${aggregateType}.${messageType}`,
     },
   };
 };

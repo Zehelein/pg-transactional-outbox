@@ -33,7 +33,7 @@ if (isDebugMode()) {
   disableLogger(); // Hide logs if the tests are not run in debug mode
 }
 const aggregateType = 'source_entity';
-const eventType = 'source_entity_created';
+const messageType = 'source_entity_created';
 const setupProducerAndConsumer = async (
   { inboxServiceConfig, outboxServiceConfig }: TestConfigs,
   inboxMessageHandlers: InboxMessageHandler[],
@@ -72,7 +72,7 @@ const setupProducerAndConsumer = async (
   );
   const storeOutboxMessage = initializeOutboxMessageStorage(
     aggregateType,
-    eventType,
+    messageType,
     outboxServiceConfig,
   );
 
@@ -150,8 +150,8 @@ describe('Outbox and inbox integration tests', () => {
     const content = createContent(entityId);
     let inboxMessageReceived: InboxMessage | undefined;
     const inboxMessageHandler = {
-      aggregateType: aggregateType,
-      eventType: eventType,
+      aggregateType,
+      messageType,
       handle: async (
         message: InboxMessage,
         _client: ClientBase,
@@ -179,7 +179,7 @@ describe('Outbox and inbox integration tests', () => {
     }
     expect(inboxMessageReceived).toMatchObject({
       aggregateType,
-      eventType,
+      messageType,
       aggregateId: entityId,
       payload: { id: entityId, content },
     });
@@ -189,8 +189,8 @@ describe('Outbox and inbox integration tests', () => {
     // Arrange
     const receivedInboxMessages: InboxMessage[] = [];
     const inboxMessageHandler = {
-      aggregateType: aggregateType,
-      eventType: eventType,
+      aggregateType,
+      messageType,
       handle: async (
         message: InboxMessage,
         _client: ClientBase,
@@ -231,7 +231,7 @@ describe('Outbox and inbox integration tests', () => {
     expect(receivedInboxMessages).toMatchObject(
       ids.map((id) => ({
         aggregateType,
-        eventType,
+        messageType,
         aggregateId: id,
         payload: { id, content: createContent(id) },
       })),
@@ -244,8 +244,8 @@ describe('Outbox and inbox integration tests', () => {
     const content = createContent(entityId);
     let inboxMessageReceived: InboxMessage | undefined;
     const inboxMessageHandler = {
-      aggregateType: aggregateType,
-      eventType: eventType,
+      aggregateType,
+      messageType,
       handle: async (
         message: InboxMessage,
         _client: ClientBase,
@@ -280,7 +280,7 @@ describe('Outbox and inbox integration tests', () => {
     expect(inboxMessageReceived).toBeDefined();
     expect(inboxMessageReceived).toMatchObject({
       aggregateType,
-      eventType,
+      messageType,
       aggregateId: entityId,
       payload: { id: entityId, content },
     });
@@ -291,8 +291,8 @@ describe('Outbox and inbox integration tests', () => {
     const uuids = Array.from(Array(100), () => uuid());
     const inboxMessageReceived: InboxMessage[] = [];
     const inboxMessageHandler = {
-      aggregateType: aggregateType,
-      eventType: eventType,
+      aggregateType,
+      messageType,
       handle: async (
         message: InboxMessage,
         _client: ClientBase,
@@ -352,7 +352,7 @@ describe('Outbox and inbox integration tests', () => {
     let receivedFromOutbox2: OutboxMessage | null = null;
     const storeOutboxMessage = initializeOutboxMessageStorage(
       aggregateType,
-      eventType,
+      messageType,
       configs.outboxServiceConfig,
     );
     const [shutdown1] = initializeOutboxService(
@@ -388,7 +388,7 @@ describe('Outbox and inbox integration tests', () => {
       id: uuid(),
       aggregateId: uuid(),
       aggregateType,
-      eventType,
+      messageType,
       payload: { content: 'some movie' },
       createdAt: '2023-01-18T21:02:27.000Z',
     };
@@ -396,7 +396,7 @@ describe('Outbox and inbox integration tests', () => {
       ...msg1,
       id: uuid(),
       aggregateId: uuid(),
-      eventType: 'something_else',
+      messageType: 'something_else',
     };
     const processedMessages: InboxMessage[] = [];
     const [storeInboxMessage, shutdownInboxStorage] =
@@ -406,7 +406,7 @@ describe('Outbox and inbox integration tests', () => {
       [
         {
           aggregateType,
-          eventType,
+          messageType,
           handle: async (message: InboxMessage): Promise<void> => {
             processedMessages.push(message);
           },
@@ -435,7 +435,7 @@ describe('Outbox and inbox integration tests', () => {
       [
         {
           aggregateType,
-          eventType: 'something_else',
+          messageType: 'something_else',
           handle: async (message: InboxMessage): Promise<void> => {
             receivedMsg2 = message;
           },
@@ -456,7 +456,7 @@ describe('Outbox and inbox integration tests', () => {
       id: uuid(),
       aggregateId: uuid(),
       aggregateType,
-      eventType,
+      messageType,
       payload: { content: 'some movie' },
       createdAt: '2023-01-18T21:02:27.000Z',
     };
@@ -468,7 +468,7 @@ describe('Outbox and inbox integration tests', () => {
       [
         {
           aggregateType,
-          eventType,
+          messageType,
           handle: async (): Promise<void> => {
             inboxHandlerCounter++;
             throw Error('Handling the inbox message failed');
@@ -501,8 +501,8 @@ describe('Outbox and inbox integration tests', () => {
     const uuid2 = uuid();
     const inboxMessageReceived: InboxMessage[] = [];
     const inboxMessageHandler = {
-      aggregateType: aggregateType,
-      eventType: eventType,
+      aggregateType,
+      messageType,
       handle: async (
         message: InboxMessage,
         _client: ClientBase,

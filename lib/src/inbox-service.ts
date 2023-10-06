@@ -21,13 +21,13 @@ export type InboxServiceConfig = ServiceConfig & {
 };
 
 /**
- * Message handler for a specific aggregate type and event type.
+ * Message handler for a specific aggregate type and message type.
  */
 export interface InboxMessageHandler {
   /** The aggregate root type */
   aggregateType: string;
-  /** The name of the event created for the aggregate type. */
-  eventType: string;
+  /** The name of the message created for the aggregate type. */
+  messageType: string;
   /**
    * Custom business logic to handle a message that was stored in the inbox.
    * @param message The inbox message with the payload to handle.
@@ -93,9 +93,9 @@ const createMessageHandler = (
         await Promise.all(
           messageHandlers
             .filter(
-              ({ aggregateType, eventType }) =>
+              ({ aggregateType, messageType }) =>
                 aggregateType === message.aggregateType &&
-                eventType === message.eventType,
+                messageType === message.messageType,
             )
             .map((messageHandler) => messageHandler.handle(message, client)),
         );

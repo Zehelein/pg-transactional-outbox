@@ -9,20 +9,20 @@ export interface ReceivedMessage {
   id: string;
   aggregateType: string;
   aggregateId: string;
-  eventType: string;
+  messageType: string;
   payload: unknown;
   createdAt: string;
 }
 
 /**
- * Initialize the message handler and receive a list of event types that should be consumed.
+ * Initialize the message handler and receive a list of message types that should be consumed.
  * @param config The configuration settings to connect to the RabbitMQ instance
- * @param eventTypes All the event types that should be handled and be put to the inbox table.
+ * @param messageTypes All the message types that should be handled and be put to the inbox table.
  */
 export const initializeRabbitMqHandler = async (
   config: Config,
   storeInboxMessage: (message: ReceivedMessage) => Promise<void>,
-  eventTypes: string[],
+  messageTypes: string[],
 ): Promise<[shutdown: { (): Promise<void> }]> => {
   const cfg = getMessagingConfig(config);
   const broker = await BrokerAsPromised.create(cfg);
@@ -31,14 +31,14 @@ export const initializeRabbitMqHandler = async (
   });
 
   // Consume messages for the desired subscriptions
-  eventTypes.map(async (eventType) => {
-    const subscription = await broker.subscribe(eventType);
+  messageTypes.map(async (messageType) => {
+    const subscription = await broker.subscribe(messageType);
     subscription
       .on('message', async (_rmqMsg, content: ReceivedMessage, ackOrNack) => {
         if (
           content.id &&
           content.aggregateType &&
-          content.eventType &&
+          content.messageType &&
           content.createdAt
         ) {
           try {

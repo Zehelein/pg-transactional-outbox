@@ -1,6 +1,6 @@
 import { BrokerConfig } from 'rascal';
 import { Config } from './config';
-import { MovieAggregateType, MovieCreatedEventType } from './receive-movie';
+import { MovieAggregateType, MovieCreatedMessageType } from './receive-movie';
 
 /**
  * Creates a rascal configuration on how to use and configure the RabbitMQ vhost
@@ -61,7 +61,7 @@ export const getMessagingConfig = (config: Config): BrokerConfig => {
               },
             },
           },
-          [`consumer:${MovieAggregateType}:${MovieCreatedEventType}`]: {
+          [`consumer:${MovieAggregateType}:${MovieCreatedMessageType}`]: {
             options: {
               arguments: {
                 'x-dead-letter-exchange': 'dead_letter',
@@ -77,15 +77,15 @@ export const getMessagingConfig = (config: Config): BrokerConfig => {
             bindingKey: `consumer.dead_letter`,
             destination: `consumer:dead_letter`,
           },
-          [`consumer:${MovieAggregateType}:${MovieCreatedEventType}`]: {
+          [`consumer:${MovieAggregateType}:${MovieCreatedMessageType}`]: {
             source: 'event',
-            bindingKey: `producer.${MovieAggregateType}.${MovieCreatedEventType}`,
-            destination: `consumer:${MovieAggregateType}:${MovieCreatedEventType}`,
+            bindingKey: `producer.${MovieAggregateType}.${MovieCreatedMessageType}`,
+            destination: `consumer:${MovieAggregateType}:${MovieCreatedMessageType}`,
           },
         },
         subscriptions: {
-          [MovieCreatedEventType]: {
-            queue: `consumer:${MovieAggregateType}:${MovieCreatedEventType}`,
+          [MovieCreatedMessageType]: {
+            queue: `consumer:${MovieAggregateType}:${MovieCreatedMessageType}`,
             prefetch: 10,
           },
         },

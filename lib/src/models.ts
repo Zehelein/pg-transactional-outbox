@@ -3,7 +3,7 @@ export interface OutboxMessage {
   id: string;
   aggregateType: string;
   aggregateId: string;
-  eventType: string;
+  messageType: string;
   payload: unknown;
   createdAt: string;
 }

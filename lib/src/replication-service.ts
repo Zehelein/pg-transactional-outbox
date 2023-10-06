@@ -120,7 +120,7 @@ export const createService = <T extends OutboxMessage>(
   ];
 };
 
-/** Get and map the inbox/outbox message if the WAL log event is such an event. Otherwise returns undefined. */
+/** Get and map the inbox/outbox message if the WAL log entry is such a message. Otherwise returns undefined. */
 const getRelevantMessage = <T extends OutboxMessage>(
   log: Pgoutput.Message,
   { dbSchema, dbTable }: ServiceConfig['settings'],
@@ -147,8 +147,8 @@ const mapMessage = <T extends OutboxMessage>(
     typeof input.aggregate_type !== 'string' ||
     !('aggregate_id' in input) ||
     typeof input.aggregate_id !== 'string' ||
-    !('event_type' in input) ||
-    typeof input.event_type !== 'string' ||
+    !('message_type' in input) ||
+    typeof input.message_type !== 'string' ||
     !('created_at' in input) ||
     !(input.created_at instanceof Date) || // date
     !('payload' in input)
@@ -160,7 +160,7 @@ const mapMessage = <T extends OutboxMessage>(
     id: input.id,
     aggregateType: input.aggregate_type,
     aggregateId: input.aggregate_id,
-    eventType: input.event_type,
+    messageType: input.message_type,
     payload: input.payload,
     createdAt: input.created_at.toISOString(),
     ...additional,
@@ -206,7 +206,7 @@ async function handleInboxOutboxMessage<T extends OutboxMessage>(
   }
 
   try {
-    logger().trace(
+    logger().debug(
       message,
       `Received a WAL message for ${settings.dbSchema}.${settings.dbTable}`,
     );
@@ -250,6 +250,9 @@ const getRestartTimeout = (
 // The acknowledge function is based on the https://github.com/kibae/pg-logical-replication library
 const acknowledge = (client: ReplicationClient, lsn: string): boolean => {
   if (!client?.connection) {
+    logger().warn(
+      `Could not acknowledge message ${lsn} as the client connection was not open.`,
+    );
     return false;
   }
 

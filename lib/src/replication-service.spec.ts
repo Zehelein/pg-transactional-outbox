@@ -77,8 +77,8 @@ const settings = {
 
 const dbMessage = {
   id: 'message_id',
-  aggregate_type: 'test_type',
-  event_type: 'test_event_type',
+  aggregate_type: 'test_aggregate_type',
+  message_type: 'test_message_type',
   aggregate_id: 'test_aggregate_id',
   payload: { result: 'success' },
   created_at: new Date('2023-01-18T21:02:27.000Z'),
@@ -88,7 +88,7 @@ const message = {
   id: dbMessage.id,
   aggregateType: dbMessage.aggregate_type,
   aggregateId: dbMessage.aggregate_id,
-  eventType: dbMessage.event_type,
+  messageType: dbMessage.message_type,
   payload: dbMessage.payload,
   createdAt: '2023-01-18T21:02:27.000Z',
 };
@@ -184,10 +184,10 @@ describe('Local replication service unit tests', () => {
         tag: 'insert',
         relation,
         new: {
-          id: 'test_id',
-          aggregate_type: 'test_type',
+          id: 'test_aggregate_id',
+          aggregate_type: 'test_aggregate_type',
           aggregate_id: 'test_aggregate_id',
-          event_type: 'test_event_type',
+          message_type: 'test_message_type',
           payload: { test: 'payload' },
           created_at: new Date('2023-01-18T21:02:27.000Z'),
         },
@@ -202,18 +202,18 @@ describe('Local replication service unit tests', () => {
 
       // Assert
       expect(message).toEqual({
-        id: 'test_id',
-        aggregateType: 'test_type',
+        id: 'test_aggregate_id',
+        aggregateType: 'test_aggregate_type',
         aggregateId: 'test_aggregate_id',
-        eventType: 'test_event_type',
+        messageType: 'test_message_type',
         payload: { test: 'payload' },
         createdAt: '2023-01-18T21:02:27.000Z',
       });
       expect(mapAdditionalRows).toHaveBeenCalledWith({
-        id: 'test_id',
-        aggregate_type: 'test_type',
+        id: 'test_aggregate_id',
+        aggregate_type: 'test_aggregate_type',
         aggregate_id: 'test_aggregate_id',
-        event_type: 'test_event_type',
+        message_type: 'test_message_type',
         payload: { test: 'payload' },
         created_at: new Date('2023-01-18T21:02:27.000Z'),
       });
@@ -234,7 +234,7 @@ describe('Local replication service unit tests', () => {
       expect(
         tests?.mapMessage?.({
           id: '123',
-          aggregate_type: 'test_type',
+          aggregate_type: 'test_aggregate_type',
         }),
       ).toBeUndefined();
     });
@@ -244,9 +244,9 @@ describe('Local replication service unit tests', () => {
       expect(
         tests?.mapMessage?.({
           id: 123, // not a string
-          aggregate_type: 'test_type',
-          aggregate_id: 'test_id',
-          event_type: 'test_event',
+          aggregate_type: 'test_aggregate_type',
+          aggregate_id: 'test_aggregate_id',
+          message_type: 'test_message_type',
           created_at: 'not a date',
           payload: { test: 'payload' },
         }),
@@ -257,9 +257,9 @@ describe('Local replication service unit tests', () => {
       // Arrange
       const input = {
         id: '123',
-        aggregate_type: 'test_type',
-        aggregate_id: 'test_id',
-        event_type: 'test_event',
+        aggregate_type: 'test_aggregate_type',
+        aggregate_id: 'test_aggregate_id',
+        message_type: 'test_message_type',
         created_at: new Date('2023-01-18T21:02:27.000Z'),
         payload: { test: 'payload' },
       };
@@ -273,7 +273,7 @@ describe('Local replication service unit tests', () => {
         id: input.id,
         aggregateType: input.aggregate_type,
         aggregateId: input.aggregate_id,
-        eventType: input.event_type,
+        messageType: input.message_type,
         payload: input.payload,
         createdAt: '2023-01-18T21:02:27.000Z',
       });
@@ -283,9 +283,9 @@ describe('Local replication service unit tests', () => {
       // Arrange
       const input = {
         id: '123',
-        aggregate_type: 'test_type',
-        aggregate_id: 'test_id',
-        event_type: 'test_event',
+        aggregate_type: 'test_aggregate_type',
+        aggregate_id: 'test_aggregate_id',
+        message_type: 'test_message_type',
         created_at: new Date('2023-01-18T21:02:27.000Z'),
         payload: { test: 'payload' },
         additional_property: 'additional_value',
@@ -301,9 +301,9 @@ describe('Local replication service unit tests', () => {
       expect(message).toBeDefined();
       expect(message).toEqual({
         id: '123',
-        aggregateType: 'test_type',
-        aggregateId: 'test_id',
-        eventType: 'test_event',
+        aggregateType: 'test_aggregate_type',
+        aggregateId: 'test_aggregate_id',
+        messageType: 'test_message_type',
         payload: { test: 'payload' },
         createdAt: '2023-01-18T21:02:27.000Z',
         additional_property: 'additional_value',

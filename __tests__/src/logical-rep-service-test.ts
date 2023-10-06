@@ -14,7 +14,7 @@ import { sleep } from './test-utils';
  * stop the PostgreSQL docker container), and with faulty message sending.
  *
  * Use the following SQL statement to insert a new row into the outbox table:
- * INSERT INTO outbox.outbox (id, aggregate_type, aggregate_id, event_type, payload)
+ * INSERT INTO outbox.outbox (id, aggregate_type, aggregate_id, message_type, payload)
  * VALUES (gen_random_uuid(), 'movie', gen_random_uuid(), 'movie_created', '{"content":"test"}'::jsonb)
  * RETURNING id, created_at;
  *

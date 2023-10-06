@@ -110,12 +110,12 @@ jest.mock('./utils', () => {
 });
 
 const aggregate_type = 'test_type';
-const event_type = 'test_event_type';
+const message_type = 'test_message_type';
 const inboxDbMessages = [
   {
     id: 'not_processed_id' as MessageIdType,
     aggregate_type,
-    event_type,
+    message_type,
     aggregate_id: 'test_aggregate_id',
     payload: { result: 'success' },
     created_at: new Date('2023-01-18T21:02:27.000Z'),
@@ -125,7 +125,7 @@ const inboxDbMessages = [
   {
     id: 'processed_id' as MessageIdType,
     aggregate_type,
-    event_type,
+    message_type,
     aggregate_id: 'test_aggregate_id',
     payload: { result: 'success' },
     created_at: new Date('2023-01-18T21:02:27.000Z'),
@@ -135,7 +135,7 @@ const inboxDbMessages = [
   {
     id: 'retries_exceeded' as MessageIdType,
     aggregate_type,
-    event_type,
+    message_type,
     aggregate_id: 'test_aggregate_id',
     payload: { result: 'success' },
     created_at: new Date('2023-01-18T21:02:27.000Z'),
@@ -237,7 +237,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       id: 'not_processed_id',
       aggregateType: aggregate_type,
       aggregateId: 'test_aggregate_id',
-      eventType: event_type,
+      messageType: message_type,
       payload: { result: 'success' },
       createdAt: '2023-01-18T21:02:27.000Z',
       retries: 2,
@@ -245,12 +245,12 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     const [cleanup] = await initializeInboxService(config, [
       {
         aggregateType: message.aggregateType,
-        eventType: message.eventType,
+        messageType: message.messageType,
         handle: messageHandler,
       },
       {
         aggregateType: 'unused-aggregate-type',
-        eventType: 'unused-event',
+        messageType: 'unused-message-type',
         handle: unusedMessageHandler,
       },
     ]);
@@ -283,7 +283,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       id: 'not_processed_id',
       aggregateType: aggregate_type,
       aggregateId: 'test_aggregate_id',
-      eventType: event_type,
+      messageType: message_type,
       payload: { result: 'success' },
       createdAt: '2023-01-18T21:02:27.000Z',
       retries: 2,
@@ -291,17 +291,17 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     const [cleanup] = await initializeInboxService(config, [
       {
         aggregateType: message.aggregateType,
-        eventType: message.eventType,
+        messageType: message.messageType,
         handle: messageHandler1,
       },
       {
         aggregateType: message.aggregateType,
-        eventType: message.eventType,
+        messageType: message.messageType,
         handle: messageHandler2,
       },
       {
         aggregateType: 'unused-aggregate-type',
-        eventType: 'unused-event',
+        messageType: 'unused-message-type',
         handle: unusedMessageHandler,
       },
     ]);
@@ -335,7 +335,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         id: messageId,
         aggregateType: aggregate_type,
         aggregateId: 'test_aggregate_id',
-        eventType: event_type,
+        messageType: message_type,
         payload: { result: 'success' },
         createdAt: '2023-01-18T21:02:27.000Z',
         retries: 2,
@@ -343,12 +343,12 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       const [cleanup] = await initializeInboxService(config, [
         {
           aggregateType: message.aggregateType,
-          eventType: message.eventType,
+          messageType: message.messageType,
           handle: messageHandler,
         },
         {
           aggregateType: 'unused-aggregate-type',
-          eventType: 'unused-event',
+          messageType: 'unused-message-type',
           handle: unusedMessageHandler,
         },
       ]);
@@ -377,7 +377,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       id: 'not_processed_id',
       aggregateType: aggregate_type,
       aggregateId: 'test_aggregate_id',
-      eventType: event_type,
+      messageType: message_type,
       payload: { result: 'success' },
       createdAt: '2023-01-18T21:02:27.000Z',
       retries: 2,
@@ -385,14 +385,14 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     const [cleanup] = await initializeInboxService(config, [
       {
         aggregateType: message.aggregateType,
-        eventType: message.eventType,
+        messageType: message.messageType,
         handle: () => {
           throw new Error('Unit Test');
         },
       },
       {
         aggregateType: 'unused-aggregate-type',
-        eventType: 'unused-event',
+        messageType: 'unused-message-type',
         handle: unusedMessageHandler,
       },
     ]);
@@ -421,7 +421,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     const message = {
       id: 'retries_exceeded',
       aggregateType: aggregate_type,
-      eventType: event_type,
+      messageType: message_type,
       aggregateId: 'test_aggregate_id',
       payload: { result: 'success' },
       createdAt: '2023-01-18T21:02:27.000Z',
@@ -430,14 +430,14 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     const [cleanup] = await initializeInboxService(config, [
       {
         aggregateType: message.aggregateType,
-        eventType: message.eventType,
+        messageType: message.messageType,
         handle: () => {
           throw new Error('Unit Test');
         },
       },
       {
         aggregateType: 'unused-aggregate-type',
-        eventType: 'unused-event',
+        messageType: 'unused-message-type',
         handle: unusedMessageHandler,
       },
     ]);

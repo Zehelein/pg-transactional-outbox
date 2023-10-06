@@ -3,6 +3,30 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
+## [0.2.0] - 2023-10-26
+
+### Changed
+
+- BREAKING CHANGE: renamed "event type" to "message type" in the library and in
+  the database columns. This was done to better transport the meaning that the
+  transactional inbox and outbox can be used both for commands and events and
+  not just for events. Please rename for your inbox and outbox table the
+  `event_type` column to `message_type`. And in your code the message
+  `eventType` field with `messageType`.
+
+### Added
+
+- The function `initializeGeneralOutboxMessageStorage` can now be used for a
+  general outbox storage function that does not encapsulate the settings to
+  store a specific message and aggregate type.
+
+## [0.1.8] - 2023-09-22
+
+### Changed
+
+- Fixed an issue where "this" was not correctly bound when executing message
+  handlers when they are provided as object methods.
+
 ## [0.1.7] - 2023-09-18
 
 ### Changed

@@ -32,7 +32,7 @@ if (isDebugMode()) {
   disableLogger(); // Hide logs if the tests are not run in debug mode
 }
 const aggregateType = 'source_entity';
-const eventType = 'source_entity_created';
+const messageType = 'source_entity_created';
 
 const createContent = (id: string) => `Content for id ${id}`;
 
@@ -123,7 +123,7 @@ describe('Outbox and inbox resilience integration tests', () => {
     const sentMessages: OutboxMessage[] = [];
     const storeOutboxMessage = initializeOutboxMessageStorage(
       aggregateType,
-      eventType,
+      messageType,
       configs.outboxServiceConfig,
     );
 
@@ -168,13 +168,13 @@ describe('Outbox and inbox resilience integration tests', () => {
       [
         {
           aggregateType,
-          eventType,
+          messageType,
           aggregateId: entity1Id,
           payload: { id: entity1Id, content: content1 },
         },
         {
           aggregateType,
-          eventType,
+          messageType,
           aggregateId: entity2Id,
           payload: { id: entity2Id, content: content2 },
         },
@@ -188,7 +188,7 @@ describe('Outbox and inbox resilience integration tests', () => {
       id: uuid(),
       aggregateId: uuid(),
       aggregateType,
-      eventType,
+      messageType,
       payload: { content: 'some movie' },
       createdAt: '2023-01-18T21:02:27.000Z',
     };
@@ -214,7 +214,7 @@ describe('Outbox and inbox resilience integration tests', () => {
       [
         {
           aggregateType,
-          eventType,
+          messageType,
           handle: async (
             message: InboxMessage,
             client: ClientBase,

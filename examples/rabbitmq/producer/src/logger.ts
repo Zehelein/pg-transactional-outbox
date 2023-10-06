@@ -13,10 +13,10 @@ if (process.env.NODE_ENV === 'development') {
         'id' in value &&
         'aggregateType' in value &&
         'aggregateId' in value &&
-        'eventType' in value
+        'messageType' in value
       ) {
         return {
-          context: `Message for ${value.aggregateType}.${value.eventType}.${value.aggregateId} has ID ${value.id}`,
+          context: `Message for ${value.aggregateType}.${value.messageType}.${value.aggregateId} has ID ${value.id}`,
           err: value.err,
         };
       }

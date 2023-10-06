@@ -245,7 +245,7 @@ CREATE TABLE public.outbox (
   id uuid PRIMARY KEY,
   aggregate_type VARCHAR(255) NOT NULL,
   aggregate_id VARCHAR(255) NOT NULL,
-  event_type VARCHAR(255) NOT NULL,
+  message_type VARCHAR(255) NOT NULL,
   payload JSONB NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -289,7 +289,7 @@ CREATE TABLE public.inbox (
   id uuid PRIMARY KEY,
   aggregate_type VARCHAR(255) NOT NULL,
   aggregate_id VARCHAR(255) NOT NULL,
-  event_type VARCHAR(255) NOT NULL,
+  message_type VARCHAR(255) NOT NULL,
   payload JSONB NOT NULL,
   created_at TIMESTAMPTZ NOT NULL,
   processed_at TIMESTAMPTZ,
@@ -320,7 +320,7 @@ The following code shows the producer side of the transactional outbox pattern.
 The two main functions are the `initializeOutboxService` to listen to the WAL
 messages when an outbox message was written to the outbox table. And the
 `initializeOutboxMessageStorage` generator function to store outgoing messages
-in the outbox table (for a specific aggregate type and event type).
+in the outbox table (for a specific aggregate type and message type).
 
 ```TypeScript
 import {
@@ -361,7 +361,7 @@ import { Client } from 'pg';
   const [shutdown] = initializeOutboxService(config, messagePublisher);
 
   // Initialize the outbox storage function. This function encapsulates the
-  // aggregate type (movie) and the event type (movie_created). It will be
+  // aggregate type (movie) and the message type (movie_created). It will be
   // called to insert the outgoing message into the outbox as part of the DB
   // transaction that is responsible for this event.
   const storeOutboxMessage = initializeOutboxMessageStorage(
@@ -371,7 +371,7 @@ import { Client } from 'pg';
   );
 
   // The actual business logic generates in this example a new movie in the DB
-  // and wants to reliably send a "movie_created" event.
+  // and wants to reliably send a "movie_created" message.
   const client = new Client({
     host: 'localhost',
     port: 5432,
@@ -477,12 +477,12 @@ import { ClientBase } from 'pg';
   await initializeInboxService(
     config,
     // This array holds a list of all message handlers for all the aggregate
-    // and event types. More than one handler can be configured for the same
-    // aggregate type and event type.
+    // and message types. More than one handler can be configured for the same
+    // aggregate type and message type.
     [
       {
         aggregateType: 'movie',
-        eventType: 'movie_created',
+        messageType: 'movie_created',
         handle: async (
           message: InboxMessage,
           client: ClientBase,
