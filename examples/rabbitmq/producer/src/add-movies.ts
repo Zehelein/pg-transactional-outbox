@@ -52,10 +52,11 @@ export const addMovies = async (
   }, 3000);
 };
 
+let index = 1;
 const insertMovie = async (dbClient: PoolClient) => {
   const movieInsertedIdResult = await dbClient.query(/* sql*/ `
         INSERT INTO public.movies (title, description, actors, directors, studio)
-        VALUES ('some movie', 'some description', ARRAY['Some Actor'], ARRAY['Some Director'], 'Some Studio')
+        VALUES ('movie ${index++}', 'some description', ARRAY['Some Actor'], ARRAY['Some Director'], 'Some Studio')
         RETURNING id, title, description;
       `);
   if (movieInsertedIdResult.rowCount === 0) {

@@ -3,6 +3,7 @@ import { ensureError } from 'pg-transactional-outbox';
 import { Config } from './config';
 import { getMessagingConfig } from './rabbitmq-config';
 import { logger } from './logger';
+import { Mutex } from 'async-mutex';
 
 /** The received message as it was sent by the producer */
 export interface ReceivedMessage {
@@ -29,7 +30,7 @@ export const initializeRabbitMqHandler = async (
   broker.on('error', (err, { vhost, connectionUrl }) => {
     logger.error({ err, vhost, connectionUrl }, 'RabbitMQ broker error');
   });
-
+  const mutex = new Mutex();
   // Consume messages for the desired subscriptions
   messageTypes.map(async (messageType) => {
     const subscription = await broker.subscribe(messageType);
@@ -41,7 +42,14 @@ export const initializeRabbitMqHandler = async (
           content.messageType &&
           content.createdAt
         ) {
+          // Using a mutex to ensure that each message is completely inserted
+          // in the original sort order to be then also processed in this order.
+          const release = await mutex.acquire();
           try {
+            logger.trace(
+              content,
+              'Started to add the incoming message to the inbox',
+            );
             await storeInboxMessage(content);
             ackOrNack();
             logger.trace(content, 'Added the incoming message to the inbox');
@@ -55,6 +63,8 @@ export const initializeRabbitMqHandler = async (
               },
               'Could not save the incoming message to the inbox',
             );
+          } finally {
+            release();
           }
         } else {
           logger.warn(

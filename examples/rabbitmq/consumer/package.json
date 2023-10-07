@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "amqplib": "^0.10.3",
+    "async-mutex": "^0.4.0",
     "dotenv": "^16.3.1",
     "pg": "^8.11.3",
     "pino": "^8.15.1",

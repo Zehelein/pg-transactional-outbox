@@ -17,6 +17,7 @@ export const storePublishedMovie = async (
 ): Promise<void> => {
   const { payload } = message;
   assertPublishedMovie(payload);
+  logger.trace(payload, 'Started to insert the published movie');
   await insertPublishedMovie(payload, client);
   logger.trace(payload, 'Inserted the published movie');
 };

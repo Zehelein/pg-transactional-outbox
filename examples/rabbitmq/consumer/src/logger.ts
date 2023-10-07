@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 import pino, { LoggerOptions } from 'pino';
 
 const options: LoggerOptions = {
@@ -9,20 +8,17 @@ const options: LoggerOptions = {
 if (process.env.NODE_ENV === 'development') {
   options.formatters = {
     log: (value: Record<string, unknown>) => {
+      let payload = value;
       if (
-        'id' in value &&
-        'aggregateType' in value &&
-        'aggregateId' in value &&
-        'messageType' in value
+        'payload' in value &&
+        typeof value.payload === 'object' &&
+        value.payload
       ) {
-        return {
-          context: `Message for ${value.aggregateType}.${value.messageType}.${value.aggregateId} has ID ${value.id}`,
-          err: value.err,
-        };
+        payload = value.payload as Record<string, unknown>;
       }
-      if ('id' in value && 'title' in value && 'description' in value) {
+      if ('id' in payload && 'title' in payload && 'description' in payload) {
         return {
-          context: `Movie ${value.title} with id ${value.id}`,
+          context: `Movie '${payload.title}' with id '${payload.id}'`,
           err: value.err,
         };
       }
