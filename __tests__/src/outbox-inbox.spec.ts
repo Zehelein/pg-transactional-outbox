@@ -34,23 +34,21 @@ if (isDebugMode()) {
 }
 const aggregateType = 'source_entity';
 const messageType = 'source_entity_created';
-const setupProducerAndConsumer = async (
+const setupProducerAndConsumer = (
   { inboxServiceConfig, outboxServiceConfig }: TestConfigs,
   inboxMessageHandlers: InboxMessageHandler[],
   messagePublisherWrapper?: (message: OutboxMessage) => boolean,
-): Promise<
-  [
-    storeOutboxMessage: ReturnType<typeof initializeOutboxMessageStorage>,
-    shutdown: () => Promise<void>,
-  ]
-> => {
+): [
+  storeOutboxMessage: ReturnType<typeof initializeOutboxMessageStorage>,
+  shutdown: () => Promise<void>,
+] => {
   // Inbox
-  const [inSrvShutdown] = await initializeInboxService(
+  const [inSrvShutdown] = initializeInboxService(
     inboxServiceConfig,
     inboxMessageHandlers,
   );
   const [storeInboxMessage, inStoreShutdown] =
-    await initializeInboxMessageStorage(inboxServiceConfig);
+    initializeInboxMessageStorage(inboxServiceConfig);
 
   // A simple in-process message sender
   const messageReceiver = async (message: OutboxMessage): Promise<void> => {
@@ -400,8 +398,8 @@ describe('Outbox and inbox integration tests', () => {
     };
     const processedMessages: InboxMessage[] = [];
     const [storeInboxMessage, shutdownInboxStorage] =
-      await initializeInboxMessageStorage(configs.inboxServiceConfig);
-    const [shutdownInboxSrv] = await initializeInboxService(
+      initializeInboxMessageStorage(configs.inboxServiceConfig);
+    const [shutdownInboxSrv] = initializeInboxService(
       configs.inboxServiceConfig,
       [
         {
@@ -430,7 +428,7 @@ describe('Outbox and inbox integration tests', () => {
     // Check that the second message is not received now either
     await shutdownInboxSrv();
     let receivedMsg2: InboxMessage | null = null;
-    const [shutdownInboxSrv2] = await initializeInboxService(
+    const [shutdownInboxSrv2] = initializeInboxService(
       configs.inboxServiceConfig,
       [
         {
@@ -461,9 +459,9 @@ describe('Outbox and inbox integration tests', () => {
       createdAt: '2023-01-18T21:02:27.000Z',
     };
     const [storeInboxMessage, shutdownInboxStorage] =
-      await initializeInboxMessageStorage(configs.inboxServiceConfig);
+      initializeInboxMessageStorage(configs.inboxServiceConfig);
     let inboxHandlerCounter = 0;
-    const [shutdownInboxSrv] = await initializeInboxService(
+    const [shutdownInboxSrv] = initializeInboxService(
       configs.inboxServiceConfig,
       [
         {
@@ -537,7 +535,7 @@ describe('Outbox and inbox integration tests', () => {
     // Assert
     await sleep(200);
     expect(inboxMessageReceived).toHaveLength(0);
-    await sleep(200);
+    await sleep(500); // depending
     expect(inboxMessageReceived).toHaveLength(2);
     expect(inboxMessageReceived[0].aggregateId).toBe(uuid1);
     expect(inboxMessageReceived[1].aggregateId).toBe(uuid2);

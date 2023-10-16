@@ -107,7 +107,7 @@ describe('Inbox unit tests', () => {
     test('it initializes the inbox message storage and stores a message without an error', async () => {
       // Act
       const [storeInboxMessage, shutdown] =
-        await initializeInboxMessageStorage(config);
+        initializeInboxMessageStorage(config);
 
       // Assert
       await expect(storeInboxMessage(message)).resolves.not.toThrow();

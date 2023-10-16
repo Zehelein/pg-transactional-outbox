@@ -199,7 +199,7 @@ describe('Outbox and inbox resilience integration tests', () => {
     };
     const processedMessages: InboxMessage[] = [];
     const [storeInboxMessage, shutdownInboxStorage] =
-      await initializeInboxMessageStorage(configs.inboxServiceConfig);
+      initializeInboxMessageStorage(configs.inboxServiceConfig);
 
     // Act
     // Store two message before starting up the inbox service
@@ -209,7 +209,7 @@ describe('Outbox and inbox resilience integration tests', () => {
     // the inbox service starts. The inbox service will retry for a while
     await createInfraOutage(startedEnv);
     // Start the service - it should succeed after PG is up again
-    const [shutdownInboxSrv] = await initializeInboxService(
+    const [shutdownInboxSrv] = initializeInboxService(
       configs.inboxServiceConfig,
       [
         {

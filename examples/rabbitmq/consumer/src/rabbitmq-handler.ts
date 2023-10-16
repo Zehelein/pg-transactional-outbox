@@ -75,6 +75,7 @@ export const initializeRabbitMqHandler = async (
         }
       })
       .on('error', (e) => logger.error(e, 'RabbitMQ subscription error.'))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- rascal types don't include the subscribed event
       .on('subscribed' as any, () =>
         logger.trace('RabbitMQ subscription success.'),
       );

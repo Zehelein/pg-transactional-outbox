@@ -9,14 +9,12 @@ import { MessageError, OutboxMessage, InboxMessage } from './models';
  * @param config The configuration object that defines the values on how to connect to the database and general settings.
  * @returns The function to store the inbox message data to the database and the shutdown action.
  */
-export const initializeInboxMessageStorage = async (
+export const initializeInboxMessageStorage = (
   config: Pick<InboxServiceConfig, 'pgConfig' | 'settings'>,
-): Promise<
-  [
-    storeInboxMessage: (message: OutboxMessage) => Promise<void>,
-    shutdown: () => Promise<void>,
-  ]
-> => {
+): [
+  storeInboxMessage: (message: OutboxMessage) => Promise<void>,
+  shutdown: () => Promise<void>,
+] => {
   const pool = new Pool(config.pgConfig);
   pool.on('error', (err) => {
     logger().error(err, 'PostgreSQL pool error');
@@ -46,7 +44,11 @@ export const initializeInboxMessageStorage = async (
     },
     async () => {
       pool.removeAllListeners();
-      await pool.end();
+      try {
+        await pool.end();
+      } catch (e) {
+        logger().error(e, 'Inbox message storage shutdown error');
+      }
     },
   ];
 };
@@ -79,7 +81,7 @@ export const verifyInbox = async (
   if (inboxResult.rows[0].processed_at) {
     return 'ALREADY_PROCESSED';
   }
-  if (inboxResult.rows[0].retries >= (settings.maxRetries ?? 5)) {
+  if (inboxResult.rows[0].retries >= getMaxRetries(settings.maxRetries)) {
     return 'RETRIES_EXCEEDED';
   }
   return true;
@@ -108,20 +110,30 @@ export const ackInbox = async (
  * @param message The inbox message to NOT acknowledge.
  * @param client The database client. Must be part of the transaction where the message handling changes are done.
  * @param config The configuration settings that defines inbox database schema.
- * @param maxRetries Retry a message up to max retries.
+ * @param retries Optionally set the number of retries to a specific value. Especially relevant for non-transient errors to directly set it to the maximum retries value.
  */
 export const nackInbox = async (
   { id }: InboxMessage,
   client: PoolClient,
   { settings }: Pick<InboxServiceConfig, 'settings'>,
+  retries?: number,
 ): Promise<void> => {
-  await client.query(
-    /* sql*/ `
-    UPDATE ${settings.dbSchema}.${settings.dbTable} SET retries = retries + 1 WHERE id = $1;
-    `,
-    [id],
-  );
+  if (retries) {
+    await client.query(
+      /* sql*/ `
+      UPDATE ${settings.dbSchema}.${settings.dbTable} SET retries = $1 WHERE id = $2;`,
+      [retries, id],
+    );
+  } else {
+    await client.query(
+      /* sql*/ `
+    UPDATE ${settings.dbSchema}.${settings.dbTable} SET retries = retries + 1 WHERE id = $1;`,
+      [id],
+    );
+  }
 };
+
+export const getMaxRetries = (maxRetries?: number): number => maxRetries ?? 5;
 
 const insertInbox = async (
   message: OutboxMessage,

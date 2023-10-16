@@ -30,7 +30,7 @@ process.on('unhandledRejection', (err, promise) => {
 
   // Initialize the inbox message storage to store incoming messages in the inbox
   const [storeInboxMessage, shutdownInStore] =
-    await initializeInboxMessageStorage(inboxConfig);
+    initializeInboxMessageStorage(inboxConfig);
 
   // Initialize the RabbitMQ message handler to receive messages and store them in the inbox
   const [shutdownRmq] = await initializeRabbitMqHandler(
@@ -40,7 +40,7 @@ process.on('unhandledRejection', (err, promise) => {
   );
 
   // Initialize and start the inbox subscription
-  const [shutdownInSrv] = await initializeInboxService(inboxConfig, [
+  const [shutdownInSrv] = initializeInboxService(inboxConfig, [
     {
       aggregateType: MovieAggregateType,
       messageType: MovieCreatedMessageType,

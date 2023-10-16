@@ -242,7 +242,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       createdAt: '2023-01-18T21:02:27.000Z',
       retries: 2,
     };
-    const [cleanup] = await initializeInboxService(config, [
+    const [cleanup] = initializeInboxService(config, [
       {
         aggregateType: message.aggregateType,
         messageType: message.messageType,
@@ -274,55 +274,28 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(client.end).toHaveBeenCalledTimes(1);
   });
 
-  it('should call all the correct messageHandlers and acknowledge the WAL message when no errors are thrown', async () => {
+  it('should return an error if more than one messageHandler is registered for one aggregate/message type combination', () => {
     // Arrange
-    const messageHandler1 = jest.fn(() => Promise.resolve());
-    const messageHandler2 = jest.fn(() => Promise.resolve());
-    const unusedMessageHandler = jest.fn(() => Promise.resolve());
-    const message = {
-      id: 'not_processed_id',
-      aggregateType: aggregate_type,
-      aggregateId: 'test_aggregate_id',
-      messageType: message_type,
-      payload: { result: 'success' },
-      createdAt: '2023-01-18T21:02:27.000Z',
-      retries: 2,
-    };
-    const [cleanup] = await initializeInboxService(config, [
-      {
-        aggregateType: message.aggregateType,
-        messageType: message.messageType,
-        handle: messageHandler1,
-      },
-      {
-        aggregateType: message.aggregateType,
-        messageType: message.messageType,
-        handle: messageHandler2,
-      },
-      {
-        aggregateType: 'unused-aggregate-type',
-        messageType: 'unused-message-type',
-        handle: unusedMessageHandler,
-      },
-    ]);
+    const aggregateType = 'aggregate_type';
+    const messageType = 'message_type';
 
-    // Act
-    sendReplicationChunk('not_processed_id');
-    await continueEventLoop();
-
-    // Assert
-    expect(messageHandler1).toHaveBeenCalledWith(message, expect.any(Object));
-    expect(messageHandler2).toHaveBeenCalledWith(message, expect.any(Object));
-    expect(ackInboxSpy).toHaveBeenCalledWith(
-      message,
-      expect.any(Object),
-      expect.any(Object),
+    // Act + Assert
+    expect(() =>
+      initializeInboxService(config, [
+        {
+          aggregateType,
+          messageType,
+          handle: jest.fn(() => Promise.resolve()),
+        },
+        {
+          aggregateType,
+          messageType,
+          handle: jest.fn(() => Promise.resolve()),
+        },
+      ]),
+    ).toThrow(
+      `Only one message handler can handle one aggregate and message type. Multiple message handlers try to handle the aggregate type "${aggregateType}" with the message type "${messageType}"`,
     );
-    expect(nackInboxSpy).not.toHaveBeenCalled();
-    expect(unusedMessageHandler).not.toHaveBeenCalled();
-    expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
-    await cleanup();
-    expect(client.end).toHaveBeenCalledTimes(1);
   });
 
   it.each(['processed_id' as MessageIdType, 'not_found' as MessageIdType])(
@@ -340,7 +313,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         createdAt: '2023-01-18T21:02:27.000Z',
         retries: 2,
       };
-      const [cleanup] = await initializeInboxService(config, [
+      const [cleanup] = initializeInboxService(config, [
         {
           aggregateType: message.aggregateType,
           messageType: message.messageType,
@@ -382,7 +355,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       createdAt: '2023-01-18T21:02:27.000Z',
       retries: 2,
     };
-    const [cleanup] = await initializeInboxService(config, [
+    const [cleanup] = initializeInboxService(config, [
       {
         aggregateType: message.aggregateType,
         messageType: message.messageType,
@@ -409,6 +382,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       message,
       expect.any(Object),
       expect.any(Object),
+      undefined,
     );
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
@@ -427,7 +401,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       createdAt: '2023-01-18T21:02:27.000Z',
       retries: 4,
     };
-    const [cleanup] = await initializeInboxService(config, [
+    const [cleanup] = initializeInboxService(config, [
       {
         aggregateType: message.aggregateType,
         messageType: message.messageType,
@@ -450,10 +424,12 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
     expect(ackInboxSpy).not.toHaveBeenCalled();
+    expect(nackInboxSpy).toHaveBeenCalled();
     expect(nackInboxSpy).toHaveBeenCalledWith(
       message,
       expect.any(Object),
       expect.any(Object),
+      undefined,
     );
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();

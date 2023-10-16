@@ -465,7 +465,7 @@ import { ClientBase } from 'pg';
 
   // Initialize the inbox message storage to store incoming messages in the inbox
   const [storeInboxMessage, shutdownInboxStorage] =
-    await initializeInboxMessageStorage(config);
+    initializeInboxMessageStorage(config);
 
   // Initialize the message receiver e.g. based on RabbitMQ
   // In the simplest scenario use the inter process communication:
@@ -474,7 +474,7 @@ import { ClientBase } from 'pg';
   });
 
   // Initialize and start the inbox subscription
-  await initializeInboxService(
+  initializeInboxService(
     config,
     // This array holds a list of all message handlers for all the aggregate
     // and message types. More than one handler can be configured for the same
