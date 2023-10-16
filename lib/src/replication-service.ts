@@ -22,7 +22,7 @@ export interface ServiceConfigSettings {
   dbSchema: string;
   /** The database table of the inbox/outbox */
   dbTable: string;
-  /** The name of the used PostgreSQL replication */
+  /** The name of the used PostgreSQL publication */
   postgresPub: string;
   /** The name of the used PostgreSQL logical replication slot */
   postgresSlot: string;

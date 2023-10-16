@@ -265,10 +265,18 @@ that reads and mutates the business-relevant data.
 The following statements can be used:
 
 ```sql
-CREATE ROLE db_outbox WITH REPLICATION LOGIN PASSWORD 'db_outbox_password';
-CREATE PUBLICATION pg_transactional_outbox_pub FOR TABLE public.outbox WITH (publish = 'insert');
-select pg_create_logical_replication_slot('pg_transactional_outbox_slot', 'pgoutput');
+BEGIN;
+  CREATE ROLE db_outbox WITH REPLICATION LOGIN PASSWORD 'db_outbox_password';
+  CREATE PUBLICATION pg_transactional_outbox_pub
+  FOR TABLE public.outbox WITH (publish = 'insert');
+COMMIT;
+
+SELECT pg_create_logical_replication_slot('pg_transactional_outbox_slot', 'pgoutput');
 ```
+
+> **NOTE**: The `BEGIN` and `COMMIT` in the example above are important, because
+> the replication slot must be created in a transaction that has not performed
+> any writes, otherwise an error would be thrown.
 
 > **NOTE**: the replication slot name is database **server** unique! This means
 > if you use the transactional inbox pattern on multiple databases within the
@@ -309,9 +317,12 @@ Just like for accessing the outbox table WAL, the inbox solution requires a
 similar setup:
 
 ```sql
-CREATE ROLE db_inbox WITH REPLICATION LOGIN PASSWORD 'db_inbox_password';
-CREATE PUBLICATION pg_transactional_inbox_pub FOR TABLE public.inbox WITH (publish = 'insert');
-select pg_create_logical_replication_slot('pg_transactional_inbox_slot', 'pgoutput');
+BEGIN;
+  CREATE ROLE db_inbox WITH REPLICATION LOGIN PASSWORD 'db_inbox_password';
+  CREATE PUBLICATION pg_transactional_inbox_pub
+  FOR TABLE public.inbox WITH (publish = 'insert');
+COMMIT;
+SELECT pg_create_logical_replication_slot('pg_transactional_inbox_slot', 'pgoutput');
 ```
 
 ## Implementing the transactional outbox producer

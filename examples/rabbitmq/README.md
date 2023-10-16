@@ -29,6 +29,10 @@ it to set up the corresponding database, login roles, and table structure.
 The package.json files include a "dev:watch" and "debug:watch" for development
 and a "start" script that can be used after the project was built.
 
+> **NOTE**: In VSCode, for debugger to attach when using "debug:watch", set
+> "Auto Attach" to "With Flag". If it is already set - change it to some other
+> value, then back to "With Flag", and then re-open the terminal window.
+
 # Notes
 
 The RabbitMQ connection is using [Rascal](https://github.com/onebeyond/rascal)
