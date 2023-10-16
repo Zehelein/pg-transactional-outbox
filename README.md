@@ -1,13 +1,13 @@
 # pg-transactional-outbox
 
-The transactional outbox and transactional inbox patterns is used to ensure
+The transactional outbox and transactional inbox patterns are used to ensure
 exactly-once processing of messages in event-driven architectures, where the
 loss or duplication of a message could have significant consequences. This
 library guarantees that a message is sent at least once, but processed exactly
 once, and is useful in scenarios where the reliability and atomicity of message
 processing is important. This pattern is an alternative to distributed
-transactions using a two-phase commit, which can lead bottlenecks with a large
-number of microservices communicating with each other.
+transactions using a two-phase commit, which can lead to bottlenecks with a
+large number of microservices communicating with each other.
 
 ![postgresql_outbox_pattern](https://user-images.githubusercontent.com/9946441/211221740-a10d3c0b-dfa9-4c4e-84fb-068f6e63aaac.jpeg)
 _Message delivery via the PostgreSQL-based transactional outbox pattern
@@ -44,14 +44,14 @@ the actual data that should be made available to the message consumers.
 This function must be used as part of a PostgreSQL transaction together with the
 data mutations that were the reason for sending this message.
 
-The outbox service that gets notified when new inbox rows are created is
+The outbox service that gets notified when new outbox rows are created is
 initialized via the `initializeOutboxService` function. The configuration input
 parameter includes the connection details to the PostgreSQL database
-(`pgReplicationConfig`) with the role that has the "replication" permission. The
+(`pgReplicationConfig`) with the role that has the "replication" attribute. The
 configuration also includes the `settings` for the database schema/table for the
-outbox table, the name of the used PostgreSQL replication, and the name of the
+outbox table, the name of the used PostgreSQL publication, and the name of the
 used PostgreSQL logical replication slot. The second parameter is the callback
-function which is executed whenever a new outbox message arrived. The
+function which is executed whenever a new outbox message arrives. The
 implementation of this functionality must provide the logic to send the message
 via e.g. RabbitMQ or Kafka.
 
@@ -65,11 +65,11 @@ this connection needs insert permissions to the inbox table.
 
 The other central function is `initializeInboxService`. It takes a configuration
 object with one database connection (`pgReplicationConfig`) based on a user with
-the replication permission to receive notifications when a new inbox message was
+the replication attribute to receive notifications when a new inbox message was
 created. And a second database connection (`pgConfig`) to open a database
 transaction to process the inbox message and the message handler data changes.
 The configuration includes also the `settings` for database schema and table
-name of the inbox table, the name of the used PostgreSQL replication, and the
+name of the inbox table, the name of the used PostgreSQL publication, and the
 name of the used PostgreSQL logical replication slot.
 
 ## General
@@ -99,3 +99,9 @@ brokers like RabbitMQ.
 Currently, there is an example of how to implement the transactional outbox and
 inbox pattern when using RabbitMQ as the messaging broker. You can find more
 details in the [README.md](./examples/rabbitmq/README.md).
+
+## Windows-only possible isse
+
+It is possible when running `yarn` to encounter an error
+`Unable to detect compiler type` on windows machines. In this case
+`yarn --ignore-optional` can be used to work around this.
