@@ -22,6 +22,32 @@ export const sleep = async (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 /**
+ * Run a promise but make sure to wait only a maximum amount of time for it to finish.
+ * @param promise The promise to execute
+ * @param timeoutMs The amount of time in milliseconds to wait for the promise to finish
+ * @param failureMessage The message for the error if the timeout was reached
+ * @returns The promise return value or a timeout error is thrown
+ */
+export const awaitWithTimeout = <T>(
+  promise: () => Promise<T>,
+  timeoutMs: number,
+  failureMessage?: string,
+): Promise<T> => {
+  let timeoutHandle: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeoutHandle = setTimeout(
+      () => reject(new Error(failureMessage)),
+      timeoutMs,
+    );
+  });
+
+  return Promise.race([promise(), timeoutPromise]).then((result) => {
+    clearTimeout(timeoutHandle);
+    return result;
+  });
+};
+
+/**
  * Open a transaction and execute the callback as part of the transaction.
  * @param pool The PostgreSQL database pool
  * @param callback The callback to execute DB commands with.

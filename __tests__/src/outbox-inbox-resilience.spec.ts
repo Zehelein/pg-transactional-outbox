@@ -33,6 +33,7 @@ if (isDebugMode()) {
 }
 const aggregateType = 'source_entity';
 const messageType = 'source_entity_created';
+const metadata = { routingKey: 'test.route', exchange: 'test-exchange' };
 
 const createContent = (id: string) => `Content for id ${id}`;
 
@@ -52,7 +53,7 @@ const insertSourceEntity = async (
         `Inserted ${entity.rowCount} source entities instead of 1.`,
       );
     }
-    await storeOutboxMessage(id, entity.rows[0], client);
+    await storeOutboxMessage(id, entity.rows[0], client, metadata);
   });
 };
 
@@ -103,15 +104,23 @@ describe('Outbox and inbox resilience integration tests', () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (cleanup) {
-      cleanup().catch((e) => logger().error(e));
+      try {
+        await cleanup();
+      } catch (e) {
+        logger().error(e);
+      }
     }
   });
 
-  afterAll(() => {
-    loginPool?.end().catch((e) => logger().error(e));
-    startedEnv?.down().catch((e) => logger().error(e));
+  afterAll(async () => {
+    try {
+      await loginPool?.end();
+      await startedEnv?.down();
+    } catch (e) {
+      logger().error(e);
+    }
   });
 
   test('Messages are stored and later sent even if the PostgreSQL service goes down', async () => {
@@ -171,12 +180,14 @@ describe('Outbox and inbox resilience integration tests', () => {
           messageType,
           aggregateId: entity1Id,
           payload: { id: entity1Id, content: content1 },
+          metadata,
         },
         {
           aggregateType,
           messageType,
           aggregateId: entity2Id,
           payload: { id: entity2Id, content: content2 },
+          metadata,
         },
       ].sort(compareEntities),
     );
@@ -190,6 +201,7 @@ describe('Outbox and inbox resilience integration tests', () => {
       aggregateType,
       messageType,
       payload: { content: 'some movie' },
+      metadata,
       createdAt: '2023-01-18T21:02:27.000Z',
     };
     const msg2: OutboxMessage = {

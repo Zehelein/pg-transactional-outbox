@@ -140,15 +140,22 @@ const insertInbox = async (
   dbClient: PoolClient,
   { settings }: Pick<InboxServiceConfig, 'settings'>,
 ) => {
-  const { id, aggregateType, aggregateId, messageType, payload, createdAt } =
-    message;
+  const {
+    id,
+    aggregateType,
+    aggregateId,
+    messageType,
+    payload,
+    metadata,
+    createdAt,
+  } = message;
   const inboxResult = await dbClient.query(
     /* sql*/ `
     INSERT INTO ${settings.dbSchema}.${settings.dbTable}
-      (id, aggregate_type, aggregate_id, message_type, payload, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      (id, aggregate_type, aggregate_id, message_type, payload, metadata, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (id) DO NOTHING`,
-    [id, aggregateType, aggregateId, messageType, payload, createdAt],
+    [id, aggregateType, aggregateId, messageType, payload, metadata, createdAt],
   );
   if (inboxResult.rowCount < 1) {
     logger().warn(message, `The message with id ${id} already existed`);

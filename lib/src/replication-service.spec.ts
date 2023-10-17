@@ -81,6 +81,8 @@ const dbMessage = {
   message_type: 'test_message_type',
   aggregate_id: 'test_aggregate_id',
   payload: { result: 'success' },
+  metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
+
   created_at: new Date('2023-01-18T21:02:27.000Z'),
 };
 
@@ -90,6 +92,7 @@ const message = {
   aggregateId: dbMessage.aggregate_id,
   messageType: dbMessage.message_type,
   payload: dbMessage.payload,
+  metadata: dbMessage.metadata,
   createdAt: '2023-01-18T21:02:27.000Z',
 };
 
@@ -189,6 +192,7 @@ describe('Local replication service unit tests', () => {
           aggregate_id: 'test_aggregate_id',
           message_type: 'test_message_type',
           payload: { test: 'payload' },
+          metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
           created_at: new Date('2023-01-18T21:02:27.000Z'),
         },
       };
@@ -207,6 +211,7 @@ describe('Local replication service unit tests', () => {
         aggregateId: 'test_aggregate_id',
         messageType: 'test_message_type',
         payload: { test: 'payload' },
+        metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
         createdAt: '2023-01-18T21:02:27.000Z',
       });
       expect(mapAdditionalRows).toHaveBeenCalledWith({
@@ -215,6 +220,7 @@ describe('Local replication service unit tests', () => {
         aggregate_id: 'test_aggregate_id',
         message_type: 'test_message_type',
         payload: { test: 'payload' },
+        metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
         created_at: new Date('2023-01-18T21:02:27.000Z'),
       });
     });
@@ -249,6 +255,7 @@ describe('Local replication service unit tests', () => {
           message_type: 'test_message_type',
           created_at: 'not a date',
           payload: { test: 'payload' },
+          metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
         }),
       ).toBeUndefined();
     });
@@ -262,6 +269,7 @@ describe('Local replication service unit tests', () => {
         message_type: 'test_message_type',
         created_at: new Date('2023-01-18T21:02:27.000Z'),
         payload: { test: 'payload' },
+        metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       };
 
       // Act
@@ -275,6 +283,7 @@ describe('Local replication service unit tests', () => {
         aggregateId: input.aggregate_id,
         messageType: input.message_type,
         payload: input.payload,
+        metadata: input.metadata,
         createdAt: '2023-01-18T21:02:27.000Z',
       });
     });
@@ -288,6 +297,7 @@ describe('Local replication service unit tests', () => {
         message_type: 'test_message_type',
         created_at: new Date('2023-01-18T21:02:27.000Z'),
         payload: { test: 'payload' },
+        metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
         additional_property: 'additional_value',
       };
       const mapAdditionalRows = (row: object) => ({
@@ -305,6 +315,7 @@ describe('Local replication service unit tests', () => {
         aggregateId: 'test_aggregate_id',
         messageType: 'test_message_type',
         payload: { test: 'payload' },
+        metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
         createdAt: '2023-01-18T21:02:27.000Z',
         additional_property: 'additional_value',
       });

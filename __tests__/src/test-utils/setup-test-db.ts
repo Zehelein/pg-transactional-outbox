@@ -85,6 +85,7 @@ const outboxSetup = async (
         aggregate_id VARCHAR(255) NOT NULL,
         message_type VARCHAR(255) NOT NULL,
         payload JSONB NOT NULL,
+        metadata JSONB,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
       GRANT USAGE ON SCHEMA ${dbSchema} TO ${user} ;
@@ -136,6 +137,7 @@ const inboxSetup = async (
         aggregate_id VARCHAR(255) NOT NULL,
         message_type VARCHAR(255) NOT NULL,
         payload JSONB NOT NULL,
+        metadata JSONB,
         created_at TIMESTAMPTZ NOT NULL,
         processed_at TIMESTAMPTZ,
         retries smallint NOT NULL DEFAULT 0

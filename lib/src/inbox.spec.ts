@@ -25,6 +25,7 @@ const message: OutboxMessage = {
   messageType: 'test_message_type',
   aggregateId: 'test_aggregate_id',
   payload: { result: 'success' },
+  metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
   createdAt: '2023-01-18T21:02:27.000Z',
 };
 

@@ -70,6 +70,7 @@ const outboxDbMessage = {
   message_type: 'test_message_type',
   aggregate_id: 'test_aggregate_id',
   payload: { result: 'success' },
+  metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
   created_at: new Date('2023-01-18T21:02:27.000Z'),
 };
 
@@ -79,6 +80,7 @@ const outboxMessage = {
   aggregateId: outboxDbMessage.aggregate_id,
   messageType: outboxDbMessage.message_type,
   payload: outboxDbMessage.payload,
+  metadata: outboxDbMessage.metadata,
   createdAt: '2023-01-18T21:02:27.000Z',
 };
 

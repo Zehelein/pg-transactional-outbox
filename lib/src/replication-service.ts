@@ -5,7 +5,7 @@ import { Pgoutput, PgoutputPlugin } from 'pg-logical-replication';
 import { AbstractPlugin } from 'pg-logical-replication/dist/output-plugins/abstract.plugin';
 import { logger } from './logger';
 import { OutboxMessage } from './models';
-import { ensureError } from './utils';
+import { awaitWithTimeout, ensureError } from './utils';
 
 export interface ServiceConfig {
   /**
@@ -85,7 +85,7 @@ export const createService = <T extends OutboxMessage>(
           return err;
         })
         .then((err) => {
-          if (!restartTimeout) {
+          if (!stopped && !restartTimeout) {
             restartTimeout = setTimeout(
               start,
               getRestartTimeout(err, settings),
@@ -151,7 +151,8 @@ const mapMessage = <T extends OutboxMessage>(
     typeof input.message_type !== 'string' ||
     !('created_at' in input) ||
     !(input.created_at instanceof Date) || // date
-    !('payload' in input)
+    !('payload' in input) ||
+    !('metadata' in input)
   ) {
     return undefined;
   }
@@ -162,6 +163,7 @@ const mapMessage = <T extends OutboxMessage>(
     aggregateId: input.aggregate_id,
     messageType: input.message_type,
     payload: input.payload,
+    metadata: input.metadata as Record<string, unknown> | undefined,
     createdAt: input.created_at.toISOString(),
     ...additional,
   };
@@ -229,7 +231,11 @@ const stopClient = async (client: ReplicationClient | undefined) => {
   try {
     client.connection?.removeAllListeners();
     client.removeAllListeners();
-    await client.end();
+    await awaitWithTimeout(
+      () => client.end(),
+      1000,
+      `PostgreSQL client could not be stopped within a reasonable time frame.`,
+    );
   } catch (e) {
     logger().warn(e, 'Stopping the PostgreSQL client gave an error.');
   }

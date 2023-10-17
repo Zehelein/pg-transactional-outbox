@@ -73,6 +73,7 @@ describe('Outbox unit tests', () => {
       const aggregateType = 'movie';
       const messageType = 'created';
       const payload = { test: 'data' };
+      const metadata = { routingKey: 'test.route', exchange: 'test-exchange' };
       const storeOutboxMessage = initializeOutboxMessageStorage(
         aggregateType,
         messageType,
@@ -80,7 +81,12 @@ describe('Outbox unit tests', () => {
       );
 
       // Act
-      const result = await storeOutboxMessage(aggregateId, payload, client);
+      const result = await storeOutboxMessage(
+        aggregateId,
+        payload,
+        client,
+        metadata,
+      );
 
       // Assert
       expect(client.query).toHaveBeenCalledTimes(2);
@@ -88,7 +94,14 @@ describe('Outbox unit tests', () => {
         expect.stringContaining(
           `INSERT INTO ${config.settings.dbSchema}.${config.settings.dbTable}`,
         ),
-        [expect.any(String), aggregateType, aggregateId, messageType, payload],
+        [
+          expect.any(String),
+          aggregateType,
+          aggregateId,
+          messageType,
+          payload,
+          metadata,
+        ],
       );
       expect(result).toEqual({
         id: expect.any(String),
@@ -96,6 +109,7 @@ describe('Outbox unit tests', () => {
         aggregateId,
         messageType,
         payload,
+        metadata,
         createdAt: expect.any(Date),
       });
     });

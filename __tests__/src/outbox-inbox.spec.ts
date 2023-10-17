@@ -34,6 +34,7 @@ if (isDebugMode()) {
 }
 const aggregateType = 'source_entity';
 const messageType = 'source_entity_created';
+const metadata = { routingKey: 'test.route', exchange: 'test-exchange' };
 const setupProducerAndConsumer = (
   { inboxServiceConfig, outboxServiceConfig }: TestConfigs,
   inboxMessageHandlers: InboxMessageHandler[],
@@ -102,7 +103,7 @@ const insertSourceEntity = async (
         `Inserted ${entity.rowCount} source entities instead of 1.`,
       );
     }
-    await storeOutboxMessage(id, entity.rows[0], client);
+    await storeOutboxMessage(id, entity.rows[0], client, metadata);
   });
 };
 
@@ -133,13 +134,21 @@ describe('Outbox and inbox integration tests', () => {
 
   afterEach(async () => {
     if (cleanup) {
-      cleanup().catch((e) => logger().error(e));
+      try {
+        await cleanup();
+      } catch (e) {
+        logger().error(e);
+      }
     }
   });
 
   afterAll(async () => {
-    loginPool?.end().catch((e) => logger().error(e));
-    startedEnv?.down().catch((e) => logger().error(e));
+    try {
+      await loginPool?.end();
+      await startedEnv?.down();
+    } catch (e) {
+      logger().error(e);
+    }
   });
 
   test('A single message is sent and received', async () => {
@@ -180,6 +189,7 @@ describe('Outbox and inbox integration tests', () => {
       messageType,
       aggregateId: entityId,
       payload: { id: entityId, content },
+      metadata,
     });
   });
 
@@ -215,7 +225,7 @@ describe('Outbox and inbox integration tests', () => {
             [id, createContent(id)],
           );
           expect(entity.rowCount).toBe(1);
-          await storeOutboxMessage(id, entity.rows[0], client);
+          await storeOutboxMessage(id, entity.rows[0], client, metadata);
         }),
       );
     });
@@ -232,6 +242,7 @@ describe('Outbox and inbox integration tests', () => {
         messageType,
         aggregateId: id,
         payload: { id, content: createContent(id) },
+        metadata,
       })),
     );
   });
@@ -281,6 +292,7 @@ describe('Outbox and inbox integration tests', () => {
       messageType,
       aggregateId: entityId,
       payload: { id: entityId, content },
+      metadata,
     });
   });
 
@@ -366,9 +378,6 @@ describe('Outbox and inbox integration tests', () => {
         receivedFromOutbox2 = msg;
       },
     );
-    cleanup = async () => {
-      await Promise.all([shutdown1(), shutdown2()]);
-    };
 
     // Act
     await insertSourceEntity(loginPool, entityId, content, storeOutboxMessage);
@@ -378,6 +387,11 @@ describe('Outbox and inbox integration tests', () => {
     expect(receivedFromOutbox1).not.toBeNull();
     // The second service does not start as only one reader per slot is allowed
     expect(receivedFromOutbox2).toBeNull();
+
+    cleanup = async () => {
+      await shutdown1();
+      await shutdown2();
+    };
   });
 
   test('An inbox message is acknowledged if there is no handler for it.', async () => {
@@ -388,6 +402,7 @@ describe('Outbox and inbox integration tests', () => {
       aggregateType,
       messageType,
       payload: { content: 'some movie' },
+      metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
     };
     const msg2: OutboxMessage = {
@@ -456,6 +471,7 @@ describe('Outbox and inbox integration tests', () => {
       aggregateType,
       messageType,
       payload: { content: 'some movie' },
+      metadata,
       createdAt: '2023-01-18T21:02:27.000Z',
     };
     const [storeInboxMessage, shutdownInboxStorage] =

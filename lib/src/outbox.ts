@@ -21,6 +21,7 @@ export const initializeOutboxMessageStorage = (
    * @param aggregateId The identifier of the aggregate.
    * @param payload The actual message payload that should be sent.
    * @param dbClient The database client that should have an active transaction to insert the outbox data along with the business logic transaction.
+   * @param metadata Optional metadata that is/was used for the actual message transfer
    * @returns The outbox message data that was stored in the database.
    * @throws An error if the outbox message could not be created.
    */
@@ -28,6 +29,7 @@ export const initializeOutboxMessageStorage = (
     aggregateId: string,
     payload: unknown,
     dbClient: ClientBase,
+    metadata?: Record<string, unknown>,
   ): Promise<OutboxMessage> =>
     storeOutboxMessage(
       dbSchema,
@@ -37,6 +39,7 @@ export const initializeOutboxMessageStorage = (
       messageType,
       payload,
       dbClient,
+      metadata,
     );
 };
 
@@ -57,6 +60,7 @@ export const initializeGeneralOutboxMessageStorage = ({
    * @param messageType The type of message that happened on the aggregate type.
    * @param payload The actual message payload that should be sent.
    * @param dbClient The database client that should have an active transaction to insert the outbox data along with the business logic transaction.
+   * @param metadata Optional metadata that is/was used for the actual message transfer
    * @returns The outbox message data that was stored in the database.
    * @throws An error if the outbox message could not be created.
    */
@@ -66,6 +70,7 @@ export const initializeGeneralOutboxMessageStorage = ({
     messageType: string,
     payload: unknown,
     dbClient: ClientBase,
+    metadata?: Record<string, unknown>,
   ): Promise<OutboxMessage> =>
     storeOutboxMessage(
       dbSchema,
@@ -75,6 +80,7 @@ export const initializeGeneralOutboxMessageStorage = ({
       messageType,
       payload,
       dbClient,
+      metadata,
     );
 };
 
@@ -86,21 +92,23 @@ const storeOutboxMessage = async (
   messageType: string,
   payload: unknown,
   dbClient: ClientBase,
+  metadata?: Record<string, unknown>,
 ): Promise<OutboxMessage> => {
   const outboxId = uuid();
   const outboxResult = await dbClient.query(
     /* sql*/ `
     INSERT INTO ${dbSchema}.${dbTable}
-      (id, aggregate_type, aggregate_id, message_type, payload)
-      VALUES ($1, $2, $3, $4, $5)
+      (id, aggregate_type, aggregate_id, message_type, payload, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6)
     RETURNING id, created_at;`,
-    [outboxId, aggregateType, aggregateId, messageType, payload],
+    [outboxId, aggregateType, aggregateId, messageType, payload, metadata],
   );
   const attemptedMessage = {
     aggregateType,
     aggregateId,
     messageType,
     payload,
+    metadata,
     id: 'unknown',
     createdAt: 'unknown',
   };

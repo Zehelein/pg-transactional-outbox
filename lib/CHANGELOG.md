@@ -3,6 +3,14 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
+## [0.3.0] - 2023-11-17
+
+### Changed
+
+- BREAKING CHANGE: added support for additional "metadata" in inbox and outbox
+  messages. A new database column `metadata JSONB` must be added to the inbox
+  and outbox database table. Setting
+
 ## [0.2.0] - 2023-10-26
 
 ### Changed

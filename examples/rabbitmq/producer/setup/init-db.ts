@@ -86,6 +86,7 @@ const outboxSetup = async (config: Config): Promise<void> => {
         aggregate_id VARCHAR(255) NOT NULL,
         message_type VARCHAR(255) NOT NULL,
         payload JSONB NOT NULL,
+        metadata JSONB,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
       GRANT USAGE ON SCHEMA ${config.postgresOutboxSchema} TO ${config.postgresLoginRole} ;

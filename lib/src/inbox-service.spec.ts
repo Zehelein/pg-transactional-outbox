@@ -118,6 +118,7 @@ const inboxDbMessages = [
     message_type,
     aggregate_id: 'test_aggregate_id',
     payload: { result: 'success' },
+    metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
     created_at: new Date('2023-01-18T21:02:27.000Z'),
     retries: 2,
     processed_at: null,
@@ -128,6 +129,7 @@ const inboxDbMessages = [
     message_type,
     aggregate_id: 'test_aggregate_id',
     payload: { result: 'success' },
+    metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
     created_at: new Date('2023-01-18T21:02:27.000Z'),
     retries: 0,
     processed_at: new Date('2023-01-18T21:02:27.000Z'),
@@ -138,6 +140,7 @@ const inboxDbMessages = [
     message_type,
     aggregate_id: 'test_aggregate_id',
     payload: { result: 'success' },
+    metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
     created_at: new Date('2023-01-18T21:02:27.000Z'),
     retries: 4, // 5 is max by default
     processed_at: null,
@@ -239,6 +242,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       aggregateId: 'test_aggregate_id',
       messageType: message_type,
       payload: { result: 'success' },
+      metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
       retries: 2,
     };
@@ -310,6 +314,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         aggregateId: 'test_aggregate_id',
         messageType: message_type,
         payload: { result: 'success' },
+        metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
         createdAt: '2023-01-18T21:02:27.000Z',
         retries: 2,
       };
@@ -352,6 +357,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       aggregateId: 'test_aggregate_id',
       messageType: message_type,
       payload: { result: 'success' },
+      metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
       retries: 2,
     };
@@ -398,6 +404,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       messageType: message_type,
       aggregateId: 'test_aggregate_id',
       payload: { result: 'success' },
+      metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
       retries: 4,
     };

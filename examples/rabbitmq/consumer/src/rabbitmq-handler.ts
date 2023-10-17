@@ -12,6 +12,7 @@ export interface ReceivedMessage {
   aggregateId: string;
   messageType: string;
   payload: unknown;
+  metadata: Record<string, unknown>;
   createdAt: string;
 }
 
