@@ -89,7 +89,7 @@ const inboxSetup = async (config: Config): Promise<void> => {
         metadata JSONB,
         created_at TIMESTAMPTZ NOT NULL,
         processed_at TIMESTAMPTZ,
-        retries smallint NOT NULL DEFAULT 0
+        attempts smallint NOT NULL DEFAULT 0
       );
       GRANT USAGE ON SCHEMA ${config.postgresInboxSchema} TO ${config.postgresLoginRole} ;
       GRANT SELECT, INSERT, UPDATE, DELETE ON ${config.postgresInboxSchema}.${config.postgresInboxTable} TO ${config.postgresLoginRole};

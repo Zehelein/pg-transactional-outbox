@@ -9,7 +9,7 @@ import * as inboxSpy from './inbox';
 import EventEmitter from 'events';
 import { sleep } from './utils';
 
-type MessageIdType = 'not_processed_id' | 'processed_id' | 'retries_exceeded';
+type MessageIdType = 'not_processed_id' | 'processed_id' | 'attempts_exceeded';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
@@ -77,7 +77,7 @@ const sendReplicationChunk = (id: MessageIdType) => {
     case 'not_processed_id':
       data[25] = 1;
       break;
-    case 'retries_exceeded':
+    case 'attempts_exceeded':
       data[25] = 2;
       break;
   }
@@ -120,7 +120,7 @@ const inboxDbMessages = [
     payload: { result: 'success' },
     metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
     created_at: new Date('2023-01-18T21:02:27.000Z'),
-    retries: 2,
+    attempts: 2,
     processed_at: null,
   },
   {
@@ -131,18 +131,18 @@ const inboxDbMessages = [
     payload: { result: 'success' },
     metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
     created_at: new Date('2023-01-18T21:02:27.000Z'),
-    retries: 0,
+    attempts: 0,
     processed_at: new Date('2023-01-18T21:02:27.000Z'),
   },
   {
-    id: 'retries_exceeded' as MessageIdType,
+    id: 'attempts_exceeded' as MessageIdType,
     aggregate_type,
     message_type,
     aggregate_id: 'test_aggregate_id',
     payload: { result: 'success' },
     metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
     created_at: new Date('2023-01-18T21:02:27.000Z'),
-    retries: 4, // 5 is max by default
+    attempts: 4, // 5 is max by default
     processed_at: null,
   },
 ];
@@ -156,7 +156,7 @@ const inboxDbMessageByFlag = (buffer: Buffer) => {
     case 1:
       return inboxDbMessageById('not_processed_id');
     case 2:
-      return inboxDbMessageById('retries_exceeded');
+      return inboxDbMessageById('attempts_exceeded');
   }
 };
 
@@ -211,7 +211,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     client = {
       query: jest.fn((sql: string, params: [any]) => {
         switch (sql) {
-          case 'SELECT processed_at, retries FROM test_schema.test_table WHERE id = $1 FOR UPDATE NOWAIT': {
+          case 'SELECT processed_at, attempts FROM test_schema.test_table WHERE id = $1 FOR UPDATE NOWAIT': {
             const dbMessage = inboxDbMessageById(params[0] as MessageIdType);
             return {
               rowCount: dbMessage ? 1 : 0,
@@ -244,7 +244,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
-      retries: 2,
+      attempts: 2,
     };
     const [cleanup] = initializeInboxService(config, [
       {
@@ -316,7 +316,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         payload: { result: 'success' },
         metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
         createdAt: '2023-01-18T21:02:27.000Z',
-        retries: 2,
+        attempts: 2,
       };
       const [cleanup] = initializeInboxService(config, [
         {
@@ -350,7 +350,9 @@ describe('Inbox service unit tests - initializeInboxService', () => {
 
   it('should call a messageHandler on a not processed message but not acknowledge the WAL message when the message handler throws an error', async () => {
     // Arrange
+    const handleError = jest.fn();
     const unusedMessageHandler = jest.fn(() => Promise.resolve());
+    const unusedErrorHandler = jest.fn();
     const message = {
       id: 'not_processed_id',
       aggregateType: aggregate_type,
@@ -359,7 +361,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
-      retries: 2,
+      attempts: 2,
     };
     const [cleanup] = initializeInboxService(config, [
       {
@@ -368,11 +370,13 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         handle: () => {
           throw new Error('Unit Test');
         },
+        handleError,
       },
       {
         aggregateType: 'unused-aggregate-type',
         messageType: 'unused-message-type',
         handle: unusedMessageHandler,
+        handleError: unusedErrorHandler,
       },
     ]);
 
@@ -382,6 +386,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
 
     // Assert
     expect(unusedMessageHandler).not.toHaveBeenCalled();
+    expect(unusedErrorHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
     expect(ackInboxSpy).not.toHaveBeenCalled();
     expect(nackInboxSpy).toHaveBeenCalledWith(
@@ -390,23 +395,29 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       expect.any(Object),
       undefined,
     );
+    expect(handleError).toHaveBeenCalledWith(
+      expect.any(Object),
+      message,
+      expect.any(Object),
+      { current: 3, max: 5 },
+    );
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
   });
 
-  it('should call a messageHandler on a message that has reached the retry limit and thus acknowledge the WAL message when the message handler throws an error', async () => {
+  it('should call a messageHandler on a message that has reached the attempts limit and thus acknowledge the WAL message when the message handler throws an error', async () => {
     // Arrange
     const unusedMessageHandler = jest.fn(() => Promise.resolve());
     const message = {
-      id: 'retries_exceeded',
+      id: 'attempts_exceeded',
       aggregateType: aggregate_type,
       messageType: message_type,
       aggregateId: 'test_aggregate_id',
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
-      retries: 4,
+      attempts: 4,
     };
     const [cleanup] = initializeInboxService(config, [
       {
@@ -424,7 +435,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     ]);
 
     // Act
-    sendReplicationChunk('retries_exceeded');
+    sendReplicationChunk('attempts_exceeded');
     await continueEventLoop();
 
     // Assert

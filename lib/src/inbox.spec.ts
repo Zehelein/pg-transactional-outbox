@@ -31,7 +31,7 @@ const message: OutboxMessage = {
 
 const inboxMessage: InboxMessage = {
   ...message,
-  retries: 0,
+  attempts: 0,
   processedAt: null,
 };
 
@@ -55,7 +55,7 @@ const config: InboxServiceConfig = {
     dbTable: 'test_table',
     postgresPub: 'test_pub',
     postgresSlot: 'test_slot',
-    maxRetries: 7,
+    maxAttempts: 7,
   },
 };
 
@@ -138,13 +138,13 @@ describe('Inbox unit tests', () => {
       result = await verifyInbox(inboxMessage, client, config);
       expect(result).toBe('ALREADY_PROCESSED');
 
-      // Test for RETRIES_EXCEEDED (one row found but has too many retries)
+      // Test for MAX_ATTEMPTS_EXCEEDED (one row found but has too many attempts)
       client.query = jest.fn().mockResolvedValue({
         rowCount: 1,
-        rows: [{ retries: (config.settings.maxRetries ?? 5) + 1 }],
+        rows: [{ attempts: (config.settings.maxAttempts ?? 5) + 1 }],
       });
       result = await verifyInbox(inboxMessage, client, config);
-      expect(result).toBe('RETRIES_EXCEEDED');
+      expect(result).toBe('MAX_ATTEMPTS_EXCEEDED');
 
       // Test for success (one row found that was not processed yet)
       client.query = jest.fn().mockResolvedValue({
@@ -156,18 +156,18 @@ describe('Inbox unit tests', () => {
     });
 
     it.each([0, 1, 2, 3, 4, 5, 6])(
-      'should return "true" when retries are less or equal than maxRetries: %p',
-      async (retries) => {
+      'should return "true" when attempts are less or equal than maxAttempts: %p',
+      async (attempts) => {
         // Arrange
         const pool = new Pool();
         const client = await pool.connect();
         client.query = jest.fn().mockResolvedValue({
           rowCount: 1,
-          rows: [{ retries }],
+          rows: [{ attempts }],
         });
 
         // Act
-        // config defines 7 for max retries (default: 5)
+        // config defines 7 for max attempts (default: 5)
         const result = await verifyInbox(inboxMessage, client, config);
 
         // Assert
@@ -176,22 +176,22 @@ describe('Inbox unit tests', () => {
     );
 
     it.each([7, 8, 999])(
-      'should return RETRIES_EXCEEDED when retries are equal or larger than maxRetries: %p',
-      async (retries) => {
+      'should return MAX_ATTEMPTS_EXCEEDED when attempts are equal or larger than maxAttempts: %p',
+      async (attempts) => {
         // Arrange
         const pool = new Pool();
         const client = await pool.connect();
         client.query = jest.fn().mockResolvedValue({
           rowCount: 1,
-          rows: [{ retries }],
+          rows: [{ attempts }],
         });
 
         // Act
-        // config defines 7 for max retries (default: 5)
+        // config defines 7 for max attempts (default: 5)
         const result = await verifyInbox(inboxMessage, client, config);
 
         // Assert
-        expect(result).toBe('RETRIES_EXCEEDED');
+        expect(result).toBe('MAX_ATTEMPTS_EXCEEDED');
       },
     );
   });
@@ -210,14 +210,14 @@ describe('Inbox unit tests', () => {
 
       // Assert
       expect(client.query).toHaveBeenCalledWith(
-        `UPDATE ${config.settings.dbSchema}.${config.settings.dbTable} SET processed_at = $1 WHERE id = $2`,
+        `UPDATE ${config.settings.dbSchema}.${config.settings.dbTable} SET processed_at = $1, attempts = attempts + 1 WHERE id = $2`,
         [expect.any(String), inboxMessage.id],
       );
     });
   });
 
   describe('nackInbox', () => {
-    it('The nack logic still tries to increment retries even when the corresponding inbox row was not found', async () => {
+    it('The nack logic still tries to increment attempts even when the corresponding inbox row was not found', async () => {
       // Arrange
       const pool = new Pool();
       const client = await pool.connect();
@@ -232,7 +232,7 @@ describe('Inbox unit tests', () => {
       // Assert
       expect(client.query).toHaveBeenCalledWith(
         expect.stringContaining(
-          'UPDATE test_schema.test_table SET retries = retries + 1 WHERE id = $1',
+          'UPDATE test_schema.test_table SET attempts = attempts + 1 WHERE id = $1',
         ),
         [inboxMessage.id],
       );

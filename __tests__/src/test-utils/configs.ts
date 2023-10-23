@@ -23,7 +23,7 @@ export const getConfigs = (port: number) => {
       postgresPub: 'pg_transactional_inbox_tests_pub',
       postgresSlot: 'pg_transactional_inbox_tests_slot',
       restartDelay: 1,
-      maxRetries: 5,
+      maxAttempts: 5,
     },
   };
 

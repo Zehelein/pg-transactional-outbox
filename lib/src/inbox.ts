@@ -68,11 +68,14 @@ export const verifyInbox = async (
   client: PoolClient,
   { settings }: Pick<InboxServiceConfig, 'settings'>,
 ): Promise<
-  true | 'INBOX_MESSAGE_NOT_FOUND' | 'ALREADY_PROCESSED' | 'RETRIES_EXCEEDED'
+  | true
+  | 'INBOX_MESSAGE_NOT_FOUND'
+  | 'ALREADY_PROCESSED'
+  | 'MAX_ATTEMPTS_EXCEEDED'
 > => {
   // Get the inbox data and lock it for updates. Use NOWAIT to immediately fail if another process is locking it.
   const inboxResult = await client.query(
-    /* sql*/ `SELECT processed_at, retries FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT`,
+    /* sql*/ `SELECT processed_at, attempts FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT`,
     [id],
   );
   if (inboxResult.rowCount === 0) {
@@ -81,8 +84,8 @@ export const verifyInbox = async (
   if (inboxResult.rows[0].processed_at) {
     return 'ALREADY_PROCESSED';
   }
-  if (inboxResult.rows[0].retries >= getMaxRetries(settings.maxRetries)) {
-    return 'RETRIES_EXCEEDED';
+  if (inboxResult.rows[0].attempts >= getMaxAttempts(settings.maxAttempts)) {
+    return 'MAX_ATTEMPTS_EXCEEDED';
   }
   return true;
 };
@@ -99,7 +102,7 @@ export const ackInbox = async (
   { settings }: Pick<InboxServiceConfig, 'settings'>,
 ): Promise<void> => {
   await client.query(
-    /* sql*/ `UPDATE ${settings.dbSchema}.${settings.dbTable} SET processed_at = $1 WHERE id = $2`,
+    /* sql*/ `UPDATE ${settings.dbSchema}.${settings.dbTable} SET processed_at = $1, attempts = attempts + 1 WHERE id = $2`,
     [new Date().toISOString(), id],
   );
 };
@@ -110,30 +113,31 @@ export const ackInbox = async (
  * @param message The inbox message to NOT acknowledge.
  * @param client The database client. Must be part of the transaction where the message handling changes are done.
  * @param config The configuration settings that defines inbox database schema.
- * @param retries Optionally set the number of retries to a specific value. Especially relevant for non-transient errors to directly set it to the maximum retries value.
+ * @param attempts Optionally set the number of attempts to a specific value. Especially relevant for non-transient errors to directly set it to the maximum attempts value.
  */
 export const nackInbox = async (
   { id }: InboxMessage,
   client: PoolClient,
   { settings }: Pick<InboxServiceConfig, 'settings'>,
-  retries?: number,
+  attempts?: number,
 ): Promise<void> => {
-  if (retries) {
+  if (attempts) {
     await client.query(
       /* sql*/ `
-      UPDATE ${settings.dbSchema}.${settings.dbTable} SET retries = $1 WHERE id = $2;`,
-      [retries, id],
+      UPDATE ${settings.dbSchema}.${settings.dbTable} SET attempts = $1 WHERE id = $2;`,
+      [attempts, id],
     );
   } else {
     await client.query(
       /* sql*/ `
-    UPDATE ${settings.dbSchema}.${settings.dbTable} SET retries = retries + 1 WHERE id = $1;`,
+    UPDATE ${settings.dbSchema}.${settings.dbTable} SET attempts = attempts + 1 WHERE id = $1;`,
       [id],
     );
   }
 };
 
-export const getMaxRetries = (maxRetries?: number): number => maxRetries ?? 5;
+export const getMaxAttempts = (maxAttempts?: number): number =>
+  maxAttempts ?? 5;
 
 const insertInbox = async (
   message: OutboxMessage,

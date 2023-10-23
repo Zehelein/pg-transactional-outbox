@@ -30,8 +30,8 @@ export interface ServiceConfigSettings {
   restartDelay?: number;
   /** When the replication slot is in use e.g. by another service, this service will still continue to try to connect in case the other service stops. Delay is given in milliseconds, the default is 10s. */
   restartDelaySlotInUse?: number;
-  /** Message handlers that do not finish can block further messages from being processed. The timeout (in milliseconds) ensures to continue with the next items. Default is 15s. */
-  messageHandlerTimeout?: number;
+  /** Inbox message handlers or the outbox message sender that do not finish can block further messages from being processed/sent. The timeout (in milliseconds) ensures to continue with the next items. Default is 15s. */
+  messageProcessingTimeout?: number;
 }
 
 /** connection exists on the Client but is not typed */
@@ -325,7 +325,7 @@ const handleIncomingData = async <T extends OutboxMessage>(
   }
   const mutex = withTimeout(
     new Mutex(),
-    settings.messageHandlerTimeout ?? 15_000,
+    settings.messageProcessingTimeout ?? 15_000,
   );
   for await (const [data] of on(client.connection, 'copyData')) {
     const release = await mutex.acquire();

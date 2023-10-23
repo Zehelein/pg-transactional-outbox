@@ -140,7 +140,7 @@ const inboxSetup = async (
         metadata JSONB,
         created_at TIMESTAMPTZ NOT NULL,
         processed_at TIMESTAMPTZ,
-        retries smallint NOT NULL DEFAULT 0
+        attempts smallint NOT NULL DEFAULT 0
       );
       GRANT USAGE ON SCHEMA ${dbSchema} TO ${user} ;
       GRANT SELECT, INSERT, UPDATE, DELETE ON ${dbSchema}.${dbTable} TO ${user};

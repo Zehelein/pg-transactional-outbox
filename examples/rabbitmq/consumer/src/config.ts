@@ -76,7 +76,7 @@ export const getConfig = (env: Env = process.env) => {
     rmqMgmtHost: getEnvVariableString(env, 'RABBITMQ_MGMT_HOST', 'localhost'),
     rmqMgmtPort: getEnvVariableNumber(env, 'RABBITMQ_MGMT_PORT', 15672),
 
-    maxRetries: getEnvVariableNumber(env, 'MAX_RETRIES', 5),
+    maxAttempts: getEnvVariableNumber(env, 'MAX_ATTEMPTS', 5),
   };
 };
 
@@ -104,7 +104,7 @@ export const getInboxServiceConfig = (config: Config): InboxServiceConfig => {
       dbTable: config.postgresInboxTable,
       postgresPub: config.postgresInboxPub,
       postgresSlot: config.postgresInboxSlot,
-      maxRetries: config.maxRetries,
+      maxAttempts: config.maxAttempts,
     },
   };
 };

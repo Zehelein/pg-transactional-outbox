@@ -1,5 +1,5 @@
 import { ClientBase, ClientConfig, Pool } from 'pg';
-import { verifyInbox, ackInbox, nackInbox, getMaxRetries } from './inbox';
+import { verifyInbox, ackInbox, nackInbox, getMaxAttempts } from './inbox';
 import { createService, ServiceConfig } from './replication-service';
 import { logger } from './logger';
 import { InboxMessage } from './models';
@@ -14,9 +14,11 @@ export type InboxServiceConfig = ServiceConfig & {
 
   settings: ServiceConfig['settings'] & {
     /**
-     * The maximum number of retries to handle an incoming inbox message. Defaults to 5.
+     * The maximum number of attempts to handle an incoming inbox message.
+     * Defaults to 5 which means a message is handled once initially and up to
+     * four more times for retries.
      */
-    maxRetries?: number;
+    maxAttempts?: number;
   };
 };
 
@@ -29,7 +31,8 @@ export interface InboxMessageHandler {
   /** The name of the message created for the aggregate type. */
   messageType: string;
   /**
-   * Custom business logic to handle a message that was stored in the inbox.
+   * Custom business logic to handle a message that was stored in the inbox. It
+   * is fine to throw an error if the message cannot be processed.
    * @param message The inbox message with the payload to handle.
    * @param client The database client that is part of a transaction to safely handle the inbox message.
    * @throws If something failed and the inbox message should NOT be acknowledged - throw an error.
@@ -37,20 +40,24 @@ export interface InboxMessageHandler {
   handle: (message: InboxMessage, client: ClientBase) => Promise<void>;
 
   /**
-   * Custom (optional) business logic to handle an error that was caused by the "handle" method.
+   * Custom (optional) business logic to handle an error that was caused by the
+   * "handle" method. You must ensure that this function does not throw an error
+   * as the attempts counter is increased in the same transaction.
    * @param error The error that was thrown in the handle method.
    * @param message The inbox message with the payload that was attempted to be handled.
    * @param client The database client that is part of a (new) transaction to safely handle the error.
+   * @param attempts The number of times that message was already attempted (including the current attempt). And the maximum number of times a message will be attempted.
    * @returns A flag that defines if the message should be retried ('transient_error') or not ('permanent_error')
    */
   handleError?: (
     error: Error,
     message: InboxMessage,
     client: ClientBase,
-  ) => Promise<errorType>;
+    attempts: { current: number; max: number },
+  ) => Promise<ErrorType>;
 }
 
-type errorType = 'transient_error' | 'permanent_error';
+export type ErrorType = 'transient_error' | 'permanent_error';
 
 /**
  * Initialize the service to watch for inbox table inserts.
@@ -70,7 +77,7 @@ export const initializeInboxService = (
     config,
     messageHandler,
     errorResolver,
-    mapInboxRetries,
+    mapInboxAttempts,
   );
   return [
     async () => {
@@ -146,7 +153,7 @@ const getMessageHandlerDict = (
 };
 
 /**
- * Increase the retry counter of the message and retry it later.
+ * Increase the attempts counter of the message and retries it later.
  */
 const createErrorResolver = (
   messageHandlers: Record<string, InboxMessageHandler>,
@@ -154,43 +161,47 @@ const createErrorResolver = (
   config: InboxServiceConfig,
 ) => {
   /**
-   * An error handler that will increase the inbox retries count on transient errors.
+   * An error handler that will increase the inbox attempts counter on transient errors.
    * @param message: the InboxMessage that failed to be processed
    * @param error: the error that was thrown while processing the message
    */
   return async (message: InboxMessage, error: Error): Promise<void> => {
+    const handler = messageHandlers[getMessageHandlerKey(message)];
     try {
       await executeTransaction(pool, async (client) => {
-        let errorType: errorType = 'transient_error';
-        const handler = messageHandlers[getMessageHandlerKey(message)];
+        let errorType: ErrorType = 'transient_error';
+        const maxAttempts = getMaxAttempts(config.settings.maxAttempts);
         if (handler?.handleError) {
-          errorType = await handler.handleError(error, message, client);
+          errorType = await handler.handleError(error, message, client, {
+            current: message.attempts + 1,
+            max: maxAttempts,
+          });
         }
-        const retries =
-          errorType === 'permanent_error'
-            ? getMaxRetries(config.settings.maxRetries)
-            : undefined;
-        await nackInbox(message, client, config, retries);
+        const attempts =
+          errorType === 'permanent_error' ? maxAttempts : undefined;
+        await nackInbox(message, client, config, attempts);
       });
     } catch (error) {
       logger().error(
         { ...message, err: error },
-        'The error handling of the message failed.',
+        handler
+          ? 'The error handling of the message failed. Please make sure that your error handling code does not throw an error!'
+          : 'The error handling of the message failed.',
       );
     }
   };
 };
 
 /** The local replication service maps by default only the outbox properties */
-const mapInboxRetries = (input: object) => {
+const mapInboxAttempts = (input: object) => {
   if (
-    'retries' in input &&
-    typeof input.retries === 'number' &&
+    'attempts' in input &&
+    typeof input.attempts === 'number' &&
     'processed_at' in input &&
     (input.processed_at == null || input.processed_at instanceof Date)
   ) {
     return {
-      retries: input.retries,
+      attempts: input.attempts,
       processedAt: input.processed_at?.toISOString(),
     };
   }

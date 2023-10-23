@@ -303,7 +303,7 @@ CREATE TABLE public.inbox (
   metadata JSONB,
   created_at TIMESTAMPTZ NOT NULL,
   processed_at TIMESTAMPTZ,
-  retries smallint NOT NULL DEFAULT 0
+  attempts smallint NOT NULL DEFAULT 0
 );
 ```
 

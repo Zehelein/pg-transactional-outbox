@@ -3,13 +3,25 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
-## [0.3.0] - 2023-11-17
+## [0.3.0] - 2023-11-23
 
 ### Changed
 
 - BREAKING CHANGE: added support for additional "metadata" in inbox and outbox
   messages. A new database column `metadata JSONB` must be added to the inbox
-  and outbox database table. Setting
+  and outbox database table. This setting can hold any additional metadata e.g.
+  routing information, message signature etc. Please run the following two
+  commands to update your database (adjust the namespace to yours):
+  ```sql
+  ALTER TABLE public.inbox ADD COLUMN IF NOT EXISTS metadata JSONB;
+  ALTER TABLE app_hidden.outbox ADD COLUMN IF NOT EXISTS metadata JSONB;
+  ```
+- BREAKING CHANGE: renamed "retries" to "attempts" for the transactional inbox
+  to make it clear that "retries" include the initial attempt. Please run the
+  following command to update your database (adjust the namespace to yours):
+  ```sql
+  ALTER TABLE app_public.inbox RENAME COLUMN retries TO attempts;
+  ```
 
 ## [0.2.0] - 2023-10-26
 

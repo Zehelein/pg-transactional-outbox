@@ -7,7 +7,7 @@ export const sleep = async (milliseconds: number): Promise<void> =>
 /** Check if the tests are run in debug mode right now */
 export const isDebugMode = (): boolean => inspector.url() !== undefined;
 
-/** Try to execute some code in a loop until it either succeeds, a jest error ws raised, or the timeout is reached */
+/** Try to execute some code in a loop until it either succeeds, a jest error was raised, or the timeout is reached */
 export const retryCallback = async <T>(
   callback: () => Promise<T>,
   timeout: number,
