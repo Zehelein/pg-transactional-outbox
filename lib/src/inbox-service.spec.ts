@@ -34,7 +34,7 @@ jest.mock('pg-logical-replication', () => {
           return {
             tag: 'insert',
             relation,
-            new: inboxDbMessageByFlag(buffer),
+            new: inboxMessageByFlag(buffer),
           };
         }),
         start: async () => {
@@ -146,17 +146,30 @@ const inboxDbMessages = [
     processed_at: null,
   },
 ];
+
+/** The message directly from the DB with current attempts/processed_at */
 const inboxDbMessageById = (id: MessageIdType) =>
   inboxDbMessages.find((m) => m.id === id);
 
-const inboxDbMessageByFlag = (buffer: Buffer) => {
+/** The message from the WAL having attempts=0 and processed_at=null  */
+const inboxMessageById = (id: MessageIdType) => {
+  const message = inboxDbMessageById(id);
+  if (!message) {
+    return;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { attempts, processed_at, ...messageRest } = message;
+  return messageRest;
+};
+
+const inboxMessageByFlag = (buffer: Buffer) => {
   switch (buffer[0]) {
     case 0:
-      return inboxDbMessageById('processed_id');
+      return inboxMessageById('processed_id');
     case 1:
-      return inboxDbMessageById('not_processed_id');
+      return inboxMessageById('not_processed_id');
     case 2:
-      return inboxDbMessageById('attempts_exceeded');
+      return inboxMessageById('attempts_exceeded');
   }
 };
 
@@ -215,7 +228,14 @@ describe('Inbox service unit tests - initializeInboxService', () => {
             const dbMessage = inboxDbMessageById(params[0] as MessageIdType);
             return {
               rowCount: dbMessage ? 1 : 0,
-              rows: dbMessage ? [{ processed_at: dbMessage.processed_at }] : [],
+              rows: dbMessage
+                ? [
+                    {
+                      processed_at: dbMessage.processed_at,
+                      attempts: dbMessage.attempts,
+                    },
+                  ]
+                : [],
             };
           }
         }
@@ -245,6 +265,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
       attempts: 2,
+      processedAt: null,
     };
     const [cleanup] = initializeInboxService(config, [
       {
@@ -308,20 +329,10 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       // Arrange
       const messageHandler = jest.fn(() => Promise.resolve());
       const unusedMessageHandler = jest.fn(() => Promise.resolve());
-      const message = {
-        id: messageId,
-        aggregateType: aggregate_type,
-        aggregateId: 'test_aggregate_id',
-        messageType: message_type,
-        payload: { result: 'success' },
-        metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
-        createdAt: '2023-01-18T21:02:27.000Z',
-        attempts: 2,
-      };
       const [cleanup] = initializeInboxService(config, [
         {
-          aggregateType: message.aggregateType,
-          messageType: message.messageType,
+          aggregateType: aggregate_type,
+          messageType: message_type,
           handle: messageHandler,
         },
         {
@@ -362,6 +373,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
       attempts: 2,
+      processedAt: null,
     };
     const [cleanup] = initializeInboxService(config, [
       {
@@ -418,6 +430,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
       attempts: 4,
+      processedAt: null,
     };
     const [cleanup] = initializeInboxService(config, [
       {

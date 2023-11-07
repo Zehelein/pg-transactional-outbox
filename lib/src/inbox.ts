@@ -54,7 +54,8 @@ export const initializeInboxMessageStorage = (
 };
 
 /**
- * Make sure the inbox item was not and is not currently being worked on.
+ * Make sure the inbox item was not and is not currently being worked on. And
+ * set the actual attempts and processed_at values to the WAL message.
  * As the WAL inbox service does not run in the same transaction as the message
  * handler code there is a small chance that the handler code succeeds but the
  * WAL inbox message was not acknowledged. This takes care of such cases.
@@ -64,7 +65,7 @@ export const initializeInboxMessageStorage = (
  * @throws Throws an error if the database row does not exist, is locked by some other transaction, or was already processed.
  */
 export const verifyInbox = async (
-  { id }: InboxMessage,
+  message: InboxMessage,
   client: PoolClient,
   { settings }: Pick<InboxServiceConfig, 'settings'>,
 ): Promise<
@@ -76,17 +77,21 @@ export const verifyInbox = async (
   // Get the inbox data and lock it for updates. Use NOWAIT to immediately fail if another process is locking it.
   const inboxResult = await client.query(
     /* sql*/ `SELECT processed_at, attempts FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT`,
-    [id],
+    [message.id],
   );
   if (inboxResult.rowCount === 0) {
     return 'INBOX_MESSAGE_NOT_FOUND';
   }
-  if (inboxResult.rows[0].processed_at) {
+  const dbItem = inboxResult.rows[0];
+  if (dbItem.processed_at) {
     return 'ALREADY_PROCESSED';
   }
-  if (inboxResult.rows[0].attempts >= getMaxAttempts(settings.maxAttempts)) {
+  if (dbItem.attempts >= getMaxAttempts(settings.maxAttempts)) {
     return 'MAX_ATTEMPTS_EXCEEDED';
   }
+  // assign the actual attempts/processed_at to the WAL message
+  message.attempts = dbItem.attempts;
+  message.processedAt = dbItem.processed_at;
   return true;
 };
 

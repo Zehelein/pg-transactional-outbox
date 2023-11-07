@@ -73,12 +73,7 @@ export const initializeInboxService = (
   const messageHandlerDict = getMessageHandlerDict(messageHandlers);
   const messageHandler = createMessageHandler(messageHandlerDict, pool, config);
   const errorResolver = createErrorResolver(messageHandlerDict, pool, config);
-  const [shutdown] = createService(
-    config,
-    messageHandler,
-    errorResolver,
-    mapInboxAttempts,
-  );
+  const [shutdown] = createService(config, messageHandler, errorResolver);
   return [
     async () => {
       pool.removeAllListeners();
@@ -190,20 +185,4 @@ const createErrorResolver = (
       );
     }
   };
-};
-
-/** The local replication service maps by default only the outbox properties */
-const mapInboxAttempts = (input: object) => {
-  if (
-    'attempts' in input &&
-    typeof input.attempts === 'number' &&
-    'processed_at' in input &&
-    (input.processed_at == null || input.processed_at instanceof Date)
-  ) {
-    return {
-      attempts: input.attempts,
-      processedAt: input.processed_at?.toISOString(),
-    };
-  }
-  return {};
 };
