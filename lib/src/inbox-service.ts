@@ -172,7 +172,10 @@ const createErrorResolver = (
           });
         }
         let attempts: number | undefined;
-        if (errorType === 'permanent_error') {
+        if (
+          errorType === 'permanent_error' ||
+          message.attempts + 1 >= maxAttempts
+        ) {
           attempts = maxAttempts;
           logger().error(
             error,

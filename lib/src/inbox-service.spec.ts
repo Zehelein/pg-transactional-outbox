@@ -460,7 +460,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       message,
       expect.any(Object),
       expect.any(Object),
-      undefined,
+      5,
     );
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
