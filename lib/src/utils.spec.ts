@@ -1,7 +1,7 @@
 import inspector from 'inspector';
 import { Pool } from 'pg';
 import { disableLogger } from './logger';
-import { ensureError, sleep, executeTransaction } from './utils';
+import { sleep, executeTransaction } from './utils';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
@@ -12,30 +12,6 @@ if (isDebugMode()) {
 }
 
 describe('Utils Unit Tests', () => {
-  describe('ensureError', () => {
-    it('should return the input error if it is an instance of Error', () => {
-      // Arrange
-      const inputError = new Error('This is an error');
-
-      // Act
-      const error = ensureError(inputError);
-
-      // Assert
-      expect(error).toBe(inputError);
-    });
-
-    it('should return a new Error if the input is not an instance of Error', () => {
-      // Arrange
-      const input = 'This is not an error';
-
-      // Act
-      const error = ensureError(input);
-
-      // Assert
-      expect(error).toEqual(new Error(input));
-    });
-  });
-
   describe('sleep', () => {
     it('should sleep for the given amount of milliseconds', async () => {
       // Arrange

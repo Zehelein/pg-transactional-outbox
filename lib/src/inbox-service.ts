@@ -4,6 +4,7 @@ import { createService, ServiceConfig } from './replication-service';
 import { logger } from './logger';
 import { InboxMessage } from './models';
 import { executeTransaction } from './utils';
+import { ErrorType } from './error';
 
 /** The inbox service configuration */
 export type InboxServiceConfig = ServiceConfig & {
@@ -56,8 +57,6 @@ export interface InboxMessageHandler {
     attempts: { current: number; max: number },
   ) => Promise<ErrorType>;
 }
-
-export type ErrorType = 'transient_error' | 'permanent_error';
 
 /**
  * Initialize the service to watch for inbox table inserts.
@@ -160,10 +159,10 @@ const createErrorResolver = (
    * @param message: the InboxMessage that failed to be processed
    * @param error: the error that was thrown while processing the message
    */
-  return async (message: InboxMessage, error: Error): Promise<void> => {
+  return async (message: InboxMessage, error: Error): Promise<ErrorType> => {
     const handler = messageHandlers[getMessageHandlerKey(message)];
     try {
-      await executeTransaction(pool, async (client) => {
+      return await executeTransaction(pool, async (client) => {
         let errorType: ErrorType = 'transient_error';
         const maxAttempts = getMaxAttempts(config.settings.maxAttempts);
         if (handler?.handleError) {
@@ -172,9 +171,21 @@ const createErrorResolver = (
             max: maxAttempts,
           });
         }
-        const attempts =
-          errorType === 'permanent_error' ? maxAttempts : undefined;
+        let attempts: number | undefined;
+        if (errorType === 'permanent_error') {
+          attempts = maxAttempts;
+          logger().error(
+            error,
+            `Giving up processing the message with id ${message.id}.`,
+          );
+        } else {
+          logger().warn(
+            error,
+            `An error ocurred while processing the message with id ${message.id}.`,
+          );
+        }
         await nackInbox(message, client, config, attempts);
+        return errorType;
       });
     } catch (error) {
       logger().error(
@@ -183,6 +194,7 @@ const createErrorResolver = (
           ? 'The error handling of the message failed. Please make sure that your error handling code does not throw an error!'
           : 'The error handling of the message failed.',
       );
+      return 'transient_error';
     }
   };
 };

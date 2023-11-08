@@ -5,7 +5,8 @@ import { Pgoutput, PgoutputPlugin } from 'pg-logical-replication';
 import { AbstractPlugin } from 'pg-logical-replication/dist/output-plugins/abstract.plugin';
 import { logger } from './logger';
 import { OutboxMessage } from './models';
-import { awaitWithTimeout, ensureError } from './utils';
+import { awaitWithTimeout } from './utils';
+import { ErrorType, MessageHandlingError, ensureError } from './error';
 
 export interface ServiceConfig {
   /**
@@ -43,14 +44,14 @@ type ReplicationClient = Client & {
  * Initiate the outbox/inbox table to listen for WAL messages.
  * @param config The replication connection settings and general service settings
  * @param messageHandler The message handler that handles the outbox/inbox message
- * @param errorHandler A handler that can decide if the WAL message should be acknowledged (true) or not (restarts the logical replication service)
+ * @param errorHandler A handler that can decide if the WAL message should be acknowledged (permanent_error) or not (transient_error which restarts the logical replication service)
  * @param mapAdditionalRows The inbox table requires an additional row to be mapped to the inbox message
  * @returns A function to stop the service
  */
 export const createService = <T extends OutboxMessage>(
   { pgReplicationConfig, settings }: ServiceConfig,
   messageHandler: (message: T) => Promise<void>,
-  errorHandler?: (message: T, err: Error) => Promise<void>,
+  errorHandler?: (message: T, err: Error) => Promise<ErrorType>,
   mapAdditionalRows?: (row: object) => Record<string, unknown>,
 ): [shutdown: { (): Promise<void> }] => {
   const plugin = new PgoutputPlugin({
@@ -77,7 +78,9 @@ export const createService = <T extends OutboxMessage>(
       promise
         .catch((e) => {
           const err = ensureError(e);
-          logger().error(err);
+          if (!(err instanceof MessageHandlingError)) {
+            logger().error(err, 'Transactional inbox/outbox service error');
+          }
           return err;
         })
         .then((err) => {
@@ -196,7 +199,7 @@ async function handleInboxOutboxMessage<T extends OutboxMessage>(
   client: ReplicationClient,
   settings: ServiceConfigSettings,
   messageHandler: (message: T) => Promise<void>,
-  errorHandler: ((message: T, err: Error) => Promise<void>) | undefined,
+  errorHandler: ((message: T, err: Error) => Promise<ErrorType>) | undefined,
   mapAdditionalRows: ((row: object) => Record<string, unknown>) | undefined,
   xLogData: Pgoutput.Message,
   lsn: string,
@@ -215,12 +218,19 @@ async function handleInboxOutboxMessage<T extends OutboxMessage>(
     await messageHandler(message as T);
     acknowledge(client, lsn);
   } catch (e) {
-    logger().error(xLogData, 'Error handling and acknowledging message');
     const err = ensureError(e);
     if (errorHandler) {
-      await errorHandler(message, err);
+      const errorType = await errorHandler(message, err);
+      if (errorType === 'permanent_error') {
+        acknowledge(client, lsn);
+        return;
+      }
     }
-    throw e;
+    throw new MessageHandlingError(
+      'An error ocurred while handling a message.',
+      err,
+      message,
+    );
   }
 }
 
@@ -317,7 +327,7 @@ const handleIncomingData = async <T extends OutboxMessage>(
   plugin: AbstractPlugin,
   settings: ServiceConfigSettings,
   messageHandler: (message: T) => Promise<void>,
-  errorHandler?: (message: T, err: Error) => Promise<void>,
+  errorHandler?: (message: T, err: Error) => Promise<ErrorType>,
   mapAdditionalRows?: (row: object) => Record<string, unknown>,
 ): Promise<void> => {
   if (!client.connection) {

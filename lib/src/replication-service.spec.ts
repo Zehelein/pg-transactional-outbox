@@ -373,7 +373,7 @@ describe('Local replication service unit tests', () => {
       expect(client.end).toHaveBeenCalledTimes(1);
     });
 
-    it('should call messageHandler but not acknowledge the message when an error is thrown', async () => {
+    it('should call messageHandler but not acknowledge the message when a transient error is thrown', async () => {
       // Arrange
       const config = {
         pgReplicationConfig: {},
@@ -390,6 +390,7 @@ describe('Local replication service unit tests', () => {
           expect(msg).toStrictEqual(message);
           expect(error).toStrictEqual(testError);
           errorHandlerCalled = true;
+          return 'transient_error';
         },
         mapAdditionalRows,
       );
@@ -409,7 +410,7 @@ describe('Local replication service unit tests', () => {
       expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
     });
 
-    it('should call messageHandler and not acknowledge the message when an error is thrown', async () => {
+    it('should call messageHandler and acknowledge the message when a permanent error is thrown', async () => {
       // Arrange
       const config = {
         pgReplicationConfig: {},
@@ -426,6 +427,7 @@ describe('Local replication service unit tests', () => {
           expect(msg).toStrictEqual(message);
           expect(error).toStrictEqual(testError);
           errorHandlerCalled = true;
+          return 'permanent_error';
         },
         mapAdditionalRows,
       );
@@ -439,10 +441,10 @@ describe('Local replication service unit tests', () => {
       expect(errorHandlerCalled).toBe(true);
       expect(errorHandler).not.toHaveBeenCalled();
       expect(mapAdditionalRows).toHaveBeenCalled();
-      expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
+      expect(client.connection.sendCopyFromChunk).toHaveBeenCalledTimes(1);
       expect(client.connect).toHaveBeenCalledTimes(1);
       await cleanup();
-      expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
+      expect(client.end).toHaveBeenCalledTimes(1);
     });
 
     it('A keep alive to which the service should respond is acknowledged', async () => {

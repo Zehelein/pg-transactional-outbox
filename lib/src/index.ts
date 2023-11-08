@@ -8,9 +8,9 @@ export {
   initializeInboxService,
   InboxMessageHandler,
   InboxServiceConfig,
-  ErrorType,
 } from './inbox-service';
 export { initializeInboxMessageStorage, getMaxAttempts } from './inbox';
 export { logger, setLogger, disableLogger } from './logger';
 export { OutboxMessage, InboxMessage, MessageError } from './models';
-export { executeTransaction, ensureError } from './utils';
+export { executeTransaction } from './utils';
+export { ensureError, ErrorType, MessageHandlingError } from './error';

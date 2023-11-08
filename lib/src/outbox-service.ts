@@ -1,5 +1,7 @@
 import { createService, ServiceConfig } from './replication-service';
 import { OutboxMessage } from './models';
+import { logger } from './logger';
+import { ErrorType } from './error';
 
 export type OutboxServiceConfig = ServiceConfig;
 
@@ -12,4 +14,13 @@ export type OutboxServiceConfig = ServiceConfig;
 export const initializeOutboxService = (
   config: OutboxServiceConfig,
   callback: (message: OutboxMessage) => Promise<void>,
-): [shutdown: { (): Promise<void> }] => createService(config, callback);
+): [shutdown: { (): Promise<void> }] =>
+  createService(config, callback, logErrors);
+
+const logErrors = async (
+  _m: OutboxMessage,
+  error: Error,
+): Promise<ErrorType> => {
+  logger().error(error, 'An error ocurred while handling an outbox message.');
+  return 'transient_error';
+};

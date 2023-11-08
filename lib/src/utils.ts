@@ -1,17 +1,6 @@
 import { Pool, PoolClient } from 'pg';
 import { logger } from './logger';
-
-/**
- * Returns the error as verified Error object or wraps the input as Error.
- * @param error The error variable to check
- * @returns The error if the input was already an error otherwise a wrapped error.
- */
-export const ensureError = (error: unknown): Error => {
-  if (error instanceof Error) {
-    return error;
-  }
-  return new Error(String(error));
-};
+import { ensureError } from './error';
 
 /**
  * Sleep for a given amount of milliseconds
