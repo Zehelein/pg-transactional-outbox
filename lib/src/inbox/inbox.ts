@@ -173,7 +173,7 @@ const insertInbox = async (
       ON CONFLICT (id) DO NOTHING`,
     [id, aggregateType, aggregateId, messageType, payload, metadata, createdAt],
   );
-  if (inboxResult.rowCount < 1) {
+  if (!inboxResult.rowCount || inboxResult.rowCount < 1) {
     logger.warn(message, `The message with id ${id} already existed`);
   }
 };

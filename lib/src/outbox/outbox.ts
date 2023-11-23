@@ -113,7 +113,7 @@ const storeOutboxMessage = async (
     id: 'unknown',
     createdAt: 'unknown',
   };
-  if (outboxResult.rowCount < 1) {
+  if (!outboxResult.rowCount || outboxResult.rowCount < 1) {
     throw new MessageError(
       'Could not insert the message into the outbox!',
       attemptedMessage,
