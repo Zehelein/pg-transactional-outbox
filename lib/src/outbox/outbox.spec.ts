@@ -1,15 +1,13 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import inspector from 'inspector';
-import { OutboxServiceConfig } from './outbox-service';
-import { disableLogger } from './logger';
 import { Client, Pool } from 'pg';
 import { initializeOutboxMessageStorage } from './outbox';
+import { OutboxServiceConfig } from './outbox-service';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
   jest.setTimeout(600_000);
 } else {
-  disableLogger(); // Hide logs if the tests are not run in debug mode
   jest.setTimeout(7_000);
 }
 

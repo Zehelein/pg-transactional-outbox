@@ -4,6 +4,24 @@ import inspector from 'inspector';
 export const sleep = async (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+/** Sleep until the callback evaluates to true. Return the elapsed amount of milliseconds */
+export const sleepUntilTrue = async <T>(
+  callback: () => boolean | Promise<boolean>,
+  timeout: number,
+  delay = 1,
+): Promise<number> => {
+  const start = Date.now();
+  while (!(await callback())) {
+    // If the timeout is exceeded throw
+    if (Date.now() - start > timeout) {
+      throw new Error(`Sleep timeout of ${timeout}ms reached`);
+    }
+    // recheck again after a delay
+    await sleep(delay);
+  }
+  return Date.now() - start;
+};
+
 /** Check if the tests are run in debug mode right now */
 export const isDebugMode = (): boolean => inspector.url() !== undefined;
 
@@ -30,7 +48,7 @@ export const retryCallback = async <T>(
       }
       // If the timeout is exceeded throw
       if (Date.now() - start > timeout) {
-        throw new Error(`Timeout of ${timeout}ms reached`);
+        throw new Error(`Retry timeout of ${timeout}ms reached`);
       }
       // retry again after a delay
       await sleep(delay);

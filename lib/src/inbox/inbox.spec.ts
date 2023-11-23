@@ -1,21 +1,20 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import inspector from 'inspector';
-import { InboxServiceConfig } from './inbox-service';
+import { Client, Pool, PoolClient } from 'pg';
+import { getDisabledLogger } from '../common/logger';
+import { InboxMessage, OutboxMessage } from '../common/message';
 import {
   ackInbox,
   initializeInboxMessageStorage,
   nackInbox,
   verifyInbox,
 } from './inbox';
-import { disableLogger } from './logger';
-import { Client, Pool, PoolClient } from 'pg';
-import { InboxMessage, OutboxMessage } from './models';
+import { InboxServiceConfig } from './inbox-service';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
   jest.setTimeout(600_000);
 } else {
-  disableLogger(); // Hide logs if the tests are not run in debug mode
   jest.setTimeout(7_000);
 }
 
@@ -86,9 +85,9 @@ jest.mock('pg', () => {
   };
 });
 
-jest.mock('./utils', () => {
+jest.mock('../common/utils', () => {
   return {
-    ...jest.requireActual('./utils'),
+    ...jest.requireActual('../common/utils'),
     executeTransaction: jest.fn(
       async (
         pool: Pool,
@@ -107,8 +106,10 @@ describe('Inbox unit tests', () => {
   describe('initializeInboxMessageStorage', () => {
     test('it initializes the inbox message storage and stores a message without an error', async () => {
       // Act
-      const [storeInboxMessage, shutdown] =
-        initializeInboxMessageStorage(config);
+      const [storeInboxMessage, shutdown] = initializeInboxMessageStorage(
+        config,
+        getDisabledLogger(),
+      );
 
       // Assert
       await expect(storeInboxMessage(message)).resolves.not.toThrow();

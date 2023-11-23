@@ -4,7 +4,6 @@ import {
   Pgoutput,
   PgoutputPlugin,
 } from 'pg-logical-replication';
-import { logger } from 'pg-transactional-outbox';
 import { sleep } from './test-utils';
 
 /**
@@ -107,6 +106,6 @@ main(inboxServiceConfig).catch((err) => console.log(err));
 
 // Exit the process if there is an unhandled promise error
 process.on('unhandledRejection', (err, promise) => {
-  logger().error({ err, promise }, 'Unhandled promise rejection');
+  console.error({ err, promise }, 'Unhandled promise rejection');
   process.exit(1);
 });

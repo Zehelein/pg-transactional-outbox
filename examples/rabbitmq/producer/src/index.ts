@@ -1,33 +1,44 @@
-import path from 'path';
 import * as dotenv from 'dotenv';
+import path from 'path';
 dotenv.config({ path: path.join(__dirname, '../.env') });
-import { initializeOutboxService, setLogger } from 'pg-transactional-outbox';
+// eslint-disable-next-line prettier/prettier
+import {
+  createMutexConcurrencyController,
+  initializeOutboxService,
+} from 'pg-transactional-outbox';
 import { addMovies } from './add-movies';
 import { getConfig, getOutboxServiceConfig } from './config';
-import { logger } from './logger';
+import { getLogger } from './logger';
 import { initializeRabbitMqPublisher } from './rabbitmq-publisher';
 
 // Exit the process if there is an unhandled promise error
 process.on('unhandledRejection', (err, promise) => {
-  logger.error({ err, promise }, 'Unhandled promise rejection');
+  getLogger().error({ err, promise }, 'Unhandled promise rejection');
   process.exit(1);
 });
 
 /** The main entry point of the message producer. */
 (async () => {
-  // Set the pino logger also for the library logging
-  setLogger(logger);
   const config = getConfig();
   const outboxConfig = getOutboxServiceConfig(config);
+  const logger = getLogger();
 
   // Initialize the actual RabbitMQ message publisher
-  const [rmqPublisher, shutdownRmq] = await initializeRabbitMqPublisher(config);
+  const [rmqPublisher, shutdownRmq] = await initializeRabbitMqPublisher(
+    config,
+    logger,
+  );
 
   // Initialize and start the outbox subscription
-  const [shutdownOutSrv] = initializeOutboxService(outboxConfig, rmqPublisher);
+  const [shutdownOutSrv] = initializeOutboxService(
+    outboxConfig,
+    rmqPublisher,
+    logger,
+    createMutexConcurrencyController(),
+  );
 
   // Add movies and produce outbox messages on a timer
-  await addMovies(config, outboxConfig);
+  await addMovies(config, outboxConfig, logger);
 
   // Close all connections
   const cleanup = async () => {

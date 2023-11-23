@@ -1,9 +1,8 @@
+import { Mutex } from 'async-mutex';
+import { ensureError, TransactionalLogger } from 'pg-transactional-outbox';
 import { BrokerAsPromised } from 'rascal';
-import { ensureError } from 'pg-transactional-outbox';
 import { Config } from './config';
 import { getMessagingConfig } from './rabbitmq-config';
-import { logger } from './logger';
-import { Mutex } from 'async-mutex';
 
 /** The received message as it was sent by the producer */
 export interface ReceivedMessage {
@@ -18,13 +17,16 @@ export interface ReceivedMessage {
 
 /**
  * Initialize the message handler and receive a list of message types that should be consumed.
- * @param config The configuration settings to connect to the RabbitMQ instance
+ * @param config The configuration settings to connect to the RabbitMQ instance.
+ * @param storeInboxMessage Writes the received message into the inbox table.
  * @param messageTypes All the message types that should be handled and be put to the inbox table.
+ * @param logger A logger instance for logging trace up to error logs
  */
 export const initializeRabbitMqHandler = async (
   config: Config,
   storeInboxMessage: (message: ReceivedMessage) => Promise<void>,
   messageTypes: string[],
+  logger: TransactionalLogger,
 ): Promise<[shutdown: { (): Promise<void> }]> => {
   const cfg = getMessagingConfig(config);
   const broker = await BrokerAsPromised.create(cfg);

@@ -1,5 +1,5 @@
 import { BrokerConfig, PublicationConfig } from 'rascal';
-import { MovieCreatedMessageType, MovieAggregateType } from './add-movies';
+import { MovieAggregateType, MovieCreatedMessageType } from './add-movies';
 import { Config } from './config';
 
 /**

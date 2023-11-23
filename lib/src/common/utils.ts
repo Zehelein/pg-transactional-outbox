@@ -1,6 +1,6 @@
 import { Pool, PoolClient } from 'pg';
-import { logger } from './logger';
 import { ensureError } from './error';
+import { TransactionalLogger } from './logger';
 
 /**
  * Sleep for a given amount of milliseconds
@@ -40,16 +40,18 @@ export const awaitWithTimeout = <T>(
  * Open a transaction and execute the callback as part of the transaction.
  * @param pool The PostgreSQL database pool
  * @param callback The callback to execute DB commands with.
+ * @param logger A logger instance for logging trace up to error logs on DB based client errors
  * @returns The result of the callback (if any).
  * @throws Any error from the database or the callback.
  */
 export const executeTransaction = async <T>(
   pool: Pool,
   callback: (client: PoolClient) => Promise<T>,
+  logger?: TransactionalLogger,
 ): Promise<T> => {
   let client: PoolClient | undefined = undefined;
   try {
-    client = await getClient(pool);
+    client = await getClient(pool, logger);
     await client.query('BEGIN');
     const result = await callback(client);
     await client.query('COMMIT');
@@ -67,12 +69,12 @@ export const executeTransaction = async <T>(
   }
 };
 
-const getClient = async (pool: Pool) => {
+const getClient = async (pool: Pool, logger?: TransactionalLogger) => {
   const client = await pool.connect();
   // The pool can return a new or an old client - we must register the event listener but should do so only once
-  if (!client.listeners('error').length) {
+  if (!client.listeners('error').length && logger) {
     client.on('error', (err) => {
-      logger().error(err, 'PostgreSQL client error');
+      logger.error(err, 'PostgreSQL client error');
     });
   }
   return client;

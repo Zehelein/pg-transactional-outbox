@@ -93,14 +93,13 @@ exactly-once processing (in combination with the transactional inbox pattern):
    and the destination topic or queue. This ensures that either everything is
    persisted in the database or nothing. This is the `outbox storage` in the
    above diagram.
-3. A background process checks if a new entry appeared in the "outbox" table and
+3. A background process checks if a new entry appears in the "outbox" table and
    loads the data.
 4. Now the message can be sent. This can be done via a message broker, an event
    stream, or any other option. The outbox table entry is then marked as
    processed _only_ if the message was successfully sent. In case of a
-   message-sending error, or if the outbox entry could not be marked as
-   processed, the message is sent again. The `outbox service` is responsible for
-   this step.
+   message-sending error, or if the outbox entry cannot be marked as processed,
+   the message is sent again. The `outbox service` is responsible for this step.
 
 The third step can be implemented via the Polling-Publisher pattern or via the
 Transactional log tailing pattern.
@@ -336,16 +335,20 @@ messages when an outbox message was written to the outbox table. And the
 in the outbox table (for a specific aggregate type and message type).
 
 ```TypeScript
-import {
-  initializeOutboxService,
-  OutboxMessage,
-  initializeOutboxMessageStorage,
-  OutboxServiceConfig,
-} from 'pg-transactional-outbox';
 import process from 'node:process';
 import { Client } from 'pg';
+import {
+  createMutexConcurrencyController,
+  getDefaultLogger,
+  initializeOutboxMessageStorage,
+  initializeOutboxService,
+  OutboxMessage,
+  OutboxServiceConfig,
+} from 'pg-transactional-outbox';
 
 (async () => {
+  const logger = getDefaultLogger('outbox');
+
   // Initialize the actual message publisher e.g. publish the message via RabbitMQ
   const messagePublisher = async (message: OutboxMessage): Promise<void> => {
     // In the simplest case the message can be sent via inter process communication
@@ -367,11 +370,17 @@ import { Client } from 'pg';
       postgresSlot: 'pg_transactional_outbox_slot',
     },
   };
+  const concurrencyController = createMutexConcurrencyController();
 
   // Initialize and start the outbox subscription. This service receives all the
   // outbox table inserts from the WAL. It executes the messagePublisher function
   // with every received outbox message. It cares for the at least once delivery.
-  const [shutdown] = initializeOutboxService(config, messagePublisher);
+  const [shutdown] = initializeOutboxService(
+    config,
+    messagePublisher,
+    logger,
+    concurrencyController,
+  );
 
   // Initialize the outbox storage function. This function encapsulates the
   // aggregate type (movie) and the message type (movie_created). It will be
@@ -416,6 +425,7 @@ import { Client } from 'pg';
   await shutdown();
 })();
 
+
 ```
 
 ## Implementing the transactional inbox consumer
@@ -433,17 +443,21 @@ handler queries/mutations, and finally mark the inbox message as processed in
 the database.
 
 ```TypeScript
+import { ClientBase } from 'pg';
 import {
+  createMutexConcurrencyController,
+  getDefaultLogger,
   InboxMessage,
   InboxServiceConfig,
   initializeInboxMessageStorage,
   initializeInboxService,
   OutboxMessage,
 } from 'pg-transactional-outbox';
-import { ClientBase } from 'pg';
 
 /** The main entry point of the message producer. */
 (async () => {
+  const logger = getDefaultLogger('outbox');
+
   // Configuration settings for the replication and inbox table configurations
   const config: InboxServiceConfig = {
     // This configuration is used to start a transaction that locks and updates
@@ -478,13 +492,15 @@ import { ClientBase } from 'pg';
 
   // Initialize the inbox message storage to store incoming messages in the inbox
   const [storeInboxMessage, shutdownInboxStorage] =
-    initializeInboxMessageStorage(config);
+    initializeInboxMessageStorage(config, logger);
 
   // Initialize the message receiver e.g. based on RabbitMQ
   // In the simplest scenario use the inter process communication:
   process.on('message', async (message: OutboxMessage) => {
     await storeInboxMessage(message);
   });
+
+  const concurrencyController = createMutexConcurrencyController();
 
   // Initialize and start the inbox subscription
   initializeInboxService(
@@ -519,9 +535,12 @@ import { ClientBase } from 'pg';
         },
       },
     ],
+    logger,
+    concurrencyController,
   );
   await shutdownInboxStorage();
 })();
+
 
 ```
 

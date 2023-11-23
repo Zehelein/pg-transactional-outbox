@@ -1,36 +1,40 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { resolve } from 'path';
-import { ClientBase, Pool, PoolClient } from 'pg';
-import { v4 as uuid } from 'uuid';
+import { Client, ClientBase, Pool, PoolClient } from 'pg';
 import {
-  disableLogger,
+  createFullConcurrencyController,
+  createMutexConcurrencyController,
   executeTransaction,
+  getInMemoryLogger,
   InboxMessage,
   InboxMessageHandler,
   initializeInboxMessageStorage,
   initializeInboxService,
   initializeOutboxMessageStorage,
   initializeOutboxService,
-  logger,
+  InMemoryLogEntry,
   OutboxMessage,
+  ServiceConfig,
+  TransactionalLogger,
 } from 'pg-transactional-outbox';
 import {
   DockerComposeEnvironment,
   StartedDockerComposeEnvironment,
 } from 'testcontainers';
+import { v4 as uuid } from 'uuid';
 import {
   getConfigs,
-  TestConfigs,
+  isDebugMode,
   setupTestDb,
   sleep,
-  isDebugMode,
+  sleepUntilTrue,
+  TestConfigs,
 } from './test-utils';
 
 if (isDebugMode()) {
   jest.setTimeout(600_000);
 } else {
   jest.setTimeout(60_000);
-  disableLogger(); // Hide logs if the tests are not run in debug mode
 }
 const aggregateType = 'source_entity';
 const messageType = 'source_entity_created';
@@ -38,6 +42,8 @@ const metadata = { routingKey: 'test.route', exchange: 'test-exchange' };
 const setupProducerAndConsumer = (
   { inboxServiceConfig, outboxServiceConfig }: TestConfigs,
   inboxMessageHandlers: InboxMessageHandler[],
+  inboxLogger: TransactionalLogger,
+  outboxLogger: TransactionalLogger,
   messagePublisherWrapper?: (message: OutboxMessage) => boolean,
 ): [
   storeOutboxMessage: ReturnType<typeof initializeOutboxMessageStorage>,
@@ -47,9 +53,13 @@ const setupProducerAndConsumer = (
   const [inSrvShutdown] = initializeInboxService(
     inboxServiceConfig,
     inboxMessageHandlers,
+    inboxLogger,
+    createMutexConcurrencyController(),
   );
-  const [storeInboxMessage, inStoreShutdown] =
-    initializeInboxMessageStorage(inboxServiceConfig);
+  const [storeInboxMessage, inStoreShutdown] = initializeInboxMessageStorage(
+    inboxServiceConfig,
+    inboxLogger,
+  );
 
   // A simple in-process message sender
   const messageReceiver = async (message: OutboxMessage): Promise<void> => {
@@ -68,6 +78,8 @@ const setupProducerAndConsumer = (
   const [outSrvShutdown] = initializeOutboxService(
     outboxServiceConfig,
     messagePublisher,
+    outboxLogger,
+    createMutexConcurrencyController(),
   );
   const storeOutboxMessage = initializeOutboxMessageStorage(
     aggregateType,
@@ -113,6 +125,8 @@ describe('Outbox and inbox integration tests', () => {
   let loginPool: Pool;
   let configs: TestConfigs;
   let cleanup: { (): Promise<void> } | undefined = undefined;
+  const [outboxLogger, outboxLogs] = getInMemoryLogger('outbox');
+  const [inboxLogger, inboxLogs] = getInMemoryLogger('inbox');
 
   beforeAll(async () => {
     dockerEnv = new DockerComposeEnvironment(
@@ -128,8 +142,37 @@ describe('Outbox and inbox integration tests', () => {
 
     loginPool = new Pool(configs.loginConnection);
     loginPool.on('error', (err) => {
-      logger().error(err, 'PostgreSQL pool error');
+      outboxLogger.error(err, 'PostgreSQL pool error');
+      inboxLogger.error(err, 'PostgreSQL pool error');
     });
+  });
+
+  beforeEach(async () => {
+    inboxLogs.length = 0;
+    outboxLogs.length = 0;
+    const { host, port } = configs.loginConnection;
+    const resetReplication = async ({
+      settings: { postgresSlot },
+      pgReplicationConfig: { database },
+    }: ServiceConfig) => {
+      const rootInboxClient = new Client({
+        host,
+        port,
+        user: 'postgres',
+        password: 'postgres',
+        database,
+      });
+      try {
+        rootInboxClient.connect();
+        await rootInboxClient.query(
+          `SELECT * FROM pg_replication_slot_advance('${postgresSlot}', pg_current_wal_lsn());`,
+        );
+      } finally {
+        rootInboxClient.end();
+      }
+    };
+    await resetReplication(configs.inboxServiceConfig);
+    await resetReplication(configs.outboxServiceConfig);
   });
 
   afterEach(async () => {
@@ -137,7 +180,8 @@ describe('Outbox and inbox integration tests', () => {
       try {
         await cleanup();
       } catch (e) {
-        logger().error(e);
+        inboxLogger.error(e);
+        outboxLogger.error(e);
       }
     }
   });
@@ -147,7 +191,8 @@ describe('Outbox and inbox integration tests', () => {
       await loginPool?.end();
       await startedEnv?.down();
     } catch (e) {
-      logger().error(e);
+      inboxLogger.error(e);
+      outboxLogger.error(e);
     }
   });
 
@@ -170,9 +215,11 @@ describe('Outbox and inbox integration tests', () => {
         inboxMessageReceived = message;
       },
     };
-    const [storeOutboxMessage, shutdown] = await setupProducerAndConsumer(
+    const [storeOutboxMessage, shutdown] = setupProducerAndConsumer(
       configs,
       [inboxMessageHandler],
+      inboxLogger,
+      outboxLogger,
     );
     cleanup = shutdown;
 
@@ -206,9 +253,11 @@ describe('Outbox and inbox integration tests', () => {
         receivedInboxMessages.push(message);
       },
     };
-    const [storeOutboxMessage, shutdown] = await setupProducerAndConsumer(
+    const [storeOutboxMessage, shutdown] = setupProducerAndConsumer(
       configs,
       [inboxMessageHandler],
+      inboxLogger,
+      outboxLogger,
     );
     cleanup = shutdown;
     // wait a bit so older WAL messages are received and then reset the array
@@ -263,9 +312,11 @@ describe('Outbox and inbox integration tests', () => {
       },
     };
     let threwOnce = false;
-    const [storeOutboxMessage, shutdown] = await setupProducerAndConsumer(
+    const [storeOutboxMessage, shutdown] = setupProducerAndConsumer(
       configs,
       [inboxMessageHandler],
+      inboxLogger,
+      outboxLogger,
       () => {
         if (!threwOnce) {
           threwOnce = true;
@@ -300,6 +351,7 @@ describe('Outbox and inbox integration tests', () => {
     // Arrange
     const uuids = Array.from(Array(100), () => uuid());
     const inboxMessageReceived: InboxMessage[] = [];
+    let maxErrors = 10;
     const inboxMessageHandler = {
       aggregateType,
       messageType,
@@ -307,33 +359,34 @@ describe('Outbox and inbox integration tests', () => {
         message: InboxMessage,
         _client: ClientBase,
       ): Promise<void> => {
+        if (Math.random() < 0.1 && maxErrors-- > 0) {
+          inboxLogger.fatal(
+            `Throwing now an error for message ID ${message.id}`,
+          );
+          throw new Error(
+            `Some fake error when processing message with id ${message.id}.`,
+          );
+        }
         inboxMessageReceived.push(message);
       },
     };
-    let maxErrors = 10;
-    const [storeOutboxMessage, shutdown] = await setupProducerAndConsumer(
+    const [storeOutboxMessage, shutdown] = setupProducerAndConsumer(
       configs,
       [inboxMessageHandler],
-      (m: OutboxMessage) => {
-        if (Math.random() < 0.1 && maxErrors-- > 0) {
-          throw new Error(
-            `Some fake error when processing message with id ${m.id}.`,
-          );
-        }
-        return true;
-      },
+      inboxLogger,
+      outboxLogger,
     );
     cleanup = shutdown;
     // wait a bit so older WAL messages are received
     await sleep(500);
 
     // Act
-    for (const msgId of uuids) {
+    for (const id of uuids) {
       // Sequentially insert the messages to test message processing sort order
       await insertSourceEntity(
         loginPool,
-        msgId,
-        JSON.stringify({ id: uuid(), content: 'movie' }),
+        id,
+        JSON.stringify({ id, content: 'movie' }),
         storeOutboxMessage,
       );
     }
@@ -345,7 +398,7 @@ describe('Outbox and inbox integration tests', () => {
       if (inboxMessageReceived.length > lastLength) {
         lastLength = inboxMessageReceived.length;
       }
-      await sleep(100);
+      await sleep(10);
     }
     expect(timeout).toBeGreaterThanOrEqual(Date.now());
     expect(inboxMessageReceived).toHaveLength(100);
@@ -370,6 +423,8 @@ describe('Outbox and inbox integration tests', () => {
       async (msg) => {
         receivedFromOutbox1 = msg;
       },
+      outboxLogger,
+      createMutexConcurrencyController(),
     );
     await sleep(500); // enough time for the first one to start up
     const [shutdown2] = initializeOutboxService(
@@ -377,6 +432,8 @@ describe('Outbox and inbox integration tests', () => {
       async (msg) => {
         receivedFromOutbox2 = msg;
       },
+      outboxLogger,
+      createMutexConcurrencyController(),
     );
 
     // Act
@@ -413,7 +470,7 @@ describe('Outbox and inbox integration tests', () => {
     };
     const processedMessages: InboxMessage[] = [];
     const [storeInboxMessage, shutdownInboxStorage] =
-      initializeInboxMessageStorage(configs.inboxServiceConfig);
+      initializeInboxMessageStorage(configs.inboxServiceConfig, inboxLogger);
     const [shutdownInboxSrv] = initializeInboxService(
       configs.inboxServiceConfig,
       [
@@ -425,6 +482,8 @@ describe('Outbox and inbox integration tests', () => {
           },
         },
       ],
+      inboxLogger,
+      createMutexConcurrencyController(),
     );
     cleanup = async () => {
       await shutdownInboxStorage();
@@ -454,6 +513,8 @@ describe('Outbox and inbox integration tests', () => {
           },
         },
       ],
+      inboxLogger,
+      createMutexConcurrencyController(),
     );
     cleanup = async () => {
       await shutdownInboxStorage();
@@ -475,7 +536,7 @@ describe('Outbox and inbox integration tests', () => {
       createdAt: '2023-01-18T21:02:27.000Z',
     };
     const [storeInboxMessage, shutdownInboxStorage] =
-      initializeInboxMessageStorage(configs.inboxServiceConfig);
+      initializeInboxMessageStorage(configs.inboxServiceConfig, inboxLogger);
     let inboxHandlerCounter = 0;
     const [shutdownInboxSrv] = initializeInboxService(
       configs.inboxServiceConfig,
@@ -489,6 +550,8 @@ describe('Outbox and inbox integration tests', () => {
           },
         },
       ],
+      inboxLogger,
+      createMutexConcurrencyController(),
     );
     cleanup = async () => {
       await shutdownInboxStorage();
@@ -530,6 +593,8 @@ describe('Outbox and inbox integration tests', () => {
     const [storeOutboxMessage, shutdown] = await setupProducerAndConsumer(
       configs,
       [inboxMessageHandler],
+      inboxLogger,
+      outboxLogger,
     );
     cleanup = shutdown;
     await sleep(1);
@@ -555,5 +620,76 @@ describe('Outbox and inbox integration tests', () => {
     expect(inboxMessageReceived).toHaveLength(2);
     expect(inboxMessageReceived[0].aggregateId).toBe(uuid1);
     expect(inboxMessageReceived[1].aggregateId).toBe(uuid2);
+  });
+
+  test('With concurrent processing and a slow first and fast second message the acknowledgement is only sent after the first is also done.', async () => {
+    // Arrange
+    const createMsg: (id: number) => OutboxMessage = (id: number) => ({
+      id: uuid(),
+      aggregateId: id.toString(),
+      aggregateType,
+      messageType,
+      payload: { content: `movie ${id}` },
+      metadata,
+      createdAt: '2023-01-18T21:02:27.000Z',
+    });
+    const msg1 = createMsg(1);
+    const msg2 = createMsg(2);
+
+    // Act
+    const [storeInboxMessage, shutdownInboxStorage] =
+      initializeInboxMessageStorage(configs.inboxServiceConfig, inboxLogger);
+
+    await storeInboxMessage(msg1);
+    await storeInboxMessage(msg2);
+
+    const items: string[] = [];
+    const [shutdownInboxSrv] = initializeInboxService(
+      configs.inboxServiceConfig,
+      [
+        {
+          aggregateType,
+          messageType,
+          handle: async (message): Promise<void> => {
+            if (message.id === msg1.id) {
+              await sleep(250);
+            }
+            await sleep(20);
+            items.push(message.id);
+          },
+        },
+      ],
+      inboxLogger,
+      createFullConcurrencyController(),
+    );
+    cleanup = async () => {
+      await shutdownInboxStorage();
+      await shutdownInboxSrv();
+    };
+
+    // Assert - verify that the first message was not handled for now but the second one is
+    expect(items).toHaveLength(0);
+    const time1 = await sleepUntilTrue(() => items.length > 0, 500);
+    expect(items.length).toBeGreaterThanOrEqual(1);
+    expect(time1).toBeLessThanOrEqual(250);
+    expect(items[0]).toBe(msg2.id);
+    await sleepUntilTrue(() => items.length === 2, 500);
+    expect(items[1]).toBe(msg1.id);
+    const findRegex = (msg: OutboxMessage) =>
+      new RegExp(
+        `Finished processing LSN .* with message id ${msg.id} and type ${msg.messageType}.`,
+        'g',
+      );
+    const findIndex = (regex: RegExp) =>
+      inboxLogs.findIndex(
+        (log: InMemoryLogEntry) =>
+          log.args.length === 2 &&
+          typeof log.args[1] === 'string' &&
+          log.args[1].match(regex),
+      );
+    const msg1Index = findIndex(findRegex(msg1));
+    const msg2Index = findIndex(findRegex(msg2));
+    expect(msg1Index).toBe(-1); // The message 1 acknowledgement is skipped as it was done as part of the message 2 acknowledgement
+    expect(msg2Index).toBeGreaterThan(0);
   });
 });

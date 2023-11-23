@@ -1,13 +1,13 @@
-import { OutboxMessage } from './models';
+import { OutboxMessage } from './message';
 
 export type ErrorType = 'transient_error' | 'permanent_error';
 
-/** An error instance which holds an inner error and the processed message details */
-export class MessageHandlingError extends Error {
+/** An error that was raised when handling an outbox/inbox message. */
+export class MessageError<T extends OutboxMessage> extends Error {
   constructor(
     message: string,
-    public innerError: Error,
-    public receivedMessage: OutboxMessage,
+    public messageObject: T,
+    public innerError?: Error,
   ) {
     super(message);
     this.name = this.constructor.name;

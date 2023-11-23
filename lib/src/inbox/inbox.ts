@@ -1,23 +1,26 @@
 import { Pool, PoolClient } from 'pg';
-import { executeTransaction } from './utils';
-import { logger } from './logger';
+import { ensureError, MessageError } from '../common/error';
+import { TransactionalLogger } from '../common/logger';
+import { InboxMessage, OutboxMessage } from '../common/message';
+import { executeTransaction } from '../common/utils';
 import { InboxServiceConfig } from './inbox-service';
-import { MessageError, OutboxMessage, InboxMessage } from './models';
 
 /**
  * Initialize the inbox message storage to store incoming messages in the inbox table.
  * @param config The configuration object that defines the values on how to connect to the database and general settings.
+ * @param logger A logger instance for logging trace up to error logs
  * @returns The function to store the inbox message data to the database and the shutdown action.
  */
 export const initializeInboxMessageStorage = (
   config: Pick<InboxServiceConfig, 'pgConfig' | 'settings'>,
+  logger: TransactionalLogger,
 ): [
   storeInboxMessage: (message: OutboxMessage) => Promise<void>,
   shutdown: () => Promise<void>,
 ] => {
   const pool = new Pool(config.pgConfig);
   pool.on('error', (err) => {
-    logger().error(err, 'PostgreSQL pool error');
+    logger.error(err, 'PostgreSQL pool error');
   });
 
   /**
@@ -28,17 +31,19 @@ export const initializeInboxMessageStorage = (
   return [
     async (message: OutboxMessage): Promise<void> => {
       try {
-        await executeTransaction(pool, async (client) => {
-          await insertInbox(message, client, config);
-        });
-      } catch (err) {
-        logger().error(
-          { ...message, err },
-          'Could not store the inbox message',
+        await executeTransaction(
+          pool,
+          async (client) => {
+            await insertInbox(message, client, config, logger);
+          },
+          logger,
         );
+      } catch (err) {
+        logger.error({ ...message, err }, 'Could not store the inbox message');
         throw new MessageError(
           `Could not store the inbox message with id ${message.id}`,
           message,
+          ensureError(err),
         );
       }
     },
@@ -47,7 +52,7 @@ export const initializeInboxMessageStorage = (
       try {
         await pool.end();
       } catch (e) {
-        logger().error(e, 'Inbox message storage shutdown error');
+        logger.error(e, 'Inbox message storage shutdown error');
       }
     },
   ];
@@ -55,7 +60,7 @@ export const initializeInboxMessageStorage = (
 
 /**
  * Make sure the inbox item was not and is not currently being worked on. And
- * set the actual attempts and processed_at values to the WAL message.
+ * set the actual attempts and processed_at values for the WAL message.
  * As the WAL inbox service does not run in the same transaction as the message
  * handler code there is a small chance that the handler code succeeds but the
  * WAL inbox message was not acknowledged. This takes care of such cases.
@@ -141,6 +146,7 @@ export const nackInbox = async (
   }
 };
 
+/** Gets the maximum attempts to process a message. Defaults to 5 if not configured. */
 export const getMaxAttempts = (maxAttempts?: number): number =>
   maxAttempts ?? 5;
 
@@ -148,6 +154,7 @@ const insertInbox = async (
   message: OutboxMessage,
   dbClient: PoolClient,
   { settings }: Pick<InboxServiceConfig, 'settings'>,
+  logger: TransactionalLogger,
 ) => {
   const {
     id,
@@ -167,6 +174,6 @@ const insertInbox = async (
     [id, aggregateType, aggregateId, messageType, payload, metadata, createdAt],
   );
   if (inboxResult.rowCount < 1) {
-    logger().warn(message, `The message with id ${id} already existed`);
+    logger.warn(message, `The message with id ${id} already existed`);
   }
 };

@@ -3,7 +3,28 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
-## [0.3.0] - 2023-11-23
+## [0.4.0] - 2023-11-23
+
+### Changed
+
+- BREAKING CHANGE: the inbox and outbox services accept now a logger instance to
+  not depend on a global logger so custom names and settings can be provided to
+  the outbox and inbox service.
+- BREAKING CHANGE: to manage the concurrency of message processing on a granular
+  level, a concurrency manager is now required for the inbox and outbox service.
+  There are pre-build ones:
+  - `createMutexConcurrencyController` - this controller guarantees sequential
+    message processing.
+  - `createFullConcurrencyController` - this controller allows the parallel
+    processing of messages without guarantees on the processing order.
+  - `createDiscriminatingMutexConcurrencyController` - this controller enables
+    sequential message processing based on a specified discriminator. This could
+    be the message type or some other (calculated) value.
+  - `createStrategyConcurrencyController` - this is a combined concurrency
+    controller. You can define for every message by which from the above
+    controllers the message should use.
+
+## [0.3.0] - 2023-10-23
 
 ### Changed
 

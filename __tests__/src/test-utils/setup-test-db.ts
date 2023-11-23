@@ -1,7 +1,7 @@
 import { Client, ClientConfig } from 'pg';
 import {
-  OutboxServiceConfig,
   InboxServiceConfig,
+  OutboxServiceConfig,
 } from 'pg-transactional-outbox';
 import { TestConfigs } from './configs';
 
@@ -11,6 +11,15 @@ export const setupTestDb = async ({
   inboxServiceConfig,
 }: TestConfigs): Promise<void> => {
   await dbmsSetup(loginConnection, outboxServiceConfig, inboxServiceConfig);
+  await outboxSetup(loginConnection, outboxServiceConfig);
+  await inboxSetup(loginConnection, inboxServiceConfig);
+};
+
+export const resetReplication = async ({
+  loginConnection,
+  outboxServiceConfig,
+  inboxServiceConfig,
+}: TestConfigs): Promise<void> => {
   await outboxSetup(loginConnection, outboxServiceConfig);
   await inboxSetup(loginConnection, inboxServiceConfig);
 };
@@ -114,7 +123,7 @@ const inboxSetup = async (
   defaultLoginConnection: ClientConfig,
   {
     settings: { dbSchema, dbTable, postgresPub, postgresSlot },
-  }: OutboxServiceConfig,
+  }: InboxServiceConfig,
 ): Promise<void> => {
   const { host, port, database, user } = defaultLoginConnection;
   const dbClient = new Client({

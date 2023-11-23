@@ -1,13 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-non-null-assertion */
+import EventEmitter from 'events';
 import inspector from 'inspector';
 import { Client, Connection, Pool, PoolClient } from 'pg';
 import { Pgoutput } from 'pg-logical-replication';
-import { InboxServiceConfig, initializeInboxService } from './inbox-service';
-import { disableLogger } from './logger';
+import { createMutexConcurrencyController } from '../../dist';
+import { getDisabledLogger } from '../common/logger';
+import { sleep } from '../common/utils';
 import * as inboxSpy from './inbox';
-import EventEmitter from 'events';
-import { sleep } from './utils';
+import { InboxServiceConfig, initializeInboxService } from './inbox-service';
 
 type MessageIdType = 'not_processed_id' | 'processed_id' | 'attempts_exceeded';
 
@@ -15,7 +15,6 @@ const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
   jest.setTimeout(600_000);
 } else {
-  disableLogger(); // Hide logs if the tests are not run in debug mode
   jest.setTimeout(7_000);
 }
 
@@ -92,9 +91,9 @@ const sendReplicationChunk = (id: MessageIdType) => {
 const ackInboxSpy = jest.spyOn(inboxSpy, 'ackInbox');
 const nackInboxSpy = jest.spyOn(inboxSpy, 'nackInbox');
 
-jest.mock('./utils', () => {
+jest.mock('../common/utils', () => {
   return {
-    ...jest.requireActual('./utils'),
+    ...jest.requireActual('../common/utils'),
     executeTransaction: jest.fn(
       async (
         pool: Pool,
@@ -267,18 +266,23 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       attempts: 2,
       processedAt: null,
     };
-    const [cleanup] = initializeInboxService(config, [
-      {
-        aggregateType: message.aggregateType,
-        messageType: message.messageType,
-        handle: messageHandler,
-      },
-      {
-        aggregateType: 'unused-aggregate-type',
-        messageType: 'unused-message-type',
-        handle: unusedMessageHandler,
-      },
-    ]);
+    const [cleanup] = initializeInboxService(
+      config,
+      [
+        {
+          aggregateType: message.aggregateType,
+          messageType: message.messageType,
+          handle: messageHandler,
+        },
+        {
+          aggregateType: 'unused-aggregate-type',
+          messageType: 'unused-message-type',
+          handle: unusedMessageHandler,
+        },
+      ],
+      getDisabledLogger(),
+      createMutexConcurrencyController(),
+    );
 
     // Act
     sendReplicationChunk('not_processed_id');
@@ -306,30 +310,35 @@ describe('Inbox service unit tests - initializeInboxService', () => {
 
     // Act + Assert
     expect(() =>
-      initializeInboxService(config, [
-        {
-          aggregateType,
-          messageType,
-          handle: jest.fn(() => Promise.resolve()),
-        },
-        {
-          aggregateType,
-          messageType,
-          handle: jest.fn(() => Promise.resolve()),
-        },
-      ]),
+      initializeInboxService(
+        config,
+        [
+          {
+            aggregateType,
+            messageType,
+            handle: jest.fn(() => Promise.resolve()),
+          },
+          {
+            aggregateType,
+            messageType,
+            handle: jest.fn(() => Promise.resolve()),
+          },
+        ],
+        getDisabledLogger(),
+        createMutexConcurrencyController(),
+      ),
     ).toThrow(
       `Only one message handler can handle one aggregate and message type. Multiple message handlers try to handle the aggregate type "${aggregateType}" with the message type "${messageType}"`,
     );
   });
 
-  it.each(['processed_id' as MessageIdType, 'not_found' as MessageIdType])(
-    'should not call a messageHandler but acknowledge the WAL message when the inbox DB message was already process or not found: %p',
-    async (messageId) => {
-      // Arrange
-      const messageHandler = jest.fn(() => Promise.resolve());
-      const unusedMessageHandler = jest.fn(() => Promise.resolve());
-      const [cleanup] = initializeInboxService(config, [
+  it('should not call a messageHandler but acknowledge the WAL message when the inbox DB message was already process.', async () => {
+    // Arrange
+    const messageHandler = jest.fn(() => Promise.resolve());
+    const unusedMessageHandler = jest.fn(() => Promise.resolve());
+    const [cleanup] = initializeInboxService(
+      config,
+      [
         {
           aggregateType: aggregate_type,
           messageType: message_type,
@@ -340,24 +349,64 @@ describe('Inbox service unit tests - initializeInboxService', () => {
           messageType: 'unused-message-type',
           handle: unusedMessageHandler,
         },
-      ]);
+      ],
+      getDisabledLogger(),
+      createMutexConcurrencyController(),
+    );
 
-      // Act
-      sendReplicationChunk(messageId);
-      await continueEventLoop();
+    // Act
+    sendReplicationChunk('processed_id');
+    await continueEventLoop();
 
-      // Assert
-      expect(messageHandler).not.toHaveBeenCalled();
-      expect(unusedMessageHandler).not.toHaveBeenCalled();
-      expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
-      // As the inbox DB message was not found or already processed --> no ack/nack needed
-      expect(ackInboxSpy).not.toHaveBeenCalled();
-      expect(nackInboxSpy).not.toHaveBeenCalled();
-      expect(client.connect).toHaveBeenCalledTimes(1);
-      await cleanup();
-      expect(client.end).toHaveBeenCalledTimes(1);
-    },
-  );
+    // Assert
+    expect(messageHandler).not.toHaveBeenCalled();
+    expect(unusedMessageHandler).not.toHaveBeenCalled();
+    expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
+    // As the inbox DB message was already processed --> no ack/nack needed
+    expect(ackInboxSpy).not.toHaveBeenCalled();
+    expect(nackInboxSpy).not.toHaveBeenCalled();
+    expect(client.connect).toHaveBeenCalledTimes(1);
+    await cleanup();
+    expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
+  it('should not call a messageHandler and not acknowledge the WAL message when the inbox DB message was not found.', async () => {
+    // Arrange
+    const messageHandler = jest.fn(() => Promise.resolve());
+    const unusedMessageHandler = jest.fn(() => Promise.resolve());
+    const [cleanup] = initializeInboxService(
+      config,
+      [
+        {
+          aggregateType: aggregate_type,
+          messageType: message_type,
+          handle: messageHandler,
+        },
+        {
+          aggregateType: 'unused-aggregate-type',
+          messageType: 'unused-message-type',
+          handle: unusedMessageHandler,
+        },
+      ],
+      getDisabledLogger(),
+      createMutexConcurrencyController(),
+    );
+
+    // Act
+    sendReplicationChunk('not_found' as MessageIdType);
+    await continueEventLoop();
+
+    // Assert
+    expect(messageHandler).not.toHaveBeenCalled();
+    expect(unusedMessageHandler).not.toHaveBeenCalled();
+    expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
+    // As the inbox DB message was not found --> no ack/nack needed
+    expect(ackInboxSpy).not.toHaveBeenCalled();
+    expect(nackInboxSpy).not.toHaveBeenCalled();
+    expect(client.connect).toHaveBeenCalledTimes(1);
+    await cleanup();
+    expect(client.end).toHaveBeenCalledTimes(1);
+  });
 
   it('should call a messageHandler on a not processed message but not acknowledge the WAL message when the message handler throws an error', async () => {
     // Arrange
@@ -375,22 +424,27 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       attempts: 2,
       processedAt: null,
     };
-    const [cleanup] = initializeInboxService(config, [
-      {
-        aggregateType: message.aggregateType,
-        messageType: message.messageType,
-        handle: () => {
-          throw new Error('Unit Test');
+    const [cleanup] = initializeInboxService(
+      config,
+      [
+        {
+          aggregateType: message.aggregateType,
+          messageType: message.messageType,
+          handle: () => {
+            throw new Error('Unit Test');
+          },
+          handleError,
         },
-        handleError,
-      },
-      {
-        aggregateType: 'unused-aggregate-type',
-        messageType: 'unused-message-type',
-        handle: unusedMessageHandler,
-        handleError: unusedErrorHandler,
-      },
-    ]);
+        {
+          aggregateType: 'unused-aggregate-type',
+          messageType: 'unused-message-type',
+          handle: unusedMessageHandler,
+          handleError: unusedErrorHandler,
+        },
+      ],
+      getDisabledLogger(),
+      createMutexConcurrencyController(),
+    );
 
     // Act
     sendReplicationChunk('not_processed_id');
@@ -432,20 +486,25 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       attempts: 4,
       processedAt: null,
     };
-    const [cleanup] = initializeInboxService(config, [
-      {
-        aggregateType: message.aggregateType,
-        messageType: message.messageType,
-        handle: () => {
-          throw new Error('Unit Test');
+    const [cleanup] = initializeInboxService(
+      config,
+      [
+        {
+          aggregateType: message.aggregateType,
+          messageType: message.messageType,
+          handle: () => {
+            throw new Error('Unit Test');
+          },
         },
-      },
-      {
-        aggregateType: 'unused-aggregate-type',
-        messageType: 'unused-message-type',
-        handle: unusedMessageHandler,
-      },
-    ]);
+        {
+          aggregateType: 'unused-aggregate-type',
+          messageType: 'unused-message-type',
+          handle: unusedMessageHandler,
+        },
+      ],
+      getDisabledLogger(),
+      createMutexConcurrencyController(),
+    );
 
     // Act
     sendReplicationChunk('attempts_exceeded');

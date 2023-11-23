@@ -1,39 +1,13 @@
-import { on } from 'events';
 import { Client, ClientConfig, Connection } from 'pg';
-import { Mutex, withTimeout } from 'async-mutex';
 import { Pgoutput, PgoutputPlugin } from 'pg-logical-replication';
 import { AbstractPlugin } from 'pg-logical-replication/dist/output-plugins/abstract.plugin';
-import { logger } from './logger';
-import { OutboxMessage } from './models';
-import { awaitWithTimeout } from './utils';
-import { ErrorType, MessageHandlingError, ensureError } from './error';
-
-export interface ServiceConfig {
-  /**
-   * The "pg" library based settings to initialize the PostgreSQL connection for
-   * the logical replication service (with replication permissions)
-   */
-  pgReplicationConfig: ClientConfig;
-  /** service specific configurations */
-  settings: ServiceConfigSettings;
-}
-
-export interface ServiceConfigSettings {
-  /** The database schema name where the table is located */
-  dbSchema: string;
-  /** The database table of the inbox/outbox */
-  dbTable: string;
-  /** The name of the used PostgreSQL publication */
-  postgresPub: string;
-  /** The name of the used PostgreSQL logical replication slot */
-  postgresSlot: string;
-  /** When there is a message processing error it restarts the logical replication subscription with a delay. This setting defines this delay in milliseconds. Default is 250ms. */
-  restartDelay?: number;
-  /** When the replication slot is in use e.g. by another service, this service will still continue to try to connect in case the other service stops. Delay is given in milliseconds, the default is 10s. */
-  restartDelaySlotInUse?: number;
-  /** Inbox message handlers or the outbox message sender that do not finish can block further messages from being processed/sent. The timeout (in milliseconds) ensures to continue with the next items. Default is 15s. */
-  messageProcessingTimeout?: number;
-}
+import { ensureError, ErrorType, MessageError } from '../common/error';
+import { TransactionalLogger } from '../common/logger';
+import { OutboxMessage } from '../common/message';
+import { awaitWithTimeout } from '../common/utils';
+import { ConcurrencyController } from '../concurrency-controller/concurrency-controller';
+import { createAcknowledgeManager } from './acknowledge-manager';
+import { ServiceConfig, ServiceConfigSettings } from './config';
 
 /** connection exists on the Client but is not typed */
 type ReplicationClient = Client & {
@@ -45,13 +19,17 @@ type ReplicationClient = Client & {
  * @param config The replication connection settings and general service settings
  * @param messageHandler The message handler that handles the outbox/inbox message
  * @param errorHandler A handler that can decide if the WAL message should be acknowledged (permanent_error) or not (transient_error which restarts the logical replication service)
+ * @param concurrencyController A controller that ensures some concurrency guarantees.
+ * @param logger A logger instance for logging trace up to error logs
  * @param mapAdditionalRows The inbox table requires an additional row to be mapped to the inbox message
  * @returns A function to stop the service
  */
 export const createService = <T extends OutboxMessage>(
   { pgReplicationConfig, settings }: ServiceConfig,
   messageHandler: (message: T) => Promise<void>,
-  errorHandler?: (message: T, err: Error) => Promise<ErrorType>,
+  errorHandler: (message: T, err: Error) => Promise<ErrorType>,
+  concurrencyController: ConcurrencyController,
+  logger: TransactionalLogger,
   mapAdditionalRows?: (row: object) => Record<string, unknown>,
 ): [shutdown: { (): Promise<void> }] => {
   const plugin = new PgoutputPlugin({
@@ -72,19 +50,18 @@ export const createService = <T extends OutboxMessage>(
       replication: 'database',
       stop: false,
     } as ClientConfig) as ReplicationClient;
-
     // On errors stop the DB client and reconnect from a clean state
     const applyRestart = (promise: Promise<unknown>) => {
       promise
         .catch((e) => {
           const err = ensureError(e);
-          if (!(err instanceof MessageHandlingError)) {
-            logger().error(err, 'Transactional inbox/outbox service error');
+          if (!(err instanceof MessageError)) {
+            logger.error(err, `Transactional inbox/outbox service error`);
           }
           return err;
         })
         .then((err) => {
-          stopClient(client);
+          stopClient(client, logger);
           return err;
         })
         .then((err) => {
@@ -98,7 +75,7 @@ export const createService = <T extends OutboxMessage>(
     };
 
     // Start background functions to connect the DB client and handle replication data
-    applyRestart(subscribe(client, plugin, settings.postgresSlot));
+    applyRestart(subscribe(client, plugin, settings.postgresSlot, logger));
     applyRestart(
       handleIncomingData(
         client,
@@ -106,6 +83,8 @@ export const createService = <T extends OutboxMessage>(
         settings,
         messageHandler,
         errorHandler,
+        concurrencyController,
+        logger,
         mapAdditionalRows,
       ),
     );
@@ -113,12 +92,12 @@ export const createService = <T extends OutboxMessage>(
 
   return [
     async (): Promise<void> => {
-      logger().debug('started cleanup');
+      logger.debug('Started transactional inbox/outbox service cleanup');
       stopped = true;
       if (restartTimeout) {
         clearTimeout(restartTimeout);
       }
-      await stopClient(client);
+      await stopClient(client, logger);
     },
   ];
 };
@@ -177,64 +156,59 @@ const subscribe = async (
   client: ReplicationClient,
   plugin: AbstractPlugin,
   slotName: string,
+  logger: TransactionalLogger,
   uptoLsn?: string,
 ) => {
   const lastLsn = uptoLsn || '0/00000000';
 
   await client.connect();
   client.on('error', (e) => {
-    logger().error(e, 'client error');
+    logger.error(e, `Transactional inbox/outbox DB client error`);
   });
   client.connection.on('error', (e) => {
-    logger().error(e, 'connection error');
+    logger.error(e, `Transactional inbox/outbox DB connection error`);
   });
   client.connection.once('replicationStart', () => {
-    logger().trace('Replication started');
+    logger.trace(`Transactional inbox/outbox replication started`);
   });
 
   return plugin.start(client, slotName, lastLsn);
 };
 
 async function handleInboxOutboxMessage<T extends OutboxMessage>(
-  client: ReplicationClient,
   settings: ServiceConfigSettings,
   messageHandler: (message: T) => Promise<void>,
   errorHandler: ((message: T, err: Error) => Promise<ErrorType>) | undefined,
-  mapAdditionalRows: ((row: object) => Record<string, unknown>) | undefined,
-  xLogData: Pgoutput.Message,
+  message: T,
   lsn: string,
+  finishProcessingLSN: (lsn: string) => void,
+  logger: TransactionalLogger,
 ) {
-  const message = getRelevantMessage<T>(xLogData, settings, mapAdditionalRows);
-  if (!message) {
-    acknowledge(client, lsn); // acknowledge messages that the service cannot use
-    return;
-  }
-
   try {
-    logger().debug(
-      message,
-      `Received a WAL message for ${settings.dbSchema}.${settings.dbTable}`,
-    );
+    logger.debug(message, `Executing the message handler for LSN ${lsn}.`);
     await messageHandler(message as T);
-    acknowledge(client, lsn);
+    finishProcessingLSN(lsn);
   } catch (e) {
     const err = ensureError(e);
     if (errorHandler) {
       const errorType = await errorHandler(message, err);
       if (errorType === 'permanent_error') {
-        acknowledge(client, lsn);
+        finishProcessingLSN(lsn);
         return;
       }
     }
-    throw new MessageHandlingError(
-      'An error ocurred while handling a message.',
-      err,
+    throw new MessageError(
+      `An error ocurred while handling the message with ID ${message.id} and LSN ${lsn}`,
       message,
+      err,
     );
   }
 }
 
-const stopClient = async (client: ReplicationClient | undefined) => {
+const stopClient = async (
+  client: ReplicationClient | undefined,
+  logger: TransactionalLogger,
+) => {
   if (!client) {
     return;
   }
@@ -244,10 +218,10 @@ const stopClient = async (client: ReplicationClient | undefined) => {
     await awaitWithTimeout(
       () => client.end(),
       1000,
-      `PostgreSQL client could not be stopped within a reasonable time frame.`,
+      `The PostgreSQL client could not be stopped within a reasonable time frame.`,
     );
   } catch (e) {
-    logger().warn(e, 'Stopping the PostgreSQL client gave an error.');
+    logger.warn(e, `Stopping the PostgreSQL client gave an error.`);
   }
 };
 
@@ -264,12 +238,16 @@ const getRestartTimeout = (
 };
 
 // The acknowledge function is based on the https://github.com/kibae/pg-logical-replication library
-const acknowledge = (client: ReplicationClient, lsn: string): boolean => {
+const acknowledge = (
+  client: ReplicationClient,
+  lsn: string,
+  logger: TransactionalLogger,
+): void => {
   if (!client?.connection) {
-    logger().warn(
+    logger.warn(
       `Could not acknowledge message ${lsn} as the client connection was not open.`,
     );
-    return false;
+    return;
   }
 
   const slice = lsn.split('/');
@@ -314,71 +292,127 @@ const acknowledge = (client: ReplicationClient, lsn: string): boolean => {
   response.writeInt8(0, 33);
 
   client.connection.sendCopyFromChunk(response);
-
-  return true;
 };
 
 // The acknowledge function is based on the https://github.com/kibae/pg-logical-replication library
-// but with an async loop and a mutex to guarantee sequential processing
+// but with an async loop and custom concurrency handling
 const LOG_FLAG = 0x77; // 119 in base 10
 const KEEP_ALIVE_FLAG = 0x6b; // 107 in base 10
-const handleIncomingData = async <T extends OutboxMessage>(
+const handleIncomingData = <T extends OutboxMessage>(
   client: ReplicationClient,
   plugin: AbstractPlugin,
   settings: ServiceConfigSettings,
   messageHandler: (message: T) => Promise<void>,
-  errorHandler?: (message: T, err: Error) => Promise<ErrorType>,
+  errorHandler: (message: T, err: Error) => Promise<ErrorType>,
+  concurrencyController: ConcurrencyController,
+  logger: TransactionalLogger,
   mapAdditionalRows?: (row: object) => Record<string, unknown>,
 ): Promise<void> => {
   if (!client.connection) {
     throw new Error('Client not connected.');
   }
-  const mutex = withTimeout(
-    new Mutex(),
-    settings.messageProcessingTimeout ?? 15_000,
+  const ack = (lsn: string): void => {
+    acknowledge(client, lsn, logger);
+  };
+  const { startProcessingLSN, finishProcessingLSN } = createAcknowledgeManager(
+    ack,
+    logger,
   );
-  for await (const [data] of on(client.connection, 'copyData')) {
-    const release = await mutex.acquire();
-    try {
-      // The semaphore ensure the sequential message processing to guarantee the correct order
-      const {
+  let stopped = false;
+  return new Promise((_resolve, reject) => {
+    const messageProcessingTimeout =
+      settings.messageProcessingTimeout ?? 15_000;
+    client.connection.on(
+      'copyData',
+      async ({
         chunk: buffer,
       }: {
         length: number;
         chunk: Buffer;
         name: string;
-      } = data;
-      if (buffer[0] !== LOG_FLAG && buffer[0] !== KEEP_ALIVE_FLAG) {
-        logger().warn({ bufferStart: buffer[0] }, 'Unknown message');
-        return;
-      }
-      const lsn =
-        buffer.readUInt32BE(1).toString(16).toUpperCase() +
-        '/' +
-        buffer.readUInt32BE(5).toString(16).toUpperCase();
+      }) => {
+        try {
+          if (buffer[0] !== LOG_FLAG && buffer[0] !== KEEP_ALIVE_FLAG) {
+            logger.warn({ bufferStart: buffer[0] }, 'Unknown message');
+            return;
+          }
+          const lsn =
+            buffer.readUInt32BE(1).toString(16).toUpperCase() +
+            '/' +
+            buffer.readUInt32BE(5).toString(16).toUpperCase();
+          if (stopped) {
+            logger.trace(`Received LSN ${lsn} after the process stopped.`);
+            return;
+          }
 
-      if (buffer[0] === LOG_FLAG) {
-        const xLogData = plugin.parse(buffer.subarray(25));
-        await handleInboxOutboxMessage<T>(
-          client,
-          settings,
-          messageHandler,
-          errorHandler,
-          mapAdditionalRows,
-          xLogData,
-          lsn,
-        );
-      } else if (buffer[0] === KEEP_ALIVE_FLAG) {
-        // Primary keep alive message
-        const shouldRespond = !!buffer.readInt8(17);
-        if (shouldRespond) {
-          acknowledge(client, lsn);
+          if (buffer[0] === LOG_FLAG) {
+            const xLogData = plugin.parse(buffer.subarray(25));
+            const message = getRelevantMessage<T>(
+              xLogData,
+              settings,
+              mapAdditionalRows,
+            );
+            if (!message) {
+              return;
+            }
+            logger.trace(
+              message,
+              `Parsed the message for the LSN ${lsn} with message id ${message.id} and type ${message.messageType}. Potentially waiting for mutex.`,
+            );
+            const release = await concurrencyController.acquire(message);
+            startProcessingLSN(lsn); // finish is called in the `handleInboxOutboxMessage` (if it doesn't throw an Error)
+            logger.trace(
+              message,
+              `Started processing LSN ${lsn} with message id ${message.id} and type ${message.messageType}.`,
+            );
+            try {
+              await awaitWithTimeout(
+                async () => {
+                  // Need to double check for stopped for concurrency reasons when a message was awaiting the
+                  // `awaitWithTimeout` function and another message threw an error which should stop this message.
+                  if (stopped) {
+                    logger.trace(
+                      `Received LSN ${lsn} after the process stopped.`,
+                    );
+                    return;
+                  }
+                  await handleInboxOutboxMessage<T>(
+                    settings,
+                    messageHandler,
+                    errorHandler,
+                    message,
+                    lsn,
+                    finishProcessingLSN,
+                    logger,
+                  );
+                },
+                messageProcessingTimeout,
+                `Could not process the message within the timeout of ${messageProcessingTimeout} milliseconds. Please consider to use a background worker for long running tasks to not block the message processing.`,
+              );
+              logger.trace(
+                message,
+                `Finished processing LSN ${lsn} with message id ${message.id} and type ${message.messageType}.`,
+              );
+            } finally {
+              release();
+            }
+          } else if (buffer[0] === KEEP_ALIVE_FLAG) {
+            // Primary keep alive message
+            const shouldRespond = !!buffer.readInt8(17);
+            if (shouldRespond) {
+              startProcessingLSN(lsn);
+              finishProcessingLSN(lsn);
+            }
+          }
+        } catch (e) {
+          stopped = true;
+          client.connection.removeAllListeners();
+          concurrencyController.cancel();
+          reject(e);
         }
-      }
-    } finally {
-      release();
-    }
-  }
+      },
+    );
+  });
 };
 
 /**

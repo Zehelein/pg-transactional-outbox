@@ -1,18 +1,18 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import inspector from 'inspector';
-import { Pgoutput } from 'pg-logical-replication';
-import { OutboxServiceConfig, initializeOutboxService } from './outbox-service';
-import { disableLogger } from './logger';
 import { Client, Connection } from 'pg';
+import { Pgoutput } from 'pg-logical-replication';
 import { EventEmitter } from 'stream';
-import { sleep } from './utils';
+import { getDisabledLogger } from '../../dist';
+import { sleep } from '../common/utils';
+import { createMutexConcurrencyController } from '../concurrency-controller/create-mutex-concurrency-controller';
+import { initializeOutboxService, OutboxServiceConfig } from './outbox-service';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
   jest.setTimeout(600_000);
 } else {
-  disableLogger(); // Hide logs if the tests are not run in debug mode
   jest.setTimeout(7_000);
 }
 
@@ -142,7 +142,12 @@ describe('Outbox service unit tests - initializeOutboxService', () => {
   it('should call the messageHandler and acknowledge the WAL message when no errors are thrown', async () => {
     // Arrange
     const messageHandler = jest.fn(() => Promise.resolve());
-    const [shutdown] = initializeOutboxService(config, messageHandler);
+    const [shutdown] = initializeOutboxService(
+      config,
+      messageHandler,
+      getDisabledLogger(),
+      createMutexConcurrencyController(),
+    );
     await continueEventLoop();
 
     // Act
@@ -164,7 +169,12 @@ describe('Outbox service unit tests - initializeOutboxService', () => {
     const messageHandler = jest.fn(async () => {
       throw new Error('Unit Test');
     });
-    const [shutdown] = initializeOutboxService(config, messageHandler);
+    const [shutdown] = initializeOutboxService(
+      config,
+      messageHandler,
+      getDisabledLogger(),
+      createMutexConcurrencyController(),
+    );
     await continueEventLoop();
 
     // Act
@@ -184,7 +194,12 @@ describe('Outbox service unit tests - initializeOutboxService', () => {
     const messageHandler = jest.fn(async () => {
       throw new Error('Unit Test');
     });
-    const [shutdown] = initializeOutboxService(config, messageHandler);
+    const [shutdown] = initializeOutboxService(
+      config,
+      messageHandler,
+      getDisabledLogger(),
+      createMutexConcurrencyController(),
+    );
     await continueEventLoop();
     const keepAliveChunk = Buffer.from([
       107, 0, 0, 0, 0, 9, 163, 25, 136, 0, 2, 168, 78, 55, 139, 118, 225, 0,

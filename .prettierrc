@@ -3,5 +3,6 @@
   "trailingComma": "all",
   "proseWrap": "always",
   "arrowParens": "always",
-  "endOfLine": "auto"
+  "endOfLine": "auto",
+  "plugins": ["prettier-plugin-organize-imports"]
 }

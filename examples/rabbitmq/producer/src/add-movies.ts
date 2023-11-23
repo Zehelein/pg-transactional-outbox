@@ -1,11 +1,11 @@
 import { Pool, PoolClient } from 'pg';
 import {
-  initializeOutboxMessageStorage,
   executeTransaction,
+  initializeOutboxMessageStorage,
   ServiceConfig,
+  TransactionalLogger,
 } from 'pg-transactional-outbox';
 import { Config } from './config';
-import { logger } from './logger';
 
 export const MovieAggregateType = 'movie';
 export const MovieCreatedMessageType = 'movie_created';
@@ -16,10 +16,13 @@ export const MovieCreatedMessageType = 'movie_created';
  * It uses a small timeout to insert a movie and an outbox message every
  * second.
  * @param config The configuration object with details on how to connect to the database with the login role.
+ * @param outboxConfig The outbox related configuration settings
+ * @param logger A logger instance for logging trace up to error logs
  */
 export const addMovies = async (
   config: Config,
   outboxConfig: ServiceConfig,
+  logger: TransactionalLogger,
 ): Promise<void> => {
   const pool = new Pool({
     host: config.postgresHost,
@@ -41,11 +44,15 @@ export const addMovies = async (
 
   setInterval(async () => {
     try {
-      await executeTransaction(pool, async (client) => {
-        const payload = await insertMovie(client);
-        await storeOutboxMessage(payload.id, payload, client);
-        return payload;
-      });
+      await executeTransaction(
+        pool,
+        async (client) => {
+          const payload = await insertMovie(client, logger);
+          await storeOutboxMessage(payload.id, payload, client);
+          return payload;
+        },
+        logger,
+      );
     } catch (error) {
       logger.error(error, 'Could not create a movie');
     }
@@ -53,7 +60,10 @@ export const addMovies = async (
 };
 
 let index = 1;
-const insertMovie = async (dbClient: PoolClient) => {
+const insertMovie = async (
+  dbClient: PoolClient,
+  logger: TransactionalLogger,
+) => {
   const movieInsertedIdResult = await dbClient.query(/* sql*/ `
         INSERT INTO public.movies (title, description, actors, directors, studio)
         VALUES ('movie ${index++}', 'some description', ARRAY['Some Actor'], ARRAY['Some Director'], 'Some Studio')

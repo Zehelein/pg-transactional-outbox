@@ -1,17 +1,17 @@
 import inspector from 'inspector';
 import { Pool } from 'pg';
-import { disableLogger } from './logger';
-import { sleep, executeTransaction } from './utils';
+import { getDisabledLogger } from './logger';
+import { executeTransaction, sleep } from './utils';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
   jest.setTimeout(600_000);
 } else {
-  disableLogger(); // Hide logs if the tests are not run in debug mode
   jest.setTimeout(7_000);
 }
 
 describe('Utils Unit Tests', () => {
+  const logger = getDisabledLogger();
   describe('sleep', () => {
     it('should sleep for the given amount of milliseconds', async () => {
       // Arrange
@@ -50,7 +50,7 @@ describe('Utils Unit Tests', () => {
 
     it('should open a transaction and execute the callback', async () => {
       // Act
-      await executeTransaction(pool, callback);
+      await executeTransaction(pool, callback, logger);
 
       // Assert
       expect(pool.connect).toHaveBeenCalled();
@@ -59,7 +59,7 @@ describe('Utils Unit Tests', () => {
 
     it('should return the result of the callback', async () => {
       // Act
-      const result = await executeTransaction(pool, callback);
+      const result = await executeTransaction(pool, callback, logger);
 
       // Assert
       expect(result).toBe('SELECT 1;');
@@ -70,7 +70,7 @@ describe('Utils Unit Tests', () => {
       const client = await pool.connect();
 
       // Act
-      await executeTransaction(pool, callback);
+      await executeTransaction(pool, callback, logger);
 
       // Assert
       expect(client.query).toHaveBeenCalledWith('COMMIT');
@@ -83,7 +83,9 @@ describe('Utils Unit Tests', () => {
       const client = await pool.connect();
 
       // Act + Assert
-      await expect(executeTransaction(pool, callback)).rejects.toThrow();
+      await expect(
+        executeTransaction(pool, callback, logger),
+      ).rejects.toThrow();
       expect(client.query).toHaveBeenCalledWith('ROLLBACK');
       expect(client.release).toHaveBeenCalled();
     });

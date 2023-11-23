@@ -1,26 +1,29 @@
 import { ClientBase } from 'pg';
-import { InboxMessage } from 'pg-transactional-outbox';
-import { logger } from './logger';
+import { InboxMessage, TransactionalLogger } from 'pg-transactional-outbox';
 
 export const MovieAggregateType = 'movie';
 export const MovieCreatedMessageType = 'movie_created';
 
 /**
- * Stores the published video in the database
- * @param message The inbox message that contains the movie details
- * @param client The database client
- * @throws Error if the message does not contain a valid movie.
+ * Get the function to store published movies in the database
+ * @param logger A logger instance for logging trace up to error logs
+ * @returns The movie function to store published movies
  */
-export const storePublishedMovie = async (
-  message: InboxMessage,
-  client: ClientBase,
-): Promise<void> => {
-  const { payload } = message;
-  assertPublishedMovie(payload);
-  logger.trace(payload, 'Started to insert the published movie');
-  await insertPublishedMovie(payload, client);
-  logger.trace(payload, 'Inserted the published movie');
-};
+export const getStorePublishedMovie =
+  (logger: TransactionalLogger) =>
+  /**
+   * Stores the published video in the database
+   * @param message The inbox message that contains the movie details
+   * @param client The database client
+   * @throws Error if the message does not contain a valid movie.
+   */
+  async (message: InboxMessage, client: ClientBase): Promise<void> => {
+    const { payload } = message;
+    assertPublishedMovie(payload);
+    logger.trace(payload, 'Started to insert the published movie');
+    await insertPublishedMovie(payload, client);
+    logger.trace(payload, 'Inserted the published movie');
+  };
 
 interface PublishedMovie {
   id: number;

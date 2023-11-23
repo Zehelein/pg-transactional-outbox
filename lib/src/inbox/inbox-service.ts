@@ -1,10 +1,12 @@
 import { ClientBase, ClientConfig, Pool } from 'pg';
-import { verifyInbox, ackInbox, nackInbox, getMaxAttempts } from './inbox';
-import { createService, ServiceConfig } from './replication-service';
-import { logger } from './logger';
-import { InboxMessage } from './models';
-import { executeTransaction } from './utils';
-import { ErrorType } from './error';
+import { ErrorType } from '../common/error';
+import { TransactionalLogger } from '../common/logger';
+import { InboxMessage } from '../common/message';
+import { executeTransaction } from '../common/utils';
+import { ConcurrencyController } from '../concurrency-controller/concurrency-controller';
+import { ServiceConfig } from '../replication/config';
+import { createService } from '../replication/replication-service';
+import { ackInbox, getMaxAttempts, nackInbox, verifyInbox } from './inbox';
 
 /** The inbox service configuration */
 export type InboxServiceConfig = ServiceConfig & {
@@ -29,8 +31,10 @@ export type InboxServiceConfig = ServiceConfig & {
 export interface InboxMessageHandler {
   /** The aggregate root type */
   aggregateType: string;
+
   /** The name of the message created for the aggregate type. */
   messageType: string;
+
   /**
    * Custom business logic to handle a message that was stored in the inbox. It
    * is fine to throw an error if the message cannot be processed.
@@ -47,7 +51,7 @@ export interface InboxMessageHandler {
    * @param error The error that was thrown in the handle method.
    * @param message The inbox message with the payload that was attempted to be handled.
    * @param client The database client that is part of a (new) transaction to safely handle the error.
-   * @param attempts The number of times that message was already attempted (including the current attempt). And the maximum number of times a message will be attempted.
+   * @param attempts The number of times that message was already attempted (including the current attempt). And the maximum number of times the message will be attempted.
    * @returns A flag that defines if the message should be retried ('transient_error') or not ('permanent_error')
    */
   handleError?: (
@@ -61,34 +65,57 @@ export interface InboxMessageHandler {
 /**
  * Initialize the service to watch for inbox table inserts.
  * @param config The configuration object with required values to connect to the WAL.
- * @param messageHandlers A list of message handlers to handle the inbox messages. I
- * @returns Functions for a clean shutdown and to help testing "outages" of the inbox service
+ * @param messageHandlers A list of message handlers to handle the inbox messages.
+ * @param logger A logger instance for logging trace up to error logs
+ * @param concurrencyController A controller that ensures specific concurrency guarantees. Defaults to the createMutexConcurrencyController.
+ * @returns Functions for a clean shutdown.
  */
 export const initializeInboxService = (
   config: InboxServiceConfig,
   messageHandlers: InboxMessageHandler[],
+  logger: TransactionalLogger,
+  concurrencyController: ConcurrencyController,
 ): [shutdown: { (): Promise<void> }] => {
-  const pool = createPgPool(config);
+  const pool = createPgPool(config, logger);
   const messageHandlerDict = getMessageHandlerDict(messageHandlers);
-  const messageHandler = createMessageHandler(messageHandlerDict, pool, config);
-  const errorResolver = createErrorResolver(messageHandlerDict, pool, config);
-  const [shutdown] = createService(config, messageHandler, errorResolver);
+  const messageHandler = createMessageHandler(
+    messageHandlerDict,
+    pool,
+    config,
+    logger,
+  );
+  const errorResolver = createErrorResolver(
+    messageHandlerDict,
+    pool,
+    config,
+    logger,
+  );
+  const [shutdown] = createService(
+    config,
+    messageHandler,
+    errorResolver,
+    concurrencyController,
+    logger,
+  );
   return [
     async () => {
       pool.removeAllListeners();
       try {
         await Promise.all([pool.end(), shutdown()]);
       } catch (e) {
-        logger().error(e, 'Inbox service shutdown error');
+        logger.error(e, 'Inbox service shutdown error');
       }
     },
   ];
 };
 
-const createPgPool = (config: InboxServiceConfig) => {
+const createPgPool = (
+  config: InboxServiceConfig,
+  logger: TransactionalLogger,
+) => {
   const pool = new Pool(config.pgConfig);
   pool.on('error', (err) => {
-    logger().error(err, 'PostgreSQL pool error');
+    logger.error(err, 'PostgreSQL pool error');
   });
   return pool;
 };
@@ -101,23 +128,28 @@ const createMessageHandler = (
   messageHandlers: Record<string, InboxMessageHandler>,
   pool: Pool,
   config: InboxServiceConfig,
+  logger: TransactionalLogger,
 ) => {
   return async (message: InboxMessage) => {
-    await executeTransaction(pool, async (client) => {
-      const result = await verifyInbox(message, client, config);
-      if (result === true) {
-        const handler = messageHandlers[getMessageHandlerKey(message)];
-        if (handler) {
-          await handler.handle(message, client);
+    await executeTransaction(
+      pool,
+      async (client) => {
+        const result = await verifyInbox(message, client, config);
+        if (result === true) {
+          const handler = messageHandlers[getMessageHandlerKey(message)];
+          if (handler) {
+            await handler.handle(message, client);
+          }
+          await ackInbox(message, client, config);
+        } else {
+          logger.warn(
+            message,
+            `Received inbox message cannot be processed: ${result}`,
+          );
         }
-        await ackInbox(message, client, config);
-      } else {
-        logger().warn(
-          message,
-          `Received inbox message cannot be processed: ${result}`,
-        );
-      }
-    });
+      },
+      logger,
+    );
   };
 };
 
@@ -147,51 +179,59 @@ const getMessageHandlerDict = (
 };
 
 /**
- * Increase the attempts counter of the message and retries it later.
+ * Increase the attempts counter of the message and retry it later.
  */
 const createErrorResolver = (
   messageHandlers: Record<string, InboxMessageHandler>,
   pool: Pool,
   config: InboxServiceConfig,
+  logger: TransactionalLogger,
 ) => {
   /**
-   * An error handler that will increase the inbox attempts counter on transient errors.
+   * An error handler that will increase the inbox attempts counter on transient
+   * errors or sets the attempts counter to max attempts for permanent errors.
+   * The message handler `handleError` is called to allow for your code to
+   * decide if the error is a transient or a permanent one.
    * @param message: the InboxMessage that failed to be processed
    * @param error: the error that was thrown while processing the message
    */
   return async (message: InboxMessage, error: Error): Promise<ErrorType> => {
     const handler = messageHandlers[getMessageHandlerKey(message)];
     try {
-      return await executeTransaction(pool, async (client) => {
-        let errorType: ErrorType = 'transient_error';
-        const maxAttempts = getMaxAttempts(config.settings.maxAttempts);
-        if (handler?.handleError) {
-          errorType = await handler.handleError(error, message, client, {
-            current: message.attempts + 1,
-            max: maxAttempts,
-          });
-        }
-        let attempts: number | undefined;
-        if (
-          errorType === 'permanent_error' ||
-          message.attempts + 1 >= maxAttempts
-        ) {
-          attempts = maxAttempts;
-          logger().error(
-            error,
-            `Giving up processing the message with id ${message.id}.`,
-          );
-        } else {
-          logger().warn(
-            error,
-            `An error ocurred while processing the message with id ${message.id}.`,
-          );
-        }
-        await nackInbox(message, client, config, attempts);
-        return errorType;
-      });
+      return await executeTransaction(
+        pool,
+        async (client) => {
+          let errorType: ErrorType = 'transient_error';
+          const maxAttempts = getMaxAttempts(config.settings.maxAttempts);
+          if (handler?.handleError) {
+            errorType = await handler.handleError(error, message, client, {
+              current: message.attempts + 1,
+              max: maxAttempts,
+            });
+          }
+          let attempts: number | undefined;
+          if (
+            errorType === 'permanent_error' ||
+            message.attempts + 1 >= maxAttempts
+          ) {
+            attempts = maxAttempts;
+            logger.error(
+              error,
+              `Giving up processing the message with id ${message.id}.`,
+            );
+          } else {
+            logger.warn(
+              error,
+              `An error ocurred while processing the message with id ${message.id}.`,
+            );
+          }
+          await nackInbox(message, client, config, attempts);
+          return errorType;
+        },
+        logger,
+      );
     } catch (error) {
-      logger().error(
+      logger.error(
         { ...message, err: error },
         handler
           ? 'The error handling of the message failed. Please make sure that your error handling code does not throw an error!'

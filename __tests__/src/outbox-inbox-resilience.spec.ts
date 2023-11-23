@@ -1,35 +1,36 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { resolve } from 'path';
 import { Client, ClientBase, Pool, PoolClient } from 'pg';
-import { v4 as uuid } from 'uuid';
 import {
+  createMutexConcurrencyController,
   executeTransaction,
+  getDefaultLogger,
+  getDisabledLogger,
   InboxMessage,
+  initializeInboxMessageStorage,
+  initializeInboxService,
   initializeOutboxMessageStorage,
   initializeOutboxService,
-  initializeInboxMessageStorage,
-  logger,
   OutboxMessage,
-  disableLogger,
-  initializeInboxService,
+  TransactionalLogger,
 } from 'pg-transactional-outbox';
 import {
   DockerComposeEnvironment,
   StartedDockerComposeEnvironment,
 } from 'testcontainers';
+import { v4 as uuid } from 'uuid';
 import {
   getConfigs,
-  TestConfigs,
-  setupTestDb,
-  retryCallback,
   isDebugMode,
+  retryCallback,
+  setupTestDb,
+  TestConfigs,
 } from './test-utils';
 
 if (isDebugMode()) {
   jest.setTimeout(600_000);
 } else {
   jest.setTimeout(90_000);
-  disableLogger(); // Hide logs if the tests are not run in debug mode
 }
 const aggregateType = 'source_entity';
 const messageType = 'source_entity_created';
@@ -64,19 +65,20 @@ const compareEntities = (
 
 const createInfraOutage = async (
   startedEnv: StartedDockerComposeEnvironment,
+  logger: TransactionalLogger,
 ) => {
   try {
     // Stop the environment and a bit later start the PG container again
     await startedEnv.stop();
   } catch (error) {
-    logger().error(error);
+    logger.error(error);
   }
   setTimeout(async () => {
     try {
       const postgresContainer = startedEnv.getContainer('postgres-resilience');
       await postgresContainer.restart();
     } catch (error) {
-      logger().error(error);
+      logger.error(error);
     }
   }, 3000);
 };
@@ -87,6 +89,7 @@ describe('Outbox and inbox resilience integration tests', () => {
   let loginPool: Pool;
   let configs: TestConfigs;
   let cleanup: { (): Promise<void> } | undefined = undefined;
+  const logger = isDebugMode() ? getDefaultLogger() : getDisabledLogger();
 
   beforeAll(async () => {
     dockerEnv = new DockerComposeEnvironment(
@@ -100,7 +103,7 @@ describe('Outbox and inbox resilience integration tests', () => {
 
     loginPool = new Pool(configs.loginConnection);
     loginPool.on('error', (err) => {
-      logger().error(err, 'PostgreSQL pool error');
+      logger.error(err, 'PostgreSQL pool error');
     });
   });
 
@@ -109,7 +112,7 @@ describe('Outbox and inbox resilience integration tests', () => {
       try {
         await cleanup();
       } catch (e) {
-        logger().error(e);
+        logger.error(e);
       }
     }
   });
@@ -119,7 +122,7 @@ describe('Outbox and inbox resilience integration tests', () => {
       await loginPool?.end();
       await startedEnv?.down();
     } catch (e) {
-      logger().error(e);
+      logger.error(e);
     }
   });
 
@@ -152,13 +155,15 @@ describe('Outbox and inbox resilience integration tests', () => {
     );
     // Stop the PostgreSQL docker container and restart it after a few seconds while
     // the outbox service starts. The outbox service will retry for a while
-    await createInfraOutage(startedEnv);
+    await createInfraOutage(startedEnv, logger);
     // Start the service - it should succeed after PG is up again
     const [shutdown] = initializeOutboxService(
       configs.outboxServiceConfig,
       async (msg) => {
         sentMessages.push(msg);
       },
+      logger,
+      createMutexConcurrencyController(),
     );
     cleanup = shutdown;
 
@@ -211,7 +216,7 @@ describe('Outbox and inbox resilience integration tests', () => {
     };
     const processedMessages: InboxMessage[] = [];
     const [storeInboxMessage, shutdownInboxStorage] =
-      initializeInboxMessageStorage(configs.inboxServiceConfig);
+      initializeInboxMessageStorage(configs.inboxServiceConfig, logger);
 
     // Act
     // Store two message before starting up the inbox service
@@ -219,7 +224,7 @@ describe('Outbox and inbox resilience integration tests', () => {
     await storeInboxMessage(msg2);
     // Stop the PostgreSQL docker container and restart it after a few seconds while
     // the inbox service starts. The inbox service will retry for a while
-    await createInfraOutage(startedEnv);
+    await createInfraOutage(startedEnv, logger);
     // Start the service - it should succeed after PG is up again
     const [shutdownInboxSrv] = initializeInboxService(
       configs.inboxServiceConfig,
@@ -236,6 +241,8 @@ describe('Outbox and inbox resilience integration tests', () => {
           },
         },
       ],
+      logger,
+      createMutexConcurrencyController(),
     );
     cleanup = async () => {
       await shutdownInboxStorage();
@@ -275,7 +282,7 @@ describe('Outbox and inbox resilience integration tests', () => {
     };
 
     await ensureDbConnection();
-    await createInfraOutage(startedEnv);
+    await createInfraOutage(startedEnv, logger);
     await retryCallback(ensureDbConnection, 10_000, 100);
   });
 });

@@ -1,3 +1,4 @@
+import { TransactionalLogger } from 'pg-transactional-outbox';
 import pino, { LoggerOptions } from 'pino';
 
 const options: LoggerOptions = {
@@ -33,4 +34,4 @@ if (process.env.NODE_ENV === 'development') {
   };
 }
 
-export const logger = pino(options);
+export const getLogger = (): TransactionalLogger => pino(options);

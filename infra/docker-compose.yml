@@ -6,13 +6,13 @@ services:
   rabbitmq:
     image: rabbitmq:3-management
     ports:
-      - "25672:5672"
-      - "35672:15672"
+      - '25672:5672'
+      - '35672:15672'
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "rabbitmqctl", "status"]
+      test: ['CMD', 'rabbitmqctl', 'status']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -23,14 +23,14 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "15432:5432"
+      - '15432:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres.conf:/etc/postgresql/postgresql.conf
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres"]
+      test: ['CMD', 'pg_isready', '-U', 'postgres']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -41,7 +41,7 @@ services:
       PGADMIN_DEFAULT_EMAIL: dev@local.com
       PGADMIN_DEFAULT_PASSWORD: pgAdmin
     ports:
-      - "8084:80"
+      - '8084:80'
     restart: unless-stopped
     volumes:
       - pgadmin-data:/var/lib/pgadmin

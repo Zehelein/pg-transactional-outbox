@@ -1,16 +1,17 @@
+import { OutboxMessage, TransactionalLogger } from 'pg-transactional-outbox';
 import { BrokerAsPromised } from 'rascal';
-import { OutboxMessage } from 'pg-transactional-outbox';
 import { Config } from './config';
-import { logger } from './logger';
 import { getMessagingConfig } from './rabbitmq-config';
 
 /**
  * Initialize the message publisher and receive a function to publish messages.
  * @param config The configuration settings to connect to the RabbitMQ instance
+ * @param logger A logger instance for logging trace up to error logs
  * @returns Returns a function to publish a message to the corresponding rascal publishing topic
  */
 export const initializeRabbitMqPublisher = async (
   config: Config,
+  logger: TransactionalLogger,
 ): Promise<
   [
     rmqPublisher: (message: OutboxMessage) => Promise<void>,

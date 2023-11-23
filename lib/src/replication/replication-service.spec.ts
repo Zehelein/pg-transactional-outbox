@@ -1,23 +1,23 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
+import EventEmitter from 'events';
 import inspector from 'inspector';
+import { Client, Connection } from 'pg';
 import { Pgoutput } from 'pg-logical-replication';
+import { getDisabledLogger } from '../common/logger';
+import { OutboxMessage } from '../common/message';
+import { sleep } from '../common/utils';
+import { createMutexConcurrencyController } from '../concurrency-controller/create-mutex-concurrency-controller';
 import {
   createService,
   __only_for_unit_tests__ as tests,
 } from './replication-service';
-import { disableLogger } from './logger';
-import { OutboxMessage } from './models';
-import { sleep } from './utils';
-import EventEmitter from 'events';
-import { Client, Connection } from 'pg';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
   jest.setTimeout(600_000);
 } else {
   jest.setTimeout(7_000); // for the 5sec heartbeat
-  disableLogger(); // Hide logs if the tests are not run in debug mode
 }
 
 const continueEventLoop = () => sleep(1);
@@ -54,13 +54,57 @@ jest.mock('pg', () => {
   };
 });
 
-// Send a valid chunk that represents log message
-const replicationChunk = Buffer.from([
-  119, 0, 0, 0, 0, 93, 162, 168, 0, 0, 0, 0, 0, 9, 162, 168, 0, 0, 2, 168, 74,
-  108, 17, 127, 72, 66, 0, 0, 0, 0, 9, 162, 254, 96, 0, 2, 168, 74, 108, 17,
-  119, 203, 0, 1, 233, 183,
-]);
-const sendReplicationChunk = (chunk = replicationChunk) => {
+// A valid chunk that represents log message
+const getReplicationChunk = (increment = 0) =>
+  Buffer.from([
+    119,
+    0,
+    0,
+    0,
+    0,
+    93,
+    162,
+    168,
+    increment,
+    0,
+    0,
+    0,
+    0,
+    9,
+    162,
+    168,
+    0,
+    0,
+    2,
+    168,
+    74,
+    108,
+    17,
+    127,
+    72,
+    66,
+    0,
+    0,
+    0,
+    0,
+    9,
+    162,
+    254,
+    96,
+    0,
+    2,
+    168,
+    74,
+    108,
+    17,
+    119,
+    203,
+    0,
+    1,
+    233,
+    183,
+  ]);
+const sendReplicationChunk = (chunk: Buffer) => {
   (client as any).connection.emit('copyData', {
     chunk,
     length: chunk.length,
@@ -355,12 +399,14 @@ describe('Local replication service unit tests', () => {
         config,
         messageHandler,
         errorHandler,
+        createMutexConcurrencyController(),
+        getDisabledLogger(),
         mapAdditionalRows,
       );
       await continueEventLoop();
 
       // Act
-      sendReplicationChunk();
+      sendReplicationChunk(getReplicationChunk(0));
       await continueEventLoop();
 
       // Assert
@@ -392,12 +438,14 @@ describe('Local replication service unit tests', () => {
           errorHandlerCalled = true;
           return 'transient_error';
         },
+        createMutexConcurrencyController(),
+        getDisabledLogger(),
         mapAdditionalRows,
       );
       await continueEventLoop();
 
       // Act
-      sendReplicationChunk();
+      sendReplicationChunk(getReplicationChunk(0));
       await continueEventLoop();
 
       // Assert
@@ -429,12 +477,14 @@ describe('Local replication service unit tests', () => {
           errorHandlerCalled = true;
           return 'permanent_error';
         },
+        createMutexConcurrencyController(),
+        getDisabledLogger(),
         mapAdditionalRows,
       );
       await continueEventLoop();
 
       // Act
-      sendReplicationChunk();
+      sendReplicationChunk(getReplicationChunk(0));
       await continueEventLoop();
 
       // Assert
@@ -457,6 +507,8 @@ describe('Local replication service unit tests', () => {
         config,
         messageHandler,
         errorHandler,
+        createMutexConcurrencyController(),
+        getDisabledLogger(),
         mapAdditionalRows,
       );
       await continueEventLoop();
@@ -488,6 +540,8 @@ describe('Local replication service unit tests', () => {
         config,
         messageHandler,
         errorHandler,
+        createMutexConcurrencyController(),
+        getDisabledLogger(),
         mapAdditionalRows,
       );
       await continueEventLoop();
@@ -525,13 +579,15 @@ describe('Local replication service unit tests', () => {
         config,
         delayedMessageHandler,
         errorHandler,
+        createMutexConcurrencyController(),
+        getDisabledLogger(),
         mapAdditionalRows,
       );
       await continueEventLoop();
 
       // Act
       for (let i = 0; i < 10; i++) {
-        sendReplicationChunk();
+        sendReplicationChunk(getReplicationChunk(i));
       }
       await continueEventLoop();
 

@@ -23,14 +23,3 @@ export interface InboxMessage extends OutboxMessage {
   /** The date and time in ISO 8601 "internet time" UTC format (e.g. "2023-10-17T11:48:14Z") when the message was processed */
   processedAt: string | null;
 }
-
-/** An error that was raised when handling an outbox/inbox message. */
-export class MessageError<T extends OutboxMessage> extends Error {
-  public messageObject: T;
-
-  constructor(message: string, messageObject: T) {
-    super(message);
-    this.name = 'MessageError';
-    this.messageObject = messageObject;
-  }
-}

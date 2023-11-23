@@ -36,7 +36,7 @@ The `initializeOutboxMessageStorage` function is a generator function to store
 outbox messages for a specific aggregate type (e.g. a movie or an order) and a
 corresponding message type (e.g. movie_created or order_cancelled). The
 generated function can then be used to store a message in the outbox table. Each
-outbox item consists of the mentioned aggregate type and message type. And it
+outbox item consists of the mentioned aggregate type and message type. It
 includes the aggregate unique identifier (e.g. the movie or order ID), a unique
 message identifier (e.g. a UUID), and the message payload. The payload contains
 the actual data that should be made available to the message consumers. You can
@@ -67,7 +67,7 @@ this connection needs insert permissions to the inbox table.
 
 The other central function is `initializeInboxService`. It takes a configuration
 object with one database connection (`pgReplicationConfig`) based on a user with
-the replication attribute to receive notifications when a new inbox message was
+the replication attribute to receive notifications when a new inbox message is
 created. And a second database connection (`pgConfig`) to open a database
 transaction to process the inbox message and the message handler data changes.
 The configuration includes also the `settings` for database schema and table
@@ -77,9 +77,10 @@ name of the used PostgreSQL logical replication slot.
 ## General
 
 The library includes error logging and some trace/warning logs. By default, it
-uses a `pino` logger instance. You can use the `setLogger` interface to provide
-your own `pino` logger instance or another logger that satisfies the pino
-`BaseLogger` interface.
+uses a `pino` logger instance. You can use the `getDefaultLogger` or
+`getInMemoryLogger` functions to create a logger instance. Alternatively, you
+can provide your logger instance based on the `TransactionalLogger` interface to
+provide your custom-configured `pino` logger instance.
 
 The `executeTransaction` functionality could be helpful when implementing the
 consumer to store both the outbox message and other data as part of the same
@@ -105,6 +106,6 @@ details in the [README.md](./examples/rabbitmq/README.md).
 ## Windows-only possible issue
 
 It is possible when running `yarn` to encounter an error
-`Unable to detect compiler type` on windows machines. In this case
+`Unable to detect compiler type` on Windows machines. In this case
 `yarn --ignore-optional` can be used to work around this issue until it gets
 resolved.

@@ -1,7 +1,8 @@
-import { v4 as uuid } from 'uuid';
 import { ClientBase } from 'pg';
+import { v4 as uuid } from 'uuid';
+import { MessageError } from '../common/error';
+import { OutboxMessage } from '../common/message';
 import { OutboxServiceConfig } from './outbox-service';
-import { MessageError, OutboxMessage } from './models';
 
 /**
  * Pre-configure the specific kind of outbox message to generate and receive a

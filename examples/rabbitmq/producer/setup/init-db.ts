@@ -3,9 +3,12 @@ import path from 'path';
 import dotenv from 'dotenv';
 dotenv.config({ path: path.join(__dirname, '.env') });
 dotenv.config({ path: path.join(__dirname, '../.env'), override: true });
-import { Config, getConfig } from '../src/config';
+// eslint-disable-next-line prettier/prettier
 import { Client } from 'pg';
-import { logger } from '../src/logger';
+import { Config, getConfig } from '../src/config';
+import { getLogger } from '../src/logger';
+
+const logger = getLogger();
 
 /** Setup on the PostgreSQL server level (and not within a DB) */
 const dbmsSetup = async (config: Config): Promise<void> => {
