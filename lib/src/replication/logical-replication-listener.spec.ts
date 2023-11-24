@@ -9,9 +9,9 @@ import { OutboxMessage } from '../common/message';
 import { sleep } from '../common/utils';
 import { createMutexConcurrencyController } from '../concurrency-controller/create-mutex-concurrency-controller';
 import {
-  createService,
+  createLogicalReplicationListener,
   __only_for_unit_tests__ as tests,
-} from './replication-service';
+} from './logical-replication-listener';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
@@ -395,7 +395,7 @@ describe('Local replication service unit tests', () => {
         pgReplicationConfig: {},
         settings,
       };
-      const [cleanup] = createService<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
         config,
         messageHandler,
         errorHandler,
@@ -427,7 +427,7 @@ describe('Local replication service unit tests', () => {
       };
       const testError = new Error('Transient error');
       let errorHandlerCalled = false;
-      const [cleanup] = createService<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
         config,
         async () => {
           throw testError;
@@ -466,7 +466,7 @@ describe('Local replication service unit tests', () => {
       };
       const testError = new Error('Unit test error');
       let errorHandlerCalled = false;
-      const [cleanup] = createService<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
         config,
         async () => {
           throw testError;
@@ -503,7 +503,7 @@ describe('Local replication service unit tests', () => {
         pgReplicationConfig: {},
         settings,
       };
-      const [cleanup] = createService<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
         config,
         messageHandler,
         errorHandler,
@@ -536,7 +536,7 @@ describe('Local replication service unit tests', () => {
         pgReplicationConfig: {},
         settings,
       };
-      const [cleanup] = createService<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
         config,
         messageHandler,
         errorHandler,
@@ -575,7 +575,7 @@ describe('Local replication service unit tests', () => {
         count++;
         await sleep(sleepTime);
       };
-      const [cleanup] = createService<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
         config,
         delayedMessageHandler,
         errorHandler,

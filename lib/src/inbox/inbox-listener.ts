@@ -4,18 +4,23 @@ import { TransactionalLogger } from '../common/logger';
 import { InboxMessage } from '../common/message';
 import { executeTransaction } from '../common/utils';
 import { ConcurrencyController } from '../concurrency-controller/concurrency-controller';
-import { ServiceConfig } from '../replication/config';
-import { createService } from '../replication/replication-service';
-import { ackInbox, getMaxAttempts, nackInbox, verifyInbox } from './inbox';
+import { TransactionalOutboxInboxConfig } from '../replication/config';
+import { createLogicalReplicationListener } from '../replication/logical-replication-listener';
+import {
+  ackInbox,
+  getMaxAttempts,
+  nackInbox,
+  verifyInbox,
+} from './inbox-message-storage';
 
-/** The inbox service configuration */
-export type InboxServiceConfig = ServiceConfig & {
+/** The inbox listener configuration */
+export type InboxConfig = TransactionalOutboxInboxConfig & {
   /**
    * Database connection details. The user needs update permission to the inbox.
    */
   pgConfig: ClientConfig;
 
-  settings: ServiceConfig['settings'] & {
+  settings: TransactionalOutboxInboxConfig['settings'] & {
     /**
      * The maximum number of attempts to handle an incoming inbox message.
      * Defaults to 5 which means a message is handled once initially and up to
@@ -63,15 +68,15 @@ export interface InboxMessageHandler {
 }
 
 /**
- * Initialize the service to watch for inbox table inserts.
+ * Initialize the listener to watch for inbox table inserts.
  * @param config The configuration object with required values to connect to the WAL.
  * @param messageHandlers A list of message handlers to handle the inbox messages.
  * @param logger A logger instance for logging trace up to error logs
  * @param concurrencyController A controller that ensures specific concurrency guarantees. Defaults to the createMutexConcurrencyController.
  * @returns Functions for a clean shutdown.
  */
-export const initializeInboxService = (
-  config: InboxServiceConfig,
+export const initializeInboxListener = (
+  config: InboxConfig,
   messageHandlers: InboxMessageHandler[],
   logger: TransactionalLogger,
   concurrencyController: ConcurrencyController,
@@ -90,7 +95,7 @@ export const initializeInboxService = (
     config,
     logger,
   );
-  const [shutdown] = createService(
+  const [shutdown] = createLogicalReplicationListener(
     config,
     messageHandler,
     errorResolver,
@@ -103,16 +108,13 @@ export const initializeInboxService = (
       try {
         await Promise.all([pool.end(), shutdown()]);
       } catch (e) {
-        logger.error(e, 'Inbox service shutdown error');
+        logger.error(e, 'Inbox listener shutdown error');
       }
     },
   ];
 };
 
-const createPgPool = (
-  config: InboxServiceConfig,
-  logger: TransactionalLogger,
-) => {
+const createPgPool = (config: InboxConfig, logger: TransactionalLogger) => {
   const pool = new Pool(config.pgConfig);
   pool.on('error', (err) => {
     logger.error(err, 'PostgreSQL pool error');
@@ -127,7 +129,7 @@ const createPgPool = (
 const createMessageHandler = (
   messageHandlers: Record<string, InboxMessageHandler>,
   pool: Pool,
-  config: InboxServiceConfig,
+  config: InboxConfig,
   logger: TransactionalLogger,
 ) => {
   return async (message: InboxMessage) => {
@@ -184,7 +186,7 @@ const getMessageHandlerDict = (
 const createErrorResolver = (
   messageHandlers: Record<string, InboxMessageHandler>,
   pool: Pool,
-  config: InboxServiceConfig,
+  config: InboxConfig,
   logger: TransactionalLogger,
 ) => {
   /**

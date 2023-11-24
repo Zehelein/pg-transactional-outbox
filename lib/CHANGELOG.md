@@ -7,12 +7,17 @@ this file.
 
 ### Changed
 
-- BREAKING CHANGE: the inbox and outbox services accept now a logger instance to
-  not depend on a global logger so custom names and settings can be provided to
-  the outbox and inbox service.
+- BREAKING CHANGE: the outbox and inbox listeners accept now a logger instance
+  to not depend on a global logger so custom names and settings can be provided
+  to the outbox and inbox listener.
+- BREAKING CHANGE: changed the term "service" to "listener" in multiple places
+  to more accurately reflect what the code does.
+
+### Added
+
 - BREAKING CHANGE: to manage the concurrency of message processing on a granular
-  level, a concurrency manager is now required for the inbox and outbox service.
-  There are pre-build ones:
+  level, a concurrency manager is now required for the outbox and inbox
+  listener. There are pre-build ones:
   - `createMutexConcurrencyController` - this controller guarantees sequential
     message processing.
   - `createFullConcurrencyController` - this controller allows the parallel
@@ -28,7 +33,7 @@ this file.
 
 ### Changed
 
-- BREAKING CHANGE: added support for additional "metadata" in inbox and outbox
+- BREAKING CHANGE: added support for additional "metadata" in outbox and inbox
   messages. A new database column `metadata JSONB` must be added to the inbox
   and outbox database table. This setting can hold any additional metadata e.g.
   routing information, message signature etc. Please run the following two
@@ -50,8 +55,8 @@ this file.
 
 - BREAKING CHANGE: renamed "event type" to "message type" in the library and in
   the database columns. This was done to better transport the meaning that the
-  transactional inbox and outbox can be used both for commands and events and
-  not just for events. Please rename for your inbox and outbox table the
+  transactional outbox and inbox can be used both for commands and events and
+  not just for events. Please rename for your outbox and inbox table the
   `event_type` column to `message_type`. And in your code the message
   `eventType` field with `messageType`.
 

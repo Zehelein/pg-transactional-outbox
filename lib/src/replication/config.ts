@@ -1,19 +1,19 @@
 import { ClientConfig } from 'pg';
 
-export interface ServiceConfig {
+export interface TransactionalOutboxInboxConfig {
   /**
    * The "pg" library based settings to initialize the PostgreSQL connection for
-   * the logical replication service (with replication permissions)
+   * the logical replication listener (with replication permissions)
    */
   pgReplicationConfig: ClientConfig;
-  /** service specific configurations */
-  settings: ServiceConfigSettings;
+  /** Replication listener specific configurations */
+  settings: ReplicationListenerConfig;
 }
 
-export interface ServiceConfigSettings {
+export interface ReplicationListenerConfig {
   /** The database schema name where the table is located */
   dbSchema: string;
-  /** The database table of the inbox/outbox */
+  /** The database table of the outbox/inbox */
   dbTable: string;
   /** The name of the used PostgreSQL publication */
   postgresPub: string;
@@ -23,6 +23,6 @@ export interface ServiceConfigSettings {
   restartDelay?: number;
   /** When the replication slot is in use e.g. by another service, this service will still continue to try to connect in case the other service stops. Delay is given in milliseconds, the default is 10s. */
   restartDelaySlotInUse?: number;
-  /** Inbox message handlers or the outbox message sender that do not finish can block further messages from being processed/sent. The timeout (in milliseconds) ensures to continue with the next items. Default is 15s. */
+  /** Outbox message sender or the inbox message handlers that do not finish can block further messages from being processed/sent. The timeout (in milliseconds) ensures to continue with the next items. Default is 15s. */
   messageProcessingTimeout?: number;
 }

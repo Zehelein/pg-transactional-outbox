@@ -1,13 +1,16 @@
 import { Client, ClientConfig, Connection } from 'pg';
 import { Pgoutput, PgoutputPlugin } from 'pg-logical-replication';
 import { AbstractPlugin } from 'pg-logical-replication/dist/output-plugins/abstract.plugin';
-import { ensureError, ErrorType, MessageError } from '../common/error';
+import { ErrorType, MessageError, ensureError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { OutboxMessage } from '../common/message';
 import { awaitWithTimeout } from '../common/utils';
 import { ConcurrencyController } from '../concurrency-controller/concurrency-controller';
 import { createAcknowledgeManager } from './acknowledge-manager';
-import { ServiceConfig, ServiceConfigSettings } from './config';
+import {
+  ReplicationListenerConfig,
+  TransactionalOutboxInboxConfig,
+} from './config';
 
 /** connection exists on the Client but is not typed */
 type ReplicationClient = Client & {
@@ -16,16 +19,16 @@ type ReplicationClient = Client & {
 
 /**
  * Initiate the outbox/inbox table to listen for WAL messages.
- * @param config The replication connection settings and general service settings
+ * @param config The replication connection settings and general replication settings
  * @param messageHandler The message handler that handles the outbox/inbox message
- * @param errorHandler A handler that can decide if the WAL message should be acknowledged (permanent_error) or not (transient_error which restarts the logical replication service)
+ * @param errorHandler A handler that can decide if the WAL message should be acknowledged (permanent_error) or not (transient_error which restarts the logical replication listener)
  * @param concurrencyController A controller that ensures some concurrency guarantees.
  * @param logger A logger instance for logging trace up to error logs
  * @param mapAdditionalRows The inbox table requires an additional row to be mapped to the inbox message
- * @returns A function to stop the service
+ * @returns A function to stop the logical replication listener
  */
-export const createService = <T extends OutboxMessage>(
-  { pgReplicationConfig, settings }: ServiceConfig,
+export const createLogicalReplicationListener = <T extends OutboxMessage>(
+  { pgReplicationConfig, settings }: TransactionalOutboxInboxConfig,
   messageHandler: (message: T) => Promise<void>,
   errorHandler: (message: T, err: Error) => Promise<ErrorType>,
   concurrencyController: ConcurrencyController,
@@ -39,11 +42,12 @@ export const createService = <T extends OutboxMessage>(
   let client: ReplicationClient | undefined;
   let restartTimeout: NodeJS.Timeout | undefined;
   let stopped = false;
-  // Run the service in a self restarting background event "loop" until it gets stopped
+  // Run the listener in a self restarting background event "loop" until it gets stopped
   (function start() {
     if (stopped) {
       return;
     }
+    logger.debug(`Transactional outbox/inbox listener starting`);
     restartTimeout = undefined;
     client = new Client({
       ...pgReplicationConfig,
@@ -56,7 +60,7 @@ export const createService = <T extends OutboxMessage>(
         .catch((e) => {
           const err = ensureError(e);
           if (!(err instanceof MessageError)) {
-            logger.error(err, `Transactional inbox/outbox service error`);
+            logger.error(err, `Transactional outbox/inbox listener error`);
           }
           return err;
         })
@@ -92,7 +96,7 @@ export const createService = <T extends OutboxMessage>(
 
   return [
     async (): Promise<void> => {
-      logger.debug('Started transactional inbox/outbox service cleanup');
+      logger.debug('Started transactional outbox/inbox listener cleanup');
       stopped = true;
       if (restartTimeout) {
         clearTimeout(restartTimeout);
@@ -102,10 +106,10 @@ export const createService = <T extends OutboxMessage>(
   ];
 };
 
-/** Get and map the inbox/outbox message if the WAL log entry is such a message. Otherwise returns undefined. */
+/** Get and map the outbox/inbox message if the WAL log entry is such a message. Otherwise returns undefined. */
 const getRelevantMessage = <T extends OutboxMessage>(
   log: Pgoutput.Message,
-  { dbSchema, dbTable }: ServiceConfig['settings'],
+  { dbSchema, dbTable }: TransactionalOutboxInboxConfig['settings'],
   mapAdditionalRows?: (row: object) => Record<string, unknown>,
 ): T | undefined =>
   log.tag === 'insert' &&
@@ -163,20 +167,20 @@ const subscribe = async (
 
   await client.connect();
   client.on('error', (e) => {
-    logger.error(e, `Transactional inbox/outbox DB client error`);
+    logger.error(e, `Transactional outbox/inbox listener DB client error`);
   });
   client.connection.on('error', (e) => {
-    logger.error(e, `Transactional inbox/outbox DB connection error`);
+    logger.error(e, `Transactional outbox/inbox listener DB connection error`);
   });
   client.connection.once('replicationStart', () => {
-    logger.trace(`Transactional inbox/outbox replication started`);
+    logger.trace(`Transactional outbox/inbox listener started`);
   });
 
   return plugin.start(client, slotName, lastLsn);
 };
 
-async function handleInboxOutboxMessage<T extends OutboxMessage>(
-  settings: ServiceConfigSettings,
+async function handleOutboxInboxMessage<T extends OutboxMessage>(
+  settings: ReplicationListenerConfig,
   messageHandler: (message: T) => Promise<void>,
   errorHandler: ((message: T, err: Error) => Promise<ErrorType>) | undefined,
   message: T,
@@ -227,13 +231,13 @@ const stopClient = async (
 
 const getRestartTimeout = (
   error: unknown,
-  settings: ServiceConfigSettings,
+  config: ReplicationListenerConfig,
 ): number => {
   const err = error as Error & { code?: string; routine?: string };
   if (err?.code === '55006' && err?.routine === 'ReplicationSlotAcquire') {
-    return settings.restartDelaySlotInUse ?? 10_000;
+    return config.restartDelaySlotInUse ?? 10_000;
   } else {
-    return settings.restartDelay ?? 250;
+    return config.restartDelay ?? 250;
   }
 };
 
@@ -301,7 +305,7 @@ const KEEP_ALIVE_FLAG = 0x6b; // 107 in base 10
 const handleIncomingData = <T extends OutboxMessage>(
   client: ReplicationClient,
   plugin: AbstractPlugin,
-  settings: ServiceConfigSettings,
+  config: ReplicationListenerConfig,
   messageHandler: (message: T) => Promise<void>,
   errorHandler: (message: T, err: Error) => Promise<ErrorType>,
   concurrencyController: ConcurrencyController,
@@ -320,8 +324,7 @@ const handleIncomingData = <T extends OutboxMessage>(
   );
   let stopped = false;
   return new Promise((_resolve, reject) => {
-    const messageProcessingTimeout =
-      settings.messageProcessingTimeout ?? 15_000;
+    const messageProcessingTimeout = config.messageProcessingTimeout ?? 15_000;
     client.connection.on(
       'copyData',
       async ({
@@ -349,7 +352,7 @@ const handleIncomingData = <T extends OutboxMessage>(
             const xLogData = plugin.parse(buffer.subarray(25));
             const message = getRelevantMessage<T>(
               xLogData,
-              settings,
+              config,
               mapAdditionalRows,
             );
             if (!message) {
@@ -360,7 +363,7 @@ const handleIncomingData = <T extends OutboxMessage>(
               `Parsed the message for the LSN ${lsn} with message id ${message.id} and type ${message.messageType}. Potentially waiting for mutex.`,
             );
             const release = await concurrencyController.acquire(message);
-            startProcessingLSN(lsn); // finish is called in the `handleInboxOutboxMessage` (if it doesn't throw an Error)
+            startProcessingLSN(lsn); // finish is called in the `handleOutboxInboxMessage` (if it doesn't throw an Error)
             logger.trace(
               message,
               `Started processing LSN ${lsn} with message id ${message.id} and type ${message.messageType}.`,
@@ -376,8 +379,8 @@ const handleIncomingData = <T extends OutboxMessage>(
                     );
                     return;
                   }
-                  await handleInboxOutboxMessage<T>(
-                    settings,
+                  await handleOutboxInboxMessage<T>(
+                    config,
                     messageHandler,
                     errorHandler,
                     message,
@@ -416,8 +419,8 @@ const handleIncomingData = <T extends OutboxMessage>(
 };
 
 /**
- * This export is _only_ done for unit tests as the createService function is
- * otherwise very hard to unit test. Exports work only for jest tests!
+ * This export is _only_ done for unit tests as the createLogicalReplicationListener
+ * function is otherwise very hard to unit test. Exports work only for jest tests!
  */
 export const __only_for_unit_tests__: {
   getRelevantMessage?: typeof getRelevantMessage;

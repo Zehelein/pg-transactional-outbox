@@ -2,7 +2,7 @@ import { ClientBase } from 'pg';
 import { v4 as uuid } from 'uuid';
 import { MessageError } from '../common/error';
 import { OutboxMessage } from '../common/message';
-import { OutboxServiceConfig } from './outbox-service';
+import { OutboxConfig } from './outbox-listener';
 
 /**
  * Pre-configure the specific kind of outbox message to generate and receive a
@@ -15,7 +15,7 @@ import { OutboxServiceConfig } from './outbox-service';
 export const initializeOutboxMessageStorage = (
   aggregateType: string,
   messageType: string,
-  { settings: { dbSchema, dbTable } }: Pick<OutboxServiceConfig, 'settings'>,
+  { settings: { dbSchema, dbTable } }: Pick<OutboxConfig, 'settings'>,
 ) => {
   /**
    * Function to store the outbox message data to the database.
@@ -53,7 +53,7 @@ export const initializeOutboxMessageStorage = (
  */
 export const initializeGeneralOutboxMessageStorage = ({
   settings: { dbSchema, dbTable },
-}: Pick<OutboxServiceConfig, 'settings'>) => {
+}: Pick<OutboxConfig, 'settings'>) => {
   /**
    * Function to store the outbox message data to the database.
    * @param aggregateId The identifier of the aggregate.

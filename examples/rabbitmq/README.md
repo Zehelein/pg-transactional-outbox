@@ -8,7 +8,7 @@ Advanced Message Queuing Protocol (AMQP). In our example, it is used to exchange
 
 ## Infrastructure
 
-This service requires a PostgreSQL service to store the movies and to implement
+This service requires a PostgreSQL server to store the movies and to implement
 the transactional outbox and inbox pattern. And a RabbitMQ instance to send the
 messages. The root folder `./infra` contains a `docker-compose.yml` file to
 create a local PostgreSQL and RabbitMQ instance for you. You can adjust the

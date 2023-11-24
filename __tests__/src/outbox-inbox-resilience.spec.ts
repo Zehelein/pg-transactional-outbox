@@ -2,17 +2,17 @@
 import { resolve } from 'path';
 import { Client, ClientBase, Pool, PoolClient } from 'pg';
 import {
+  InboxMessage,
+  OutboxMessage,
+  TransactionalLogger,
   createMutexConcurrencyController,
   executeTransaction,
   getDefaultLogger,
   getDisabledLogger,
-  InboxMessage,
+  initializeInboxListener,
   initializeInboxMessageStorage,
-  initializeInboxService,
+  initializeOutboxListener,
   initializeOutboxMessageStorage,
-  initializeOutboxService,
-  OutboxMessage,
-  TransactionalLogger,
 } from 'pg-transactional-outbox';
 import {
   DockerComposeEnvironment,
@@ -20,11 +20,11 @@ import {
 } from 'testcontainers';
 import { v4 as uuid } from 'uuid';
 import {
+  TestConfigs,
   getConfigs,
   isDebugMode,
   retryCallback,
   setupTestDb,
-  TestConfigs,
 } from './test-utils';
 
 if (isDebugMode()) {
@@ -126,7 +126,7 @@ describe('Outbox and inbox resilience integration tests', () => {
     }
   });
 
-  test('Messages are stored and later sent even if the PostgreSQL service goes down', async () => {
+  test('Messages are stored and later sent even if the PostgreSQL server goes down', async () => {
     // Arrange
     const entity1Id = uuid();
     const content1 = createContent(entity1Id);
@@ -136,11 +136,11 @@ describe('Outbox and inbox resilience integration tests', () => {
     const storeOutboxMessage = initializeOutboxMessageStorage(
       aggregateType,
       messageType,
-      configs.outboxServiceConfig,
+      configs.outboxConfig,
     );
 
     // Act
-    // Store two message before starting up the outbox service
+    // Store two message before starting up the outbox listener
     await insertSourceEntity(
       loginPool,
       entity1Id,
@@ -154,11 +154,11 @@ describe('Outbox and inbox resilience integration tests', () => {
       storeOutboxMessage,
     );
     // Stop the PostgreSQL docker container and restart it after a few seconds while
-    // the outbox service starts. The outbox service will retry for a while
+    // the outbox listener starts. The outbox listener will retry for a while
     await createInfraOutage(startedEnv, logger);
-    // Start the service - it should succeed after PG is up again
-    const [shutdown] = initializeOutboxService(
-      configs.outboxServiceConfig,
+    // Start the listener - it should succeed after PG is up again
+    const [shutdown] = initializeOutboxListener(
+      configs.outboxConfig,
       async (msg) => {
         sentMessages.push(msg);
       },
@@ -198,7 +198,7 @@ describe('Outbox and inbox resilience integration tests', () => {
     );
   });
 
-  test('Messages are stored in the inbox and fully delivered even if the PostgreSQL service goes down', async () => {
+  test('Messages are stored in the inbox and fully delivered even if the PostgreSQL server goes down', async () => {
     // Arrange
     const msg1: OutboxMessage = {
       id: uuid(),
@@ -216,18 +216,18 @@ describe('Outbox and inbox resilience integration tests', () => {
     };
     const processedMessages: InboxMessage[] = [];
     const [storeInboxMessage, shutdownInboxStorage] =
-      initializeInboxMessageStorage(configs.inboxServiceConfig, logger);
+      initializeInboxMessageStorage(configs.inboxConfig, logger);
 
     // Act
-    // Store two message before starting up the inbox service
+    // Store two message before starting up the inbox listener
     await storeInboxMessage(msg1);
     await storeInboxMessage(msg2);
     // Stop the PostgreSQL docker container and restart it after a few seconds while
-    // the inbox service starts. The inbox service will retry for a while
+    // the inbox listener starts. The inbox listener will retry for a while
     await createInfraOutage(startedEnv, logger);
-    // Start the service - it should succeed after PG is up again
-    const [shutdownInboxSrv] = initializeInboxService(
-      configs.inboxServiceConfig,
+    // Start the listener - it should succeed after PG is up again
+    const [shutdownInboxSrv] = initializeInboxListener(
+      configs.inboxConfig,
       [
         {
           aggregateType,

@@ -1,34 +1,31 @@
 import { Client, ClientConfig } from 'pg';
-import {
-  InboxServiceConfig,
-  OutboxServiceConfig,
-} from 'pg-transactional-outbox';
+import { InboxConfig, OutboxConfig } from 'pg-transactional-outbox';
 import { TestConfigs } from './configs';
 
 export const setupTestDb = async ({
   loginConnection,
-  outboxServiceConfig,
-  inboxServiceConfig,
+  outboxConfig,
+  inboxConfig,
 }: TestConfigs): Promise<void> => {
-  await dbmsSetup(loginConnection, outboxServiceConfig, inboxServiceConfig);
-  await outboxSetup(loginConnection, outboxServiceConfig);
-  await inboxSetup(loginConnection, inboxServiceConfig);
+  await dbmsSetup(loginConnection, outboxConfig, inboxConfig);
+  await outboxSetup(loginConnection, outboxConfig);
+  await inboxSetup(loginConnection, inboxConfig);
 };
 
 export const resetReplication = async ({
   loginConnection,
-  outboxServiceConfig,
-  inboxServiceConfig,
+  outboxConfig,
+  inboxConfig,
 }: TestConfigs): Promise<void> => {
-  await outboxSetup(loginConnection, outboxServiceConfig);
-  await inboxSetup(loginConnection, inboxServiceConfig);
+  await outboxSetup(loginConnection, outboxConfig);
+  await inboxSetup(loginConnection, inboxConfig);
 };
 
 /** Setup on the PostgreSQL server level (and not within a DB) */
 const dbmsSetup = async (
   defaultLoginConnection: ClientConfig,
-  outSrvConfig: OutboxServiceConfig,
-  inSrvConfig: InboxServiceConfig,
+  outSrvConfig: OutboxConfig,
+  inSrvConfig: InboxConfig,
 ): Promise<void> => {
   const { host, port, database, user, password } = defaultLoginConnection;
   const rootClient = new Client({
@@ -69,9 +66,7 @@ const dbmsSetup = async (
 
 const outboxSetup = async (
   defaultLoginConnection: ClientConfig,
-  {
-    settings: { dbSchema, dbTable, postgresPub, postgresSlot },
-  }: OutboxServiceConfig,
+  { settings: { dbSchema, dbTable, postgresPub, postgresSlot } }: OutboxConfig,
 ): Promise<void> => {
   const { host, port, database, user } = defaultLoginConnection;
   const dbClient = new Client({
@@ -121,9 +116,7 @@ const outboxSetup = async (
 /** All the changes related to the inbox implementation in the database */
 const inboxSetup = async (
   defaultLoginConnection: ClientConfig,
-  {
-    settings: { dbSchema, dbTable, postgresPub, postgresSlot },
-  }: InboxServiceConfig,
+  { settings: { dbSchema, dbTable, postgresPub, postgresSlot } }: InboxConfig,
 ): Promise<void> => {
   const { host, port, database, user } = defaultLoginConnection;
   const dbClient = new Client({

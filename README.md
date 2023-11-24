@@ -46,8 +46,8 @@ message transport like routing information or the target queue name etc.
 This function must be used as part of a PostgreSQL transaction together with the
 data mutations that were the reason for sending this message.
 
-The outbox service that gets notified when new outbox rows are created is
-initialized via the `initializeOutboxService` function. The configuration input
+The outbox listener that gets notified when new outbox rows are created is
+initialized via the `initializeOutboxListener` function. The configuration input
 parameter includes the connection details to the PostgreSQL database
 (`pgReplicationConfig`) with the role that has the "replication" attribute. The
 configuration also includes the `settings` for the database schema/table for the
@@ -65,14 +65,14 @@ receiver like a RabbitMQ-based message handler to store the incoming message
 (which was based on an outbox message) in the inbox table. The database role for
 this connection needs insert permissions to the inbox table.
 
-The other central function is `initializeInboxService`. It takes a configuration
-object with one database connection (`pgReplicationConfig`) based on a user with
-the replication attribute to receive notifications when a new inbox message is
-created. And a second database connection (`pgConfig`) to open a database
-transaction to process the inbox message and the message handler data changes.
-The configuration includes also the `settings` for database schema and table
-name of the inbox table, the name of the used PostgreSQL publication, and the
-name of the used PostgreSQL logical replication slot.
+The other central function is `initializeInboxListener`. It takes a
+configuration object with one database connection (`pgReplicationConfig`) based
+on a user with the replication attribute to receive notifications when a new
+inbox message is created. And a second database connection (`pgConfig`) to open
+a database transaction to process the inbox message and the message handler data
+changes. The configuration includes also the `settings` for database schema and
+table name of the inbox table, the name of the used PostgreSQL publication, and
+the name of the used PostgreSQL logical replication slot.
 
 ## General
 
@@ -90,7 +90,7 @@ the client back to the pool.
 ## Integration Tests
 
 You can find the integration tests in the `./__tests__` folder. This folder
-includes outbox service and inbox service integration tests that use a
+includes outbox listener and inbox listener integration tests that use a
 PostgreSQL instance for the actual tests. Check the
 [README.md](./__tests__/README.md) file for further details.
 

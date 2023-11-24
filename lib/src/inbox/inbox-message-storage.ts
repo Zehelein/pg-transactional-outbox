@@ -1,9 +1,9 @@
 import { Pool, PoolClient } from 'pg';
-import { ensureError, MessageError } from '../common/error';
+import { MessageError, ensureError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { InboxMessage, OutboxMessage } from '../common/message';
 import { executeTransaction } from '../common/utils';
-import { InboxServiceConfig } from './inbox-service';
+import { InboxConfig } from './inbox-listener';
 
 /**
  * Initialize the inbox message storage to store incoming messages in the inbox table.
@@ -12,7 +12,7 @@ import { InboxServiceConfig } from './inbox-service';
  * @returns The function to store the inbox message data to the database and the shutdown action.
  */
 export const initializeInboxMessageStorage = (
-  config: Pick<InboxServiceConfig, 'pgConfig' | 'settings'>,
+  config: Pick<InboxConfig, 'pgConfig' | 'settings'>,
   logger: TransactionalLogger,
 ): [
   storeInboxMessage: (message: OutboxMessage) => Promise<void>,
@@ -61,7 +61,7 @@ export const initializeInboxMessageStorage = (
 /**
  * Make sure the inbox item was not and is not currently being worked on. And
  * set the actual attempts and processed_at values for the WAL message.
- * As the WAL inbox service does not run in the same transaction as the message
+ * As the inbox listener does not run in the same transaction as the message
  * handler code there is a small chance that the handler code succeeds but the
  * WAL inbox message was not acknowledged. This takes care of such cases.
  * @param message The inbox message to check and later process.
@@ -72,7 +72,7 @@ export const initializeInboxMessageStorage = (
 export const verifyInbox = async (
   message: InboxMessage,
   client: PoolClient,
-  { settings }: Pick<InboxServiceConfig, 'settings'>,
+  { settings }: Pick<InboxConfig, 'settings'>,
 ): Promise<
   | true
   | 'INBOX_MESSAGE_NOT_FOUND'
@@ -109,7 +109,7 @@ export const verifyInbox = async (
 export const ackInbox = async (
   { id }: InboxMessage,
   client: PoolClient,
-  { settings }: Pick<InboxServiceConfig, 'settings'>,
+  { settings }: Pick<InboxConfig, 'settings'>,
 ): Promise<void> => {
   await client.query(
     /* sql*/ `UPDATE ${settings.dbSchema}.${settings.dbTable} SET processed_at = $1, attempts = attempts + 1 WHERE id = $2`,
@@ -128,7 +128,7 @@ export const ackInbox = async (
 export const nackInbox = async (
   { id }: InboxMessage,
   client: PoolClient,
-  { settings }: Pick<InboxServiceConfig, 'settings'>,
+  { settings }: Pick<InboxConfig, 'settings'>,
   attempts?: number,
 ): Promise<void> => {
   if (attempts) {
@@ -153,7 +153,7 @@ export const getMaxAttempts = (maxAttempts?: number): number =>
 const insertInbox = async (
   message: OutboxMessage,
   dbClient: PoolClient,
-  { settings }: Pick<InboxServiceConfig, 'settings'>,
+  { settings }: Pick<InboxConfig, 'settings'>,
   logger: TransactionalLogger,
 ) => {
   const {

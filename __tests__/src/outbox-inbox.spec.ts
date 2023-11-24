@@ -2,20 +2,20 @@
 import { resolve } from 'path';
 import { Client, ClientBase, Pool, PoolClient } from 'pg';
 import {
+  InMemoryLogEntry,
+  InboxMessage,
+  InboxMessageHandler,
+  OutboxMessage,
+  TransactionalLogger,
+  TransactionalOutboxInboxConfig,
   createFullConcurrencyController,
   createMutexConcurrencyController,
   executeTransaction,
   getInMemoryLogger,
-  InboxMessage,
-  InboxMessageHandler,
+  initializeInboxListener,
   initializeInboxMessageStorage,
-  initializeInboxService,
+  initializeOutboxListener,
   initializeOutboxMessageStorage,
-  initializeOutboxService,
-  InMemoryLogEntry,
-  OutboxMessage,
-  ServiceConfig,
-  TransactionalLogger,
 } from 'pg-transactional-outbox';
 import {
   DockerComposeEnvironment,
@@ -23,12 +23,12 @@ import {
 } from 'testcontainers';
 import { v4 as uuid } from 'uuid';
 import {
+  TestConfigs,
   getConfigs,
   isDebugMode,
   setupTestDb,
   sleep,
   sleepUntilTrue,
-  TestConfigs,
 } from './test-utils';
 
 if (isDebugMode()) {
@@ -40,7 +40,7 @@ const aggregateType = 'source_entity';
 const messageType = 'source_entity_created';
 const metadata = { routingKey: 'test.route', exchange: 'test-exchange' };
 const setupProducerAndConsumer = (
-  { inboxServiceConfig, outboxServiceConfig }: TestConfigs,
+  { inboxConfig, outboxConfig }: TestConfigs,
   inboxMessageHandlers: InboxMessageHandler[],
   inboxLogger: TransactionalLogger,
   outboxLogger: TransactionalLogger,
@@ -50,14 +50,14 @@ const setupProducerAndConsumer = (
   shutdown: () => Promise<void>,
 ] => {
   // Inbox
-  const [inSrvShutdown] = initializeInboxService(
-    inboxServiceConfig,
+  const [inSrvShutdown] = initializeInboxListener(
+    inboxConfig,
     inboxMessageHandlers,
     inboxLogger,
     createMutexConcurrencyController(),
   );
   const [storeInboxMessage, inStoreShutdown] = initializeInboxMessageStorage(
-    inboxServiceConfig,
+    inboxConfig,
     inboxLogger,
   );
 
@@ -75,8 +75,8 @@ const setupProducerAndConsumer = (
   };
 
   // Outbox
-  const [outSrvShutdown] = initializeOutboxService(
-    outboxServiceConfig,
+  const [outSrvShutdown] = initializeOutboxListener(
+    outboxConfig,
     messagePublisher,
     outboxLogger,
     createMutexConcurrencyController(),
@@ -84,7 +84,7 @@ const setupProducerAndConsumer = (
   const storeOutboxMessage = initializeOutboxMessageStorage(
     aggregateType,
     messageType,
-    outboxServiceConfig,
+    outboxConfig,
   );
 
   return [
@@ -154,7 +154,7 @@ describe('Outbox and inbox integration tests', () => {
     const resetReplication = async ({
       settings: { postgresSlot },
       pgReplicationConfig: { database },
-    }: ServiceConfig) => {
+    }: TransactionalOutboxInboxConfig) => {
       const rootInboxClient = new Client({
         host,
         port,
@@ -171,8 +171,8 @@ describe('Outbox and inbox integration tests', () => {
         rootInboxClient.end();
       }
     };
-    await resetReplication(configs.inboxServiceConfig);
-    await resetReplication(configs.outboxServiceConfig);
+    await resetReplication(configs.inboxConfig);
+    await resetReplication(configs.outboxConfig);
   });
 
   afterEach(async () => {
@@ -407,7 +407,7 @@ describe('Outbox and inbox integration tests', () => {
     );
   });
 
-  test('A single message is sent and received even with two outbox services', async () => {
+  test('A single message is sent and received even with two outbox listeners', async () => {
     // Arrange
     const entityId = uuid();
     const content = createContent(entityId);
@@ -416,10 +416,10 @@ describe('Outbox and inbox integration tests', () => {
     const storeOutboxMessage = initializeOutboxMessageStorage(
       aggregateType,
       messageType,
-      configs.outboxServiceConfig,
+      configs.outboxConfig,
     );
-    const [shutdown1] = initializeOutboxService(
-      configs.outboxServiceConfig,
+    const [shutdown1] = initializeOutboxListener(
+      configs.outboxConfig,
       async (msg) => {
         receivedFromOutbox1 = msg;
       },
@@ -427,8 +427,8 @@ describe('Outbox and inbox integration tests', () => {
       createMutexConcurrencyController(),
     );
     await sleep(500); // enough time for the first one to start up
-    const [shutdown2] = initializeOutboxService(
-      configs.outboxServiceConfig,
+    const [shutdown2] = initializeOutboxListener(
+      configs.outboxConfig,
       async (msg) => {
         receivedFromOutbox2 = msg;
       },
@@ -442,7 +442,7 @@ describe('Outbox and inbox integration tests', () => {
     // Assert
     await sleep(500);
     expect(receivedFromOutbox1).not.toBeNull();
-    // The second service does not start as only one reader per slot is allowed
+    // The second listener does not start as only one reader per slot is allowed
     expect(receivedFromOutbox2).toBeNull();
 
     cleanup = async () => {
@@ -470,9 +470,9 @@ describe('Outbox and inbox integration tests', () => {
     };
     const processedMessages: InboxMessage[] = [];
     const [storeInboxMessage, shutdownInboxStorage] =
-      initializeInboxMessageStorage(configs.inboxServiceConfig, inboxLogger);
-    const [shutdownInboxSrv] = initializeInboxService(
-      configs.inboxServiceConfig,
+      initializeInboxMessageStorage(configs.inboxConfig, inboxLogger);
+    const [shutdownInboxSrv] = initializeInboxListener(
+      configs.inboxConfig,
       [
         {
           aggregateType,
@@ -502,8 +502,8 @@ describe('Outbox and inbox integration tests', () => {
     // Check that the second message is not received now either
     await shutdownInboxSrv();
     let receivedMsg2: InboxMessage | null = null;
-    const [shutdownInboxSrv2] = initializeInboxService(
-      configs.inboxServiceConfig,
+    const [shutdownInboxSrv2] = initializeInboxListener(
+      configs.inboxConfig,
       [
         {
           aggregateType,
@@ -536,10 +536,10 @@ describe('Outbox and inbox integration tests', () => {
       createdAt: '2023-01-18T21:02:27.000Z',
     };
     const [storeInboxMessage, shutdownInboxStorage] =
-      initializeInboxMessageStorage(configs.inboxServiceConfig, inboxLogger);
+      initializeInboxMessageStorage(configs.inboxConfig, inboxLogger);
     let inboxHandlerCounter = 0;
-    const [shutdownInboxSrv] = initializeInboxService(
-      configs.inboxServiceConfig,
+    const [shutdownInboxSrv] = initializeInboxListener(
+      configs.inboxConfig,
       [
         {
           aggregateType,
@@ -565,7 +565,7 @@ describe('Outbox and inbox integration tests', () => {
     await sleep(1000);
     expect(inboxHandlerCounter).toBe(5);
     const inboxResult = await loginPool.query(
-      `SELECT attempts FROM ${configs.inboxServiceConfig.settings.dbSchema}.${configs.inboxServiceConfig.settings.dbTable} WHERE id = $1;`,
+      `SELECT attempts FROM ${configs.inboxConfig.settings.dbSchema}.${configs.inboxConfig.settings.dbTable} WHERE id = $1;`,
       [msg.id],
     );
     expect(inboxResult.rowCount).toBe(1);
@@ -638,14 +638,14 @@ describe('Outbox and inbox integration tests', () => {
 
     // Act
     const [storeInboxMessage, shutdownInboxStorage] =
-      initializeInboxMessageStorage(configs.inboxServiceConfig, inboxLogger);
+      initializeInboxMessageStorage(configs.inboxConfig, inboxLogger);
 
     await storeInboxMessage(msg1);
     await storeInboxMessage(msg2);
 
     const items: string[] = [];
-    const [shutdownInboxSrv] = initializeInboxService(
-      configs.inboxServiceConfig,
+    const [shutdownInboxSrv] = initializeInboxListener(
+      configs.inboxConfig,
       [
         {
           aggregateType,

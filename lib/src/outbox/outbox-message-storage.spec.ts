@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import inspector from 'inspector';
 import { Client, Pool } from 'pg';
-import { initializeOutboxMessageStorage } from './outbox';
-import { OutboxServiceConfig } from './outbox-service';
+import { OutboxConfig } from './outbox-listener';
+import { initializeOutboxMessageStorage } from './outbox-message-storage';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
@@ -11,7 +11,7 @@ if (isDebugMode()) {
   jest.setTimeout(7_000);
 }
 
-const config: OutboxServiceConfig = {
+const config: OutboxConfig = {
   pgReplicationConfig: {
     host: 'test_host',
     port: 5432,

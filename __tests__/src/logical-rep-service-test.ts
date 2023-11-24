@@ -20,7 +20,7 @@ import { sleep } from './test-utils';
  * Adjust the configuration settings to the ones of your database:
  */
 
-const inboxServiceConfig = {
+const inboxConfig = {
   pgReplicationConfig: {
     host: 'localhost',
     port: 15432,
@@ -36,7 +36,7 @@ const inboxServiceConfig = {
   },
 };
 
-const main = async (config: typeof inboxServiceConfig): Promise<void> => {
+const main = async (config: typeof inboxConfig): Promise<void> => {
   const plugin = new PgoutputPlugin({
     protoVersion: 1,
     publicationNames: [config.settings.postgresPub],
@@ -102,7 +102,7 @@ const main = async (config: typeof inboxServiceConfig): Promise<void> => {
   }
 };
 
-main(inboxServiceConfig).catch((err) => console.log(err));
+main(inboxConfig).catch((err) => console.log(err));
 
 // Exit the process if there is an unhandled promise error
 process.on('unhandledRejection', (err, promise) => {

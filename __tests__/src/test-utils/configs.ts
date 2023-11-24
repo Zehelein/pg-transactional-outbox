@@ -1,5 +1,5 @@
 import { ClientConfig } from 'pg';
-import { InboxServiceConfig, ServiceConfig } from 'pg-transactional-outbox';
+import { InboxConfig, OutboxConfig } from 'pg-transactional-outbox';
 
 // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
 export const getConfigs = (port: number) => {
@@ -10,7 +10,7 @@ export const getConfigs = (port: number) => {
     user: 'db_login_tests',
     password: 'db_login_tests_password',
   };
-  const inboxServiceConfig: InboxServiceConfig = {
+  const inboxConfig: InboxConfig = {
     pgConfig: loginConnection,
     pgReplicationConfig: {
       ...loginConnection,
@@ -27,7 +27,7 @@ export const getConfigs = (port: number) => {
     },
   };
 
-  const outboxServiceConfig: ServiceConfig = {
+  const outboxConfig: OutboxConfig = {
     pgReplicationConfig: {
       ...loginConnection,
       user: 'db_outbox_tests',
@@ -43,8 +43,8 @@ export const getConfigs = (port: number) => {
 
   return {
     loginConnection,
-    outboxServiceConfig,
-    inboxServiceConfig,
+    outboxConfig,
+    inboxConfig,
   };
 };
 

@@ -182,7 +182,7 @@ replicated.
 Once the replication slot is created, the primary server will begin streaming
 changes made to the specified table(s) to the replication client. These changes
 are sent in the form of "WAL records" (Write-Ahead Log records), which are the
-individual changes made to the data in the inbox/outbox tables.
+individual changes made to the data in the outbox/inbox tables.
 
 The publisher keeps track of the current position of the replication stream
 using the logical replication slot. A logical replication slot is a named data
@@ -329,7 +329,7 @@ SELECT pg_create_logical_replication_slot('pg_transactional_inbox_slot', 'pgoutp
 ## Implementing the transactional outbox producer
 
 The following code shows the producer side of the transactional outbox pattern.
-The two main functions are the `initializeOutboxService` to listen to the WAL
+The two main functions are the `initializeOutboxListener` to listen to the WAL
 messages when an outbox message was written to the outbox table. And the
 `initializeOutboxMessageStorage` generator function to store outgoing messages
 in the outbox table (for a specific aggregate type and message type).
@@ -341,9 +341,9 @@ import {
   createMutexConcurrencyController,
   getDefaultLogger,
   initializeOutboxMessageStorage,
-  initializeOutboxService,
+  initializeOutboxListener,
   OutboxMessage,
-  OutboxServiceConfig,
+  OutboxConfig,
 } from 'pg-transactional-outbox';
 
 (async () => {
@@ -355,7 +355,7 @@ import {
     process.send?.(message);
   };
 
-  const config: OutboxServiceConfig = {
+  const config: OutboxConfig = {
     pgReplicationConfig: {
       host: 'localhost',
       port: 5432,
@@ -372,10 +372,10 @@ import {
   };
   const concurrencyController = createMutexConcurrencyController();
 
-  // Initialize and start the outbox subscription. This service receives all the
+  // Initialize and start the outbox subscription. This listener receives all the
   // outbox table inserts from the WAL. It executes the messagePublisher function
   // with every received outbox message. It cares for the at least once delivery.
-  const [shutdown] = initializeOutboxService(
+  const [shutdown] = initializeOutboxListener(
     config,
     messagePublisher,
     logger,
@@ -435,8 +435,8 @@ transactional inbox pattern. The main functions are the
 `initializeInboxMessageStorage` function that is used by the actual message
 receiver like a RabbitMQ-based message handler to store the incoming message
 (which was based on an outbox message) in the inbox table. The other central
-function is `initializeInboxService`. It uses one database connection based on a
-user with the replication permission to receive notifications when a new inbox
+function is `initializeInboxListener`. It uses one database connection based on
+a user with the replication permission to receive notifications when a new inbox
 message was created. And a second database connection to open a transaction,
 load the inbox message from the database and lock it, execute the message
 handler queries/mutations, and finally mark the inbox message as processed in
@@ -448,9 +448,9 @@ import {
   createMutexConcurrencyController,
   getDefaultLogger,
   InboxMessage,
-  InboxServiceConfig,
+  InboxConfig,
   initializeInboxMessageStorage,
-  initializeInboxService,
+  initializeInboxListener,
   OutboxMessage,
 } from 'pg-transactional-outbox';
 
@@ -459,7 +459,7 @@ import {
   const logger = getDefaultLogger('outbox');
 
   // Configuration settings for the replication and inbox table configurations
-  const config: InboxServiceConfig = {
+  const config: InboxConfig = {
     // This configuration is used to start a transaction that locks and updates
     // the row in the inbox table that was found from the WAL log. This connection
     // will also be used in the message handler so every query and mutation is
@@ -503,7 +503,7 @@ import {
   const concurrencyController = createMutexConcurrencyController();
 
   // Initialize and start the inbox subscription
-  initializeInboxService(
+  initializeInboxListener(
     config,
     // This array holds a list of all message handlers for all the aggregate
     // and message types. More than one handler can be configured for the same
@@ -554,7 +554,7 @@ import {
 ## Testing
 
 The `__tests__` folder contains integration tests that test the functionality of
-the outbox and inbox service implementation. The tests are using the
+the outbox and inbox listener implementation. The tests are using the
 `testcontainers` library to start up a new docker PostgreSQL server.
 
 You can simply run the `test` script to execute the tests.
@@ -563,4 +563,4 @@ The script `logical-rep-service` starts a manual test of the used
 [LogicalReplicationService](https://github.com/kibae/pg-logical-replication)
 library. This can be used to see how the library acts on different outage
 scenarios like a lost database server or other issues. This script depends on
-the infrastructure that is crated with the `infra:up` script.
+the infrastructure that is created with the `infra:up` script.

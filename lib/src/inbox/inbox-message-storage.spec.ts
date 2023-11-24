@@ -3,13 +3,13 @@ import inspector from 'inspector';
 import { Client, Pool, PoolClient } from 'pg';
 import { getDisabledLogger } from '../common/logger';
 import { InboxMessage, OutboxMessage } from '../common/message';
+import { InboxConfig } from './inbox-listener';
 import {
   ackInbox,
   initializeInboxMessageStorage,
   nackInbox,
   verifyInbox,
-} from './inbox';
-import { InboxServiceConfig } from './inbox-service';
+} from './inbox-message-storage';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
@@ -34,7 +34,7 @@ const inboxMessage: InboxMessage = {
   processedAt: null,
 };
 
-const config: InboxServiceConfig = {
+const config: InboxConfig = {
   pgConfig: {
     host: 'test_host',
     port: 5432,

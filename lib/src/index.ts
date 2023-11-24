@@ -1,10 +1,10 @@
-export { ensureError, ErrorType, MessageError } from './common/error';
+export { ErrorType, MessageError, ensureError } from './common/error';
 export {
+  InMemoryLogEntry,
+  TransactionalLogger,
   getDefaultLogger,
   getDisabledLogger,
   getInMemoryLogger,
-  InMemoryLogEntry,
-  TransactionalLogger,
 } from './common/logger';
 export { InboxMessage, OutboxMessage } from './common/message';
 export { executeTransaction } from './common/utils';
@@ -16,18 +16,24 @@ export {
   ConcurrencyStrategy,
   createStrategyConcurrencyController,
 } from './concurrency-controller/create-strategy-concurrency-controller';
-export { getMaxAttempts, initializeInboxMessageStorage } from './inbox/inbox';
 export {
+  InboxConfig,
   InboxMessageHandler,
-  InboxServiceConfig,
-  initializeInboxService,
-} from './inbox/inbox-service';
+  initializeInboxListener,
+} from './inbox/inbox-listener';
+export {
+  getMaxAttempts,
+  initializeInboxMessageStorage,
+} from './inbox/inbox-message-storage';
+export {
+  OutboxConfig,
+  initializeOutboxListener,
+} from './outbox/outbox-listener';
 export {
   initializeGeneralOutboxMessageStorage,
   initializeOutboxMessageStorage,
-} from './outbox/outbox';
+} from './outbox/outbox-message-storage';
 export {
-  initializeOutboxService,
-  OutboxServiceConfig,
-} from './outbox/outbox-service';
-export { ServiceConfig, ServiceConfigSettings } from './replication/config';
+  ReplicationListenerConfig,
+  TransactionalOutboxInboxConfig,
+} from './replication/config';

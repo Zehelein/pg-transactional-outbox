@@ -1,9 +1,9 @@
 import { Pool, PoolClient } from 'pg';
 import {
+  OutboxConfig,
+  TransactionalLogger,
   executeTransaction,
   initializeOutboxMessageStorage,
-  ServiceConfig,
-  TransactionalLogger,
 } from 'pg-transactional-outbox';
 import { Config } from './config';
 
@@ -21,7 +21,7 @@ export const MovieCreatedMessageType = 'movie_created';
  */
 export const addMovies = async (
   config: Config,
-  outboxConfig: ServiceConfig,
+  outboxConfig: OutboxConfig,
   logger: TransactionalLogger,
 ): Promise<void> => {
   const pool = new Pool({

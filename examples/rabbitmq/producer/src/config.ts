@@ -1,4 +1,4 @@
-import { ServiceConfig } from 'pg-transactional-outbox';
+import { OutboxConfig } from 'pg-transactional-outbox';
 
 /**
  * Parses the environment or provided settings and ensures all the fields are
@@ -81,7 +81,7 @@ export const getConfig = (env: Env = process.env) => {
 /** The configuration object type with parsed environment variables. */
 export type Config = ReturnType<typeof getConfig>;
 
-export const getOutboxServiceConfig = (config: Config): ServiceConfig => {
+export const getOutboxConfig = (config: Config): OutboxConfig => {
   return {
     pgReplicationConfig: {
       host: config.postgresHost,

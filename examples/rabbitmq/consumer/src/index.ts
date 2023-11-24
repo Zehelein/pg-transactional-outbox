@@ -4,16 +4,16 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 // eslint-disable-next-line prettier/prettier
 import {
   createMutexConcurrencyController,
+  initializeInboxListener,
   initializeInboxMessageStorage,
-  initializeInboxService,
 } from 'pg-transactional-outbox';
-import { getConfig, getInboxServiceConfig } from './config';
+import { getConfig, getInboxConfig } from './config';
 import { getLogger } from './logger';
 import { initializeRabbitMqHandler } from './rabbitmq-handler';
 import {
-  getStorePublishedMovie,
   MovieAggregateType,
   MovieCreatedMessageType,
+  getStorePublishedMovie,
 } from './receive-movie';
 
 const logger = getLogger();
@@ -27,7 +27,7 @@ process.on('unhandledRejection', (err, promise) => {
 /** The main entry point of the message producer. */
 (async () => {
   const config = getConfig();
-  const inboxConfig = getInboxServiceConfig(config);
+  const inboxConfig = getInboxConfig(config);
 
   // Initialize the inbox message storage to store incoming messages in the inbox
   const [storeInboxMessage, shutdownInStore] = initializeInboxMessageStorage(
@@ -45,7 +45,7 @@ process.on('unhandledRejection', (err, promise) => {
 
   // Initialize and start the inbox subscription
   const storePublishedMovie = getStorePublishedMovie(logger);
-  const [shutdownInSrv] = initializeInboxService(
+  const [shutdownInSrv] = initializeInboxListener(
     inboxConfig,
     [
       {

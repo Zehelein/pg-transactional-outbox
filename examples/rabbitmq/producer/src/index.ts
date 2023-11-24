@@ -4,10 +4,10 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 // eslint-disable-next-line prettier/prettier
 import {
   createMutexConcurrencyController,
-  initializeOutboxService,
+  initializeOutboxListener,
 } from 'pg-transactional-outbox';
 import { addMovies } from './add-movies';
-import { getConfig, getOutboxServiceConfig } from './config';
+import { getConfig, getOutboxConfig } from './config';
 import { getLogger } from './logger';
 import { initializeRabbitMqPublisher } from './rabbitmq-publisher';
 
@@ -20,7 +20,7 @@ process.on('unhandledRejection', (err, promise) => {
 /** The main entry point of the message producer. */
 (async () => {
   const config = getConfig();
-  const outboxConfig = getOutboxServiceConfig(config);
+  const outboxConfig = getOutboxConfig(config);
   const logger = getLogger();
 
   // Initialize the actual RabbitMQ message publisher
@@ -30,7 +30,7 @@ process.on('unhandledRejection', (err, promise) => {
   );
 
   // Initialize and start the outbox subscription
-  const [shutdownOutSrv] = initializeOutboxService(
+  const [shutdownOutSrv] = initializeOutboxListener(
     outboxConfig,
     rmqPublisher,
     logger,

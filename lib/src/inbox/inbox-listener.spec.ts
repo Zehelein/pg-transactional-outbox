@@ -6,8 +6,8 @@ import { Pgoutput } from 'pg-logical-replication';
 import { createMutexConcurrencyController } from '../../dist';
 import { getDisabledLogger } from '../common/logger';
 import { sleep } from '../common/utils';
-import * as inboxSpy from './inbox';
-import { InboxServiceConfig, initializeInboxService } from './inbox-service';
+import { InboxConfig, initializeInboxListener } from './inbox-listener';
+import * as inboxSpy from './inbox-message-storage';
 
 type MessageIdType = 'not_processed_id' | 'processed_id' | 'attempts_exceeded';
 
@@ -172,7 +172,7 @@ const inboxMessageByFlag = (buffer: Buffer) => {
   }
 };
 
-const config: InboxServiceConfig = {
+const config: InboxConfig = {
   pgConfig: {
     host: 'test_host',
     port: 5432,
@@ -266,7 +266,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       attempts: 2,
       processedAt: null,
     };
-    const [cleanup] = initializeInboxService(
+    const [cleanup] = initializeInboxListener(
       config,
       [
         {
@@ -310,7 +310,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
 
     // Act + Assert
     expect(() =>
-      initializeInboxService(
+      initializeInboxListener(
         config,
         [
           {
@@ -336,7 +336,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     // Arrange
     const messageHandler = jest.fn(() => Promise.resolve());
     const unusedMessageHandler = jest.fn(() => Promise.resolve());
-    const [cleanup] = initializeInboxService(
+    const [cleanup] = initializeInboxListener(
       config,
       [
         {
@@ -374,7 +374,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     // Arrange
     const messageHandler = jest.fn(() => Promise.resolve());
     const unusedMessageHandler = jest.fn(() => Promise.resolve());
-    const [cleanup] = initializeInboxService(
+    const [cleanup] = initializeInboxListener(
       config,
       [
         {
@@ -424,7 +424,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       attempts: 2,
       processedAt: null,
     };
-    const [cleanup] = initializeInboxService(
+    const [cleanup] = initializeInboxListener(
       config,
       [
         {
@@ -486,7 +486,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       attempts: 4,
       processedAt: null,
     };
-    const [cleanup] = initializeInboxService(
+    const [cleanup] = initializeInboxListener(
       config,
       [
         {

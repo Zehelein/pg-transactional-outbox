@@ -7,7 +7,7 @@ import { EventEmitter } from 'stream';
 import { getDisabledLogger } from '../../dist';
 import { sleep } from '../common/utils';
 import { createMutexConcurrencyController } from '../concurrency-controller/create-mutex-concurrency-controller';
-import { initializeOutboxService, OutboxServiceConfig } from './outbox-service';
+import { OutboxConfig, initializeOutboxListener } from './outbox-listener';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
@@ -84,7 +84,7 @@ const outboxMessage = {
   createdAt: '2023-01-18T21:02:27.000Z',
 };
 
-const config: OutboxServiceConfig = {
+const config: OutboxConfig = {
   pgReplicationConfig: {
     host: 'test_host',
     port: 5432,
@@ -120,7 +120,7 @@ const relation: Pgoutput.MessageRelation = {
   keyColumns: ['id'],
 };
 
-describe('Outbox service unit tests - initializeOutboxService', () => {
+describe('Outbox listener unit tests - initializeOutboxListener', () => {
   beforeEach(() => {
     const connection = new EventEmitter();
     (connection as any).sendCopyFromChunk = jest.fn();
@@ -142,7 +142,7 @@ describe('Outbox service unit tests - initializeOutboxService', () => {
   it('should call the messageHandler and acknowledge the WAL message when no errors are thrown', async () => {
     // Arrange
     const messageHandler = jest.fn(() => Promise.resolve());
-    const [shutdown] = initializeOutboxService(
+    const [shutdown] = initializeOutboxListener(
       config,
       messageHandler,
       getDisabledLogger(),
@@ -169,7 +169,7 @@ describe('Outbox service unit tests - initializeOutboxService', () => {
     const messageHandler = jest.fn(async () => {
       throw new Error('Unit Test');
     });
-    const [shutdown] = initializeOutboxService(
+    const [shutdown] = initializeOutboxListener(
       config,
       messageHandler,
       getDisabledLogger(),
@@ -194,7 +194,7 @@ describe('Outbox service unit tests - initializeOutboxService', () => {
     const messageHandler = jest.fn(async () => {
       throw new Error('Unit Test');
     });
-    const [shutdown] = initializeOutboxService(
+    const [shutdown] = initializeOutboxListener(
       config,
       messageHandler,
       getDisabledLogger(),
