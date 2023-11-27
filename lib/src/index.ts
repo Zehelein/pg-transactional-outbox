@@ -7,15 +7,15 @@ export {
   getInMemoryLogger,
 } from './common/logger';
 export { InboxMessage, OutboxMessage } from './common/message';
-export { executeTransaction } from './common/utils';
+export { IsolationLevel, executeTransaction } from './common/utils';
 export { ConcurrencyController } from './concurrency-controller/concurrency-controller';
 export { createDiscriminatingMutexConcurrencyController } from './concurrency-controller/create-discriminating-mutex-concurrency-controller';
 export { createFullConcurrencyController } from './concurrency-controller/create-full-concurrency-controller';
-export { createMutexConcurrencyController } from './concurrency-controller/create-mutex-concurrency-controller';
 export {
-  ConcurrencyStrategy,
-  createStrategyConcurrencyController,
-} from './concurrency-controller/create-strategy-concurrency-controller';
+  MultiConcurrencyType,
+  createMultiConcurrencyController,
+} from './concurrency-controller/create-multi-concurrency-controller';
+export { createMutexConcurrencyController } from './concurrency-controller/create-mutex-concurrency-controller';
 export {
   InboxConfig,
   InboxMessageHandler,

@@ -9,7 +9,6 @@ import {
   TransactionalLogger,
   TransactionalOutboxInboxConfig,
   createFullConcurrencyController,
-  createMutexConcurrencyController,
   executeTransaction,
   getInMemoryLogger,
   initializeInboxListener,
@@ -54,7 +53,6 @@ const setupProducerAndConsumer = (
     inboxConfig,
     inboxMessageHandlers,
     inboxLogger,
-    createMutexConcurrencyController(),
   );
   const [storeInboxMessage, inStoreShutdown] = initializeInboxMessageStorage(
     inboxConfig,
@@ -79,7 +77,6 @@ const setupProducerAndConsumer = (
     outboxConfig,
     messagePublisher,
     outboxLogger,
-    createMutexConcurrencyController(),
   );
   const storeOutboxMessage = initializeOutboxMessageStorage(
     aggregateType,
@@ -424,7 +421,6 @@ describe('Outbox and inbox integration tests', () => {
         receivedFromOutbox1 = msg;
       },
       outboxLogger,
-      createMutexConcurrencyController(),
     );
     await sleep(500); // enough time for the first one to start up
     const [shutdown2] = initializeOutboxListener(
@@ -433,7 +429,6 @@ describe('Outbox and inbox integration tests', () => {
         receivedFromOutbox2 = msg;
       },
       outboxLogger,
-      createMutexConcurrencyController(),
     );
 
     // Act
@@ -483,7 +478,6 @@ describe('Outbox and inbox integration tests', () => {
         },
       ],
       inboxLogger,
-      createMutexConcurrencyController(),
     );
     cleanup = async () => {
       await shutdownInboxStorage();
@@ -514,7 +508,6 @@ describe('Outbox and inbox integration tests', () => {
         },
       ],
       inboxLogger,
-      createMutexConcurrencyController(),
     );
     cleanup = async () => {
       await shutdownInboxStorage();
@@ -551,7 +544,6 @@ describe('Outbox and inbox integration tests', () => {
         },
       ],
       inboxLogger,
-      createMutexConcurrencyController(),
     );
     cleanup = async () => {
       await shutdownInboxStorage();
@@ -660,7 +652,9 @@ describe('Outbox and inbox integration tests', () => {
         },
       ],
       inboxLogger,
-      createFullConcurrencyController(),
+      {
+        concurrencyStrategy: createFullConcurrencyController(),
+      },
     );
     cleanup = async () => {
       await shutdownInboxStorage();

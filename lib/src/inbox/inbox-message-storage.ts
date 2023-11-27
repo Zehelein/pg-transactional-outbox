@@ -2,7 +2,7 @@ import { Pool, PoolClient } from 'pg';
 import { MessageError, ensureError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { InboxMessage, OutboxMessage } from '../common/message';
-import { executeTransaction } from '../common/utils';
+import { IsolationLevel, executeTransaction } from '../common/utils';
 import { InboxConfig } from './inbox-listener';
 
 /**
@@ -36,6 +36,7 @@ export const initializeInboxMessageStorage = (
           async (client) => {
             await insertInbox(message, client, config, logger);
           },
+          IsolationLevel.ReadCommitted,
           logger,
         );
       } catch (err) {

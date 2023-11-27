@@ -338,12 +338,12 @@ in the outbox table (for a specific aggregate type and message type).
 import process from 'node:process';
 import { Client } from 'pg';
 import {
+  OutboxConfig,
+  OutboxMessage,
   createMutexConcurrencyController,
   getDefaultLogger,
-  initializeOutboxMessageStorage,
   initializeOutboxListener,
-  OutboxMessage,
-  OutboxConfig,
+  initializeOutboxMessageStorage,
 } from 'pg-transactional-outbox';
 
 (async () => {
@@ -370,7 +370,6 @@ import {
       postgresSlot: 'pg_transactional_outbox_slot',
     },
   };
-  const concurrencyController = createMutexConcurrencyController();
 
   // Initialize and start the outbox subscription. This listener receives all the
   // outbox table inserts from the WAL. It executes the messagePublisher function
@@ -379,7 +378,11 @@ import {
     config,
     messagePublisher,
     logger,
-    concurrencyController,
+    {
+      concurrencyStrategy: createMutexConcurrencyController(),
+      messageProcessingTimeoutStrategy: (message: OutboxMessage) =>
+        message.messageType === 'ABC' ? 10_000 : 2_000,
+    },
   );
 
   // Initialize the outbox storage function. This function encapsulates the
@@ -425,7 +428,6 @@ import {
   await shutdown();
 })();
 
-
 ```
 
 ## Implementing the transactional inbox consumer
@@ -445,13 +447,14 @@ the database.
 ```TypeScript
 import { ClientBase } from 'pg';
 import {
-  createMutexConcurrencyController,
-  getDefaultLogger,
-  InboxMessage,
   InboxConfig,
-  initializeInboxMessageStorage,
-  initializeInboxListener,
+  InboxMessage,
+  IsolationLevel,
   OutboxMessage,
+  createMultiConcurrencyController,
+  getDefaultLogger,
+  initializeInboxListener,
+  initializeInboxMessageStorage,
 } from 'pg-transactional-outbox';
 
 /** The main entry point of the message producer. */
@@ -500,7 +503,20 @@ import {
     await storeInboxMessage(message);
   });
 
-  const concurrencyController = createMutexConcurrencyController();
+  // Define an optional concurrency strategy to handle messages with the message
+  // type "ABC" in parallel while handling other messages sequentially per
+  // aggregate type and message type combination.
+  const concurrencyStrategy = createMultiConcurrencyController(
+    (message) => {
+      switch (message.messageType) {
+        case 'ABC':
+          return 'full-concurrency';
+        default:
+          return 'discriminating-mutex';
+      }
+    },
+    (message) => `${message.aggregateType}.${message.messageType}`,
+  );
 
   // Initialize and start the inbox subscription
   initializeInboxListener(
@@ -536,11 +552,18 @@ import {
       },
     ],
     logger,
-    concurrencyController,
+    {
+      concurrencyStrategy,
+      messageProcessingTimeoutStrategy: (message: OutboxMessage) =>
+        message.messageType === 'ABC' ? 10_000 : 2_000,
+      messageProcessingTransactionLevel: (message: OutboxMessage) =>
+        message.messageType === 'ABC'
+          ? IsolationLevel.ReadCommitted
+          : IsolationLevel.RepeatableRead,
+    },
   );
   await shutdownInboxStorage();
 })();
-
 
 ```
 

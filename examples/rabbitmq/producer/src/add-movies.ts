@@ -1,5 +1,6 @@
 import { Pool, PoolClient } from 'pg';
 import {
+  IsolationLevel,
   OutboxConfig,
   TransactionalLogger,
   executeTransaction,
@@ -51,6 +52,7 @@ export const addMovies = async (
           await storeOutboxMessage(payload.id, payload, client);
           return payload;
         },
+        IsolationLevel.ReadCommitted,
         logger,
       );
     } catch (error) {

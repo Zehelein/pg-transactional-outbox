@@ -7,7 +7,6 @@ import { Pgoutput } from 'pg-logical-replication';
 import { getDisabledLogger } from '../common/logger';
 import { OutboxMessage } from '../common/message';
 import { sleep } from '../common/utils';
-import { createMutexConcurrencyController } from '../concurrency-controller/create-mutex-concurrency-controller';
 import {
   createLogicalReplicationListener,
   __only_for_unit_tests__ as tests,
@@ -389,7 +388,7 @@ describe('Local replication service unit tests', () => {
       } as unknown as ReplicationClient;
     });
 
-    it('should call messageHandler and acknowledge the message when no errors are thrown', async () => {
+    it('should call the messageHandler and acknowledge the message when no errors are thrown', async () => {
       // Arrange
       const config = {
         pgReplicationConfig: {},
@@ -399,8 +398,8 @@ describe('Local replication service unit tests', () => {
         config,
         messageHandler,
         errorHandler,
-        createMutexConcurrencyController(),
         getDisabledLogger(),
+        undefined,
         mapAdditionalRows,
       );
       await continueEventLoop();
@@ -419,7 +418,7 @@ describe('Local replication service unit tests', () => {
       expect(client.end).toHaveBeenCalledTimes(1);
     });
 
-    it('should call messageHandler but not acknowledge the message when a transient error is thrown', async () => {
+    it('should call the messageHandler but not acknowledge the message when a transient error is thrown', async () => {
       // Arrange
       const config = {
         pgReplicationConfig: {},
@@ -438,8 +437,8 @@ describe('Local replication service unit tests', () => {
           errorHandlerCalled = true;
           return 'transient_error';
         },
-        createMutexConcurrencyController(),
         getDisabledLogger(),
+        undefined,
         mapAdditionalRows,
       );
       await continueEventLoop();
@@ -458,7 +457,7 @@ describe('Local replication service unit tests', () => {
       expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
     });
 
-    it('should call messageHandler and acknowledge the message when a permanent error is thrown', async () => {
+    it('should call the messageHandler and acknowledge the message when a permanent error is thrown', async () => {
       // Arrange
       const config = {
         pgReplicationConfig: {},
@@ -477,8 +476,8 @@ describe('Local replication service unit tests', () => {
           errorHandlerCalled = true;
           return 'permanent_error';
         },
-        createMutexConcurrencyController(),
         getDisabledLogger(),
+        undefined,
         mapAdditionalRows,
       );
       await continueEventLoop();
@@ -507,8 +506,8 @@ describe('Local replication service unit tests', () => {
         config,
         messageHandler,
         errorHandler,
-        createMutexConcurrencyController(),
         getDisabledLogger(),
+        undefined,
         mapAdditionalRows,
       );
       await continueEventLoop();
@@ -540,8 +539,8 @@ describe('Local replication service unit tests', () => {
         config,
         messageHandler,
         errorHandler,
-        createMutexConcurrencyController(),
         getDisabledLogger(),
+        undefined,
         mapAdditionalRows,
       );
       await continueEventLoop();
@@ -579,8 +578,8 @@ describe('Local replication service unit tests', () => {
         config,
         delayedMessageHandler,
         errorHandler,
-        createMutexConcurrencyController(),
         getDisabledLogger(),
+        undefined,
         mapAdditionalRows,
       );
       await continueEventLoop();
@@ -599,6 +598,120 @@ describe('Local replication service unit tests', () => {
       expect(count).toBe(10);
       expect(errorHandler).not.toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).toHaveBeenCalledTimes(10);
+      expect(client.connect).toHaveBeenCalledTimes(1);
+      await cleanup();
+      expect(client.end).toHaveBeenCalledTimes(1);
+    });
+
+    it('should call the messageHandler and then the errorHandler when the configured timeout is exceeded', async () => {
+      // Arrange
+      const config = {
+        pgReplicationConfig: {},
+        settings: { ...settings, messageProcessingTimeout: 100 },
+      };
+      let messageHandlerCalled = false;
+      let errorHandlerCalled = false;
+      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+        config,
+        async () => {
+          messageHandlerCalled = true;
+          await sleep(200);
+        },
+        async (msg, error) => {
+          expect(msg).toStrictEqual(message);
+          expect(error.message).toMatch(
+            new RegExp(`Could not process the message with ID ${message.id}.*`),
+          );
+          errorHandlerCalled = true;
+          return 'transient_error';
+        },
+        getDisabledLogger(),
+        undefined,
+        mapAdditionalRows,
+      );
+      await continueEventLoop();
+
+      // Act
+      sendReplicationChunk(getReplicationChunk(0));
+      await sleep(250);
+
+      // Assert
+      expect(messageHandlerCalled).toBe(true);
+      expect(errorHandlerCalled).toBe(true);
+      expect(mapAdditionalRows).toHaveBeenCalled();
+      expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
+      await cleanup();
+    });
+
+    it('should call the messageHandler and then the errorHandler when the timeout strategy value is exceeded', async () => {
+      // Arrange
+      const config = {
+        pgReplicationConfig: {},
+        settings: { ...settings, messageProcessingTimeout: 2000 },
+      };
+      let messageHandlerCalled = false;
+      let errorHandlerCalled = false;
+      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+        config,
+        async () => {
+          messageHandlerCalled = true;
+          await sleep(200);
+        },
+        async (msg, error) => {
+          expect(msg).toStrictEqual(message);
+          expect(error.message).toMatch(
+            new RegExp(`Could not process the message with ID ${message.id}.*`),
+          );
+          errorHandlerCalled = true;
+          return 'transient_error';
+        },
+        getDisabledLogger(),
+        {
+          messageProcessingTimeoutStrategy: () => 100,
+        },
+        mapAdditionalRows,
+      );
+      await continueEventLoop();
+
+      // Act
+      sendReplicationChunk(getReplicationChunk(0));
+      await sleep(250);
+
+      // Assert
+      expect(messageHandlerCalled).toBe(true);
+      expect(errorHandlerCalled).toBe(true);
+      expect(mapAdditionalRows).toHaveBeenCalled();
+      expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
+      await cleanup();
+    });
+
+    it('should call the messageHandler and acknowledge the message when the message does not run into a timeout', async () => {
+      // Arrange
+      const config = {
+        pgReplicationConfig: {},
+        settings: { ...settings, messageProcessingTimeout: 200 },
+      };
+      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+        config,
+        messageHandler,
+        errorHandler,
+        getDisabledLogger(),
+        {
+          messageProcessingTimeoutStrategy: () => 200,
+        },
+        mapAdditionalRows,
+      );
+      await continueEventLoop();
+
+      // Act
+      sendReplicationChunk(getReplicationChunk(0));
+      await continueEventLoop();
+
+      // Assert
+      expect(messageHandler).toHaveBeenCalledWith(message);
+      expect(errorHandler).not.toHaveBeenCalled();
+      expect(mapAdditionalRows).toHaveBeenCalled();
+      expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
       expect(client.connect).toHaveBeenCalledTimes(1);
       await cleanup();
       expect(client.end).toHaveBeenCalledTimes(1);

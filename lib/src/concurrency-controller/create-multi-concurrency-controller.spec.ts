@@ -1,7 +1,7 @@
 import { OutboxMessage } from '../../dist';
 import { sleep } from '../common/utils';
 import { ConcurrencyController } from './concurrency-controller';
-import { createStrategyConcurrencyController } from './create-strategy-concurrency-controller';
+import { createMultiConcurrencyController } from './create-multi-concurrency-controller';
 
 const protectedAsyncFunction = async (
   controller: ConcurrencyController,
@@ -33,10 +33,10 @@ interface OrderMessage {
   id: number;
 }
 
-describe('createStrategyConcurrencyController', () => {
-  it('Executes tasks in parallel for the full concurrency strategy', async () => {
+describe('createMultiConcurrencyController', () => {
+  it('Executes tasks in parallel when the full concurrency is selected', async () => {
     // Arrange
-    const controller = createStrategyConcurrencyController(
+    const controller = createMultiConcurrencyController(
       () => 'full-concurrency',
     );
     const task = async () => {
@@ -56,9 +56,9 @@ describe('createStrategyConcurrencyController', () => {
     expect(diff).toBeLessThan(100);
   });
 
-  it('Executes tasks in sequential order within a context but the contexts in parallel for the discriminating mutex strategy', async () => {
+  it('Executes tasks in sequential order within a context but the contexts in parallel when the discriminating mutex is selected', async () => {
     // Arrange
-    const controller = createStrategyConcurrencyController(
+    const controller = createMultiConcurrencyController(
       () => 'discriminating-mutex',
       (message) => message.messageType,
     );
@@ -108,9 +108,9 @@ describe('createStrategyConcurrencyController', () => {
     expect(diff).toBeLessThan(80);
   });
 
-  it('calls and finishes tasks in the correct order for the mutex strategy', async () => {
+  it('calls and finishes tasks in the correct order when the mutex is selected', async () => {
     // Arrange
-    const controller = createStrategyConcurrencyController(() => 'mutex');
+    const controller = createMultiConcurrencyController(() => 'mutex');
     const order: number[] = [];
     const firstTask = async () => {
       await sleep(30);
@@ -141,9 +141,9 @@ describe('createStrategyConcurrencyController', () => {
     expect(new Date().getTime() - start).toBeGreaterThanOrEqual(40);
   });
 
-  it('Executes tasks in correct order when different concurrency strategies are combined', async () => {
+  it('Executes tasks in correct order when different concurrency types are combined', async () => {
     // Arrange
-    const controller = createStrategyConcurrencyController(
+    const controller = createMultiConcurrencyController(
       (message) => {
         switch (message.messageType) {
           case 'A':

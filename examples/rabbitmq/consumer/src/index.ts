@@ -3,6 +3,7 @@ import path from 'path';
 dotenv.config({ path: path.join(__dirname, '../.env') });
 // eslint-disable-next-line prettier/prettier
 import {
+  IsolationLevel,
   createMutexConcurrencyController,
   initializeInboxListener,
   initializeInboxMessageStorage,
@@ -55,7 +56,11 @@ process.on('unhandledRejection', (err, promise) => {
       },
     ],
     logger,
-    createMutexConcurrencyController(),
+    {
+      concurrencyStrategy: createMutexConcurrencyController(),
+      messageProcessingTimeoutStrategy: () => 2000,
+      messageProcessingTransactionLevel: () => IsolationLevel.Serializable,
+    },
   );
 
   // Close all connections

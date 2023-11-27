@@ -5,7 +5,6 @@ import {
   InboxMessage,
   OutboxMessage,
   TransactionalLogger,
-  createMutexConcurrencyController,
   executeTransaction,
   getDefaultLogger,
   getDisabledLogger,
@@ -163,7 +162,6 @@ describe('Outbox and inbox resilience integration tests', () => {
         sentMessages.push(msg);
       },
       logger,
-      createMutexConcurrencyController(),
     );
     cleanup = shutdown;
 
@@ -242,7 +240,6 @@ describe('Outbox and inbox resilience integration tests', () => {
         },
       ],
       logger,
-      createMutexConcurrencyController(),
     );
     cleanup = async () => {
       await shutdownInboxStorage();

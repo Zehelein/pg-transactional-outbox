@@ -4,20 +4,21 @@ import { createDiscriminatingMutexConcurrencyController } from './create-discrim
 import { createFullConcurrencyController } from './create-full-concurrency-controller';
 import { createMutexConcurrencyController } from './create-mutex-concurrency-controller';
 
-export type ConcurrencyStrategy =
+export type MultiConcurrencyType =
   | 'mutex'
   | 'full-concurrency'
   | 'discriminating-mutex';
 
 /**
- * Use different mutex controllers depending on the strategy. If a discriminating
- * mutex should be used the discriminator function must be supplied as well.
- * @param strategy Implements the logic which concurrency controller should be used e.g. based on the aggregate and message type
+ * Use different mutex controllers depending on the desired concurrency level
+ * for different messages. If a discriminating mutex should be used, the
+ * discriminator function must be supplied as well.
+ * @param getConcurrencyType Implements the logic which concurrency controller should be used e.g. based on the aggregate and message type
  * @param discriminator The discriminator to find or create a mutex for when using the discriminating mutex.
  * @returns The controller to acquire and release the mutex for a specific discriminator
  */
-export const createStrategyConcurrencyController = (
-  strategy: (message: OutboxMessage) => ConcurrencyStrategy,
+export const createMultiConcurrencyController = (
+  getConcurrencyType: (message: OutboxMessage) => MultiConcurrencyType,
   discriminator?: (message: OutboxMessage) => string,
 ): ConcurrencyController => {
   const fullConcurrencyController = createFullConcurrencyController();
@@ -28,7 +29,7 @@ export const createStrategyConcurrencyController = (
   return {
     /** Acquire a lock (if any) and return a function to release it. */
     acquire: (message: OutboxMessage): Promise<() => void> => {
-      switch (strategy(message)) {
+      switch (getConcurrencyType(message)) {
         case 'full-concurrency':
           return fullConcurrencyController.acquire(message);
         case 'mutex':

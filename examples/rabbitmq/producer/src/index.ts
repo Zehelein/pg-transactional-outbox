@@ -34,7 +34,10 @@ process.on('unhandledRejection', (err, promise) => {
     outboxConfig,
     rmqPublisher,
     logger,
-    createMutexConcurrencyController(),
+    {
+      concurrencyStrategy: createMutexConcurrencyController(),
+      messageProcessingTimeoutStrategy: () => 1000,
+    },
   );
 
   // Add movies and produce outbox messages on a timer

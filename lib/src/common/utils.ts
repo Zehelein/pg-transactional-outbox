@@ -37,9 +37,22 @@ export const awaitWithTimeout = <T>(
 };
 
 /**
+ * PostgreSQL available isolation levels. The isolation level "Read uncommitted"
+ * is the same as "Read committed" in PostgreSQL. And the readonly variants are
+ * not usable as the inbox message must be marked as processed or the "attempts"
+ * counter is updated for the message.
+ */
+export enum IsolationLevel {
+  Serializable = 'SERIALIZABLE',
+  RepeatableRead = 'REPEATABLE READ',
+  ReadCommitted = 'READ COMMITTED',
+}
+
+/**
  * Open a transaction and execute the callback as part of the transaction.
  * @param pool The PostgreSQL database pool
  * @param callback The callback to execute DB commands with.
+ * @param isolationLevel The database transaction isolation level. Falls back to the default PostgreSQL transaction level if not provided.
  * @param logger A logger instance for logging trace up to error logs on DB based client errors
  * @returns The result of the callback (if any).
  * @throws Any error from the database or the callback.
@@ -47,12 +60,20 @@ export const awaitWithTimeout = <T>(
 export const executeTransaction = async <T>(
   pool: Pool,
   callback: (client: PoolClient) => Promise<T>,
+  isolationLevel?: IsolationLevel,
   logger?: TransactionalLogger,
 ): Promise<T> => {
   let client: PoolClient | undefined = undefined;
+  const isolation = Object.values(IsolationLevel).includes(
+    isolationLevel as IsolationLevel,
+  )
+    ? isolationLevel
+    : undefined;
   try {
     client = await getClient(pool, logger);
-    await client.query('BEGIN');
+    await client.query(
+      isolation ? `START TRANSACTION ISOLATION LEVEL ${isolation}` : 'BEGIN',
+    );
     const result = await callback(client);
     await client.query('COMMIT');
     client.release();

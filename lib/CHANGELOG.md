@@ -15,9 +15,14 @@ this file.
 
 ### Added
 
-- BREAKING CHANGE: to manage the concurrency of message processing on a granular
-  level, a concurrency manager is now required for the outbox and inbox
-  listener. There are pre-build ones:
+- Added an optional `strategies` object to the inbox and outbox listeners. It
+  allows you to optionally define fine granular strategies on how to define
+  specific logic around handling inbox and outbox messages.
+- To manage the concurrency of message processing on a granular level, a
+  concurrency manager can now be provided as part of the strategies for the
+  outbox and inbox listener. The default will use a mutex to guarantee
+  sequential message processing. There are the following pre-build ones but you
+  can also write your own (e.g. using a semaphore):
   - `createMutexConcurrencyController` - this controller guarantees sequential
     message processing.
   - `createFullConcurrencyController` - this controller allows the parallel
@@ -25,9 +30,18 @@ this file.
   - `createDiscriminatingMutexConcurrencyController` - this controller enables
     sequential message processing based on a specified discriminator. This could
     be the message type or some other (calculated) value.
-  - `createStrategyConcurrencyController` - this is a combined concurrency
-    controller. You can define for every message by which from the above
+  - `createMultiConcurrencyController` - this is a combined concurrency
+    controller. You can define for every message which from the above
     controllers the message should use.
+- The `messageProcessingTimeoutStrategy` allows you to define a message-based
+  timeout on how long the message is allowed to be processed in milliseconds.
+  This allows you to allow some more expensive messages to take longer while
+  still keeping others on a short timeout. By default, it uses the configured
+  messageProcessingTimeout or falls back to a 15-second timeout.
+- The inbox listener lets you define the `messageProcessingTransactionLevel` per
+  message. Some message processing logic may have higher isolation level
+  requirements than for processing other messages. If no custom strategy is
+  provided it uses the default database transaction level via `BEGIN`.
 
 ## [0.3.0] - 2023-10-23
 

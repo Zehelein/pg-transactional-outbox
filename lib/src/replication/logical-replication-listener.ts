@@ -6,6 +6,7 @@ import { TransactionalLogger } from '../common/logger';
 import { OutboxMessage } from '../common/message';
 import { awaitWithTimeout } from '../common/utils';
 import { ConcurrencyController } from '../concurrency-controller/concurrency-controller';
+import { createMutexConcurrencyController } from '../concurrency-controller/create-mutex-concurrency-controller';
 import { createAcknowledgeManager } from './acknowledge-manager';
 import {
   ReplicationListenerConfig,
@@ -17,13 +18,32 @@ type ReplicationClient = Client & {
   connection: Connection & { sendCopyFromChunk: (buffer: Buffer) => void };
 };
 
+/** Optional strategies to provide custom logic for handling specific scenarios */
+export interface TransactionalStrategies {
+  /**
+   * Define the concurrency strategy - defaults to using a mutex to guarantee
+   * sequential message processing.
+   */
+  concurrencyStrategy?: ConcurrencyController;
+
+  /**
+   * Defines the message processing timeout strategy. By default, it uses the
+   * configured messageProcessingTimeout or falls back to a 15-second timeout.
+   * @param message The message that should be handled
+   * @returns Number of milliseconds how long the message can take at most
+   */
+  messageProcessingTimeoutStrategy?: <T extends OutboxMessage>(
+    message: T,
+  ) => number;
+}
+
 /**
  * Initiate the outbox/inbox table to listen for WAL messages.
  * @param config The replication connection settings and general replication settings
  * @param messageHandler The message handler that handles the outbox/inbox message
  * @param errorHandler A handler that can decide if the WAL message should be acknowledged (permanent_error) or not (transient_error which restarts the logical replication listener)
- * @param concurrencyController A controller that ensures some concurrency guarantees.
  * @param logger A logger instance for logging trace up to error logs
+ * @param strategies Strategies to provide custom logic for handling specific scenarios
  * @param mapAdditionalRows The inbox table requires an additional row to be mapped to the inbox message
  * @returns A function to stop the logical replication listener
  */
@@ -31,8 +51,8 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
   { pgReplicationConfig, settings }: TransactionalOutboxInboxConfig,
   messageHandler: (message: T) => Promise<void>,
   errorHandler: (message: T, err: Error) => Promise<ErrorType>,
-  concurrencyController: ConcurrencyController,
   logger: TransactionalLogger,
+  strategies: TransactionalStrategies,
   mapAdditionalRows?: (row: object) => Record<string, unknown>,
 ): [shutdown: { (): Promise<void> }] => {
   const plugin = new PgoutputPlugin({
@@ -42,6 +62,14 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
   let client: ReplicationClient | undefined;
   let restartTimeout: NodeJS.Timeout | undefined;
   let stopped = false;
+  const concurrencyStrategy =
+    strategies.concurrencyStrategy ?? createMutexConcurrencyController();
+  const messageProcessingTimeoutStrategy =
+    strategies.messageProcessingTimeoutStrategy ??
+    (() => {
+      return settings.messageProcessingTimeout ?? 15_000;
+    });
+
   // Run the listener in a self restarting background event "loop" until it gets stopped
   (function start() {
     if (stopped) {
@@ -87,7 +115,8 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
         settings,
         messageHandler,
         errorHandler,
-        concurrencyController,
+        concurrencyStrategy,
+        messageProcessingTimeoutStrategy,
         logger,
         mapAdditionalRows,
       ),
@@ -178,36 +207,6 @@ const subscribe = async (
 
   return plugin.start(client, slotName, lastLsn);
 };
-
-async function handleOutboxInboxMessage<T extends OutboxMessage>(
-  settings: ReplicationListenerConfig,
-  messageHandler: (message: T) => Promise<void>,
-  errorHandler: ((message: T, err: Error) => Promise<ErrorType>) | undefined,
-  message: T,
-  lsn: string,
-  finishProcessingLSN: (lsn: string) => void,
-  logger: TransactionalLogger,
-) {
-  try {
-    logger.debug(message, `Executing the message handler for LSN ${lsn}.`);
-    await messageHandler(message as T);
-    finishProcessingLSN(lsn);
-  } catch (e) {
-    const err = ensureError(e);
-    if (errorHandler) {
-      const errorType = await errorHandler(message, err);
-      if (errorType === 'permanent_error') {
-        finishProcessingLSN(lsn);
-        return;
-      }
-    }
-    throw new MessageError(
-      `An error ocurred while handling the message with ID ${message.id} and LSN ${lsn}`,
-      message,
-      err,
-    );
-  }
-}
 
 const stopClient = async (
   client: ReplicationClient | undefined,
@@ -308,7 +307,10 @@ const handleIncomingData = <T extends OutboxMessage>(
   config: ReplicationListenerConfig,
   messageHandler: (message: T) => Promise<void>,
   errorHandler: (message: T, err: Error) => Promise<ErrorType>,
-  concurrencyController: ConcurrencyController,
+  concurrencyStrategy: ConcurrencyController,
+  messageProcessingTimeoutStrategy: <T extends OutboxMessage>(
+    message: T,
+  ) => number,
   logger: TransactionalLogger,
   mapAdditionalRows?: (row: object) => Record<string, unknown>,
 ): Promise<void> => {
@@ -323,8 +325,57 @@ const handleIncomingData = <T extends OutboxMessage>(
     logger,
   );
   let stopped = false;
+  const handleOutboxInboxMessage = async <T extends OutboxMessage>(
+    messageHandler: (message: T) => Promise<void>,
+    errorHandler: ((message: T, err: Error) => Promise<ErrorType>) | undefined,
+    message: T,
+    lsn: string,
+    finishProcessingLSN: (lsn: string) => void,
+    logger: TransactionalLogger,
+  ) => {
+    try {
+      const messageProcessingTimeout =
+        messageProcessingTimeoutStrategy(message);
+      await awaitWithTimeout(
+        async () => {
+          // Need to double check for stopped for concurrency reasons when a message was awaiting the
+          // `awaitWithTimeout` function and another message threw an error which should stop this message.
+          if (stopped) {
+            logger.trace(`Received LSN ${lsn} after the process stopped.`);
+            return;
+          }
+          logger.debug(
+            message,
+            `Executing the message handler for LSN ${lsn}.`,
+          );
+          await messageHandler(message as T);
+          finishProcessingLSN(lsn);
+        },
+        messageProcessingTimeout,
+        `Could not process the message with ID ${message.id} and LSN ${lsn} within the timeout of ${messageProcessingTimeout} milliseconds. Please consider to use a background worker for long running tasks to not block the message processing.`,
+      );
+      logger.trace(
+        message,
+        `Finished processing LSN ${lsn} with message id ${message.id} and type ${message.messageType}.`,
+      );
+    } catch (e) {
+      const err = ensureError(e);
+      if (errorHandler) {
+        const errorType = await errorHandler(message, err);
+        if (errorType === 'permanent_error') {
+          finishProcessingLSN(lsn);
+          return;
+        }
+      }
+      throw new MessageError(
+        `An error ocurred while handling the message with ID ${message.id} and LSN ${lsn}`,
+        message,
+        err,
+      );
+    }
+  };
+
   return new Promise((_resolve, reject) => {
-    const messageProcessingTimeout = config.messageProcessingTimeout ?? 15_000;
     client.connection.on(
       'copyData',
       async ({
@@ -362,39 +413,20 @@ const handleIncomingData = <T extends OutboxMessage>(
               message,
               `Parsed the message for the LSN ${lsn} with message id ${message.id} and type ${message.messageType}. Potentially waiting for mutex.`,
             );
-            const release = await concurrencyController.acquire(message);
+            const release = await concurrencyStrategy.acquire(message);
             startProcessingLSN(lsn); // finish is called in the `handleOutboxInboxMessage` (if it doesn't throw an Error)
             logger.trace(
               message,
               `Started processing LSN ${lsn} with message id ${message.id} and type ${message.messageType}.`,
             );
             try {
-              await awaitWithTimeout(
-                async () => {
-                  // Need to double check for stopped for concurrency reasons when a message was awaiting the
-                  // `awaitWithTimeout` function and another message threw an error which should stop this message.
-                  if (stopped) {
-                    logger.trace(
-                      `Received LSN ${lsn} after the process stopped.`,
-                    );
-                    return;
-                  }
-                  await handleOutboxInboxMessage<T>(
-                    config,
-                    messageHandler,
-                    errorHandler,
-                    message,
-                    lsn,
-                    finishProcessingLSN,
-                    logger,
-                  );
-                },
-                messageProcessingTimeout,
-                `Could not process the message within the timeout of ${messageProcessingTimeout} milliseconds. Please consider to use a background worker for long running tasks to not block the message processing.`,
-              );
-              logger.trace(
+              await handleOutboxInboxMessage<T>(
+                messageHandler,
+                errorHandler,
                 message,
-                `Finished processing LSN ${lsn} with message id ${message.id} and type ${message.messageType}.`,
+                lsn,
+                finishProcessingLSN,
+                logger,
               );
             } finally {
               release();
@@ -410,7 +442,7 @@ const handleIncomingData = <T extends OutboxMessage>(
         } catch (e) {
           stopped = true;
           client.connection.removeAllListeners();
-          concurrencyController.cancel();
+          concurrencyStrategy.cancel();
           reject(e);
         }
       },

@@ -6,7 +6,6 @@ import { Pgoutput } from 'pg-logical-replication';
 import { EventEmitter } from 'stream';
 import { getDisabledLogger } from '../../dist';
 import { sleep } from '../common/utils';
-import { createMutexConcurrencyController } from '../concurrency-controller/create-mutex-concurrency-controller';
 import { OutboxConfig, initializeOutboxListener } from './outbox-listener';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
@@ -146,7 +145,6 @@ describe('Outbox listener unit tests - initializeOutboxListener', () => {
       config,
       messageHandler,
       getDisabledLogger(),
-      createMutexConcurrencyController(),
     );
     await continueEventLoop();
 
@@ -173,7 +171,6 @@ describe('Outbox listener unit tests - initializeOutboxListener', () => {
       config,
       messageHandler,
       getDisabledLogger(),
-      createMutexConcurrencyController(),
     );
     await continueEventLoop();
 
@@ -198,7 +195,6 @@ describe('Outbox listener unit tests - initializeOutboxListener', () => {
       config,
       messageHandler,
       getDisabledLogger(),
-      createMutexConcurrencyController(),
     );
     await continueEventLoop();
     const keepAliveChunk = Buffer.from([

@@ -3,7 +3,6 @@ import EventEmitter from 'events';
 import inspector from 'inspector';
 import { Client, Connection, Pool, PoolClient } from 'pg';
 import { Pgoutput } from 'pg-logical-replication';
-import { createMutexConcurrencyController } from '../../dist';
 import { getDisabledLogger } from '../common/logger';
 import { sleep } from '../common/utils';
 import { InboxConfig, initializeInboxListener } from './inbox-listener';
@@ -281,7 +280,6 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         },
       ],
       getDisabledLogger(),
-      createMutexConcurrencyController(),
     );
 
     // Act
@@ -325,7 +323,6 @@ describe('Inbox service unit tests - initializeInboxService', () => {
           },
         ],
         getDisabledLogger(),
-        createMutexConcurrencyController(),
       ),
     ).toThrow(
       `Only one message handler can handle one aggregate and message type. Multiple message handlers try to handle the aggregate type "${aggregateType}" with the message type "${messageType}"`,
@@ -351,7 +348,6 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         },
       ],
       getDisabledLogger(),
-      createMutexConcurrencyController(),
     );
 
     // Act
@@ -389,7 +385,6 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         },
       ],
       getDisabledLogger(),
-      createMutexConcurrencyController(),
     );
 
     // Act
@@ -443,7 +438,6 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         },
       ],
       getDisabledLogger(),
-      createMutexConcurrencyController(),
     );
 
     // Act
@@ -503,7 +497,6 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         },
       ],
       getDisabledLogger(),
-      createMutexConcurrencyController(),
     );
 
     // Act

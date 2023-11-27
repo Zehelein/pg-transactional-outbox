@@ -2,10 +2,12 @@ import { ClientBase, ClientConfig, Pool } from 'pg';
 import { ErrorType } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { InboxMessage } from '../common/message';
-import { executeTransaction } from '../common/utils';
-import { ConcurrencyController } from '../concurrency-controller/concurrency-controller';
+import { IsolationLevel, executeTransaction } from '../common/utils';
 import { TransactionalOutboxInboxConfig } from '../replication/config';
-import { createLogicalReplicationListener } from '../replication/logical-replication-listener';
+import {
+  TransactionalStrategies,
+  createLogicalReplicationListener,
+} from '../replication/logical-replication-listener';
 import {
   ackInbox,
   getMaxAttempts,
@@ -67,31 +69,43 @@ export interface InboxMessageHandler {
   ) => Promise<ErrorType>;
 }
 
+/** Optional strategies to provide custom logic for handling specific scenarios */
+export interface InboxStrategies extends TransactionalStrategies {
+  /**
+   * Defines the PostgreSQL transaction level to use for handling an incoming
+   * inbox message. If none is provided it uses the Postgres transaction default.
+   */
+  messageProcessingTransactionLevel?: (message: InboxMessage) => IsolationLevel;
+}
+
 /**
  * Initialize the listener to watch for inbox table inserts.
  * @param config The configuration object with required values to connect to the WAL.
  * @param messageHandlers A list of message handlers to handle the inbox messages.
  * @param logger A logger instance for logging trace up to error logs
- * @param concurrencyController A controller that ensures specific concurrency guarantees. Defaults to the createMutexConcurrencyController.
+ * @param strategies Strategies to provide custom logic for handling specific scenarios
  * @returns Functions for a clean shutdown.
  */
 export const initializeInboxListener = (
   config: InboxConfig,
   messageHandlers: InboxMessageHandler[],
   logger: TransactionalLogger,
-  concurrencyController: ConcurrencyController,
+  strategies?: InboxStrategies,
 ): [shutdown: { (): Promise<void> }] => {
   const pool = createPgPool(config, logger);
+  strategies = strategies ?? {};
   const messageHandlerDict = getMessageHandlerDict(messageHandlers);
   const messageHandler = createMessageHandler(
     messageHandlerDict,
     pool,
+    strategies,
     config,
     logger,
   );
   const errorResolver = createErrorResolver(
     messageHandlerDict,
     pool,
+    strategies,
     config,
     logger,
   );
@@ -99,8 +113,8 @@ export const initializeInboxListener = (
     config,
     messageHandler,
     errorResolver,
-    concurrencyController,
     logger,
+    strategies,
   );
   return [
     async () => {
@@ -129,10 +143,13 @@ const createPgPool = (config: InboxConfig, logger: TransactionalLogger) => {
 const createMessageHandler = (
   messageHandlers: Record<string, InboxMessageHandler>,
   pool: Pool,
+  strategies: InboxStrategies,
   config: InboxConfig,
   logger: TransactionalLogger,
 ) => {
   return async (message: InboxMessage) => {
+    const transactionLevel =
+      strategies.messageProcessingTransactionLevel?.(message);
     await executeTransaction(
       pool,
       async (client) => {
@@ -150,6 +167,7 @@ const createMessageHandler = (
           );
         }
       },
+      transactionLevel,
       logger,
     );
   };
@@ -186,6 +204,7 @@ const getMessageHandlerDict = (
 const createErrorResolver = (
   messageHandlers: Record<string, InboxMessageHandler>,
   pool: Pool,
+  strategies: InboxStrategies,
   config: InboxConfig,
   logger: TransactionalLogger,
 ) => {
@@ -199,6 +218,8 @@ const createErrorResolver = (
    */
   return async (message: InboxMessage, error: Error): Promise<ErrorType> => {
     const handler = messageHandlers[getMessageHandlerKey(message)];
+    const transactionLevel =
+      strategies.messageProcessingTransactionLevel?.(message);
     try {
       return await executeTransaction(
         pool,
@@ -230,6 +251,7 @@ const createErrorResolver = (
           await nackInbox(message, client, config, attempts);
           return errorType;
         },
+        transactionLevel,
         logger,
       );
     } catch (error) {
