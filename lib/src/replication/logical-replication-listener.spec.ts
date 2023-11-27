@@ -399,7 +399,7 @@ describe('Local replication service unit tests', () => {
         messageHandler,
         errorHandler,
         getDisabledLogger(),
-        undefined,
+        {},
         mapAdditionalRows,
       );
       await continueEventLoop();
@@ -438,7 +438,7 @@ describe('Local replication service unit tests', () => {
           return 'transient_error';
         },
         getDisabledLogger(),
-        undefined,
+        {},
         mapAdditionalRows,
       );
       await continueEventLoop();
@@ -477,7 +477,7 @@ describe('Local replication service unit tests', () => {
           return 'permanent_error';
         },
         getDisabledLogger(),
-        undefined,
+        {},
         mapAdditionalRows,
       );
       await continueEventLoop();
@@ -507,7 +507,7 @@ describe('Local replication service unit tests', () => {
         messageHandler,
         errorHandler,
         getDisabledLogger(),
-        undefined,
+        {},
         mapAdditionalRows,
       );
       await continueEventLoop();
@@ -540,7 +540,7 @@ describe('Local replication service unit tests', () => {
         messageHandler,
         errorHandler,
         getDisabledLogger(),
-        undefined,
+        {},
         mapAdditionalRows,
       );
       await continueEventLoop();
@@ -579,7 +579,7 @@ describe('Local replication service unit tests', () => {
         delayedMessageHandler,
         errorHandler,
         getDisabledLogger(),
-        undefined,
+        {},
         mapAdditionalRows,
       );
       await continueEventLoop();
@@ -626,7 +626,7 @@ describe('Local replication service unit tests', () => {
           return 'transient_error';
         },
         getDisabledLogger(),
-        undefined,
+        {},
         mapAdditionalRows,
       );
       await continueEventLoop();
