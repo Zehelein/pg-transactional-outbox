@@ -19,6 +19,7 @@ export { createMutexConcurrencyController } from './concurrency-controller/creat
 export {
   InboxConfig,
   InboxMessageHandler,
+  InboxStrategies,
   initializeInboxListener,
 } from './inbox/inbox-listener';
 export {
@@ -37,3 +38,4 @@ export {
   ReplicationListenerConfig,
   TransactionalOutboxInboxConfig,
 } from './replication/config';
+export { TransactionalStrategies } from './replication/logical-replication-listener';
