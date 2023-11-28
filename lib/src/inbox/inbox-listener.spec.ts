@@ -3,7 +3,7 @@ import EventEmitter from 'events';
 import inspector from 'inspector';
 import { Client, Connection, Pool, PoolClient } from 'pg';
 import { Pgoutput } from 'pg-logical-replication';
-import { getDisabledLogger } from '../common/logger';
+import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { sleep } from '../common/utils';
 import { InboxConfig, initializeInboxListener } from './inbox-listener';
 import * as inboxSpy from './inbox-message-storage';
@@ -517,5 +517,67 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
+  });
+
+  it('a messageHandler throws an error and the error handler throws an error as well the message should still increase attempts', async () => {
+    // Arrange
+    const handleError = jest.fn().mockImplementationOnce(() => {
+      throw new Error('Error handling error');
+    });
+    const message = {
+      id: 'not_processed_id',
+      aggregateType: aggregate_type,
+      aggregateId: 'test_aggregate_id',
+      messageType: message_type,
+      payload: { result: 'success' },
+      metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
+      createdAt: '2023-01-18T21:02:27.000Z',
+      attempts: 2,
+      processedAt: null,
+    };
+    const [logger, logs] = getInMemoryLogger('unit test');
+    const [cleanup] = initializeInboxListener(
+      config,
+      [
+        {
+          aggregateType: message.aggregateType,
+          messageType: message.messageType,
+          handle: () => {
+            throw new Error('Unit Test');
+          },
+          handleError,
+        },
+      ],
+      logger,
+    );
+
+    // Act
+    sendReplicationChunk('not_processed_id');
+    await continueEventLoop();
+
+    // Assert
+    expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
+    expect(ackInboxSpy).not.toHaveBeenCalled();
+    expect(nackInboxSpy).toHaveBeenCalledWith(
+      message,
+      expect.any(Object),
+      expect.any(Object),
+      // no fourth parameter is provided for the best effort attempts counter increase
+    );
+    expect(handleError).toHaveBeenCalledWith(
+      expect.any(Object),
+      message,
+      expect.any(Object),
+      { current: 3, max: 5 },
+    );
+    expect(client.connect).toHaveBeenCalledTimes(1);
+    expect(client.end).toHaveBeenCalledTimes(1);
+    const log = logs.filter(
+      (log) =>
+        log.args[1] ===
+        'The error handling of the message failed. Please make sure that your error handling code does not throw an error!',
+    );
+    expect(log).toBeDefined();
+    await cleanup();
   });
 });

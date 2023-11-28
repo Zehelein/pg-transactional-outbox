@@ -53,7 +53,7 @@ export interface InboxMessageHandler {
 
   /**
    * Custom (optional) business logic to handle an error that was caused by the
-   * "handle" method. You must ensure that this function does not throw an error
+   * "handle" method. Please ensure that this function does not throw an error
    * as the attempts counter is increased in the same transaction.
    * @param error The error that was thrown in the handle method.
    * @param message The inbox message with the payload that was attempted to be handled.
@@ -261,7 +261,20 @@ const createErrorResolver = (
           ? 'The error handling of the message failed. Please make sure that your error handling code does not throw an error!'
           : 'The error handling of the message failed.',
       );
-      return 'transient_error';
+      // In case the error handling logic failed do a best effort to increase the attempts counter
+      try {
+        await executeTransaction(
+          pool,
+          async (client) => {
+            await nackInbox(message, client, config);
+          },
+          transactionLevel,
+          logger,
+        );
+        return 'transient_error';
+      } catch {
+        return 'permanent_error';
+      }
     }
   };
 };
