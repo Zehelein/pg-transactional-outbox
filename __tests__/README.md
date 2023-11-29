@@ -20,13 +20,3 @@ starts up again.
 
 Both of those files can be executed from the `package.json` by executing the
 `test` script.
-
-## Manual logical replication test
-
-The file `logical-rep-service-test.ts` contains a manual setup of the used
-`pg-logical-replication`. This file is included to manually check the behavior
-of the LogicalReplicationService in case of PostgreSQL outages and how it
-recovers (or not) from different kinds of errors.
-
-This test reuses the outbox database that is created with the RabbitMQ based
-example implementation.

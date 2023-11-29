@@ -1,10 +1,11 @@
 # pg-transactional-outbox
 
-The `pg-transactional-outbox` is a library that implements the transactional
-outbox and transactional inbox pattern for PostgreSQL. It allows you to reliably
-send and receive messages within the context of a PostgreSQL transaction,
-ensuring that messages are only sent or received if the transaction is
-committed.
+The `pg-transactional-outbox` library implements the transactional outbox and
+transactional inbox pattern based on PostgreSQL. It ensures that outgoing
+messages are only sent when your code successfully commits your transaction. On
+the receiving side it ensures that a message is stored exactly once and that
+your handler marks the message only as done when your code finishes
+successfully.
 
 ![postgresql_outbox_pattern](https://user-images.githubusercontent.com/9946441/211221740-a10d3c0b-dfa9-4c4e-84fb-068f6e63aaac.jpeg)
 _Message delivery via the PostgreSQL-based transactional outbox pattern
@@ -13,7 +14,7 @@ _Message delivery via the PostgreSQL-based transactional outbox pattern
 **Table of contents:**
 
 - [Context](#context)
-- [Patterns](#patterns)
+- [The patterns](#the-patterns)
   - [What is the transactional outbox pattern](#what-is-the-transactional-outbox-pattern)
   - [What is the transactional inbox pattern](#what-is-the-transactional-inbox-pattern)
   - [What is the PostgreSQL Logical Replication](#what-is-the-postgresql-logical-replication)
@@ -23,22 +24,36 @@ _Message delivery via the PostgreSQL-based transactional outbox pattern
   - [Database setup for the consumer](#database-setup-for-the-consumer)
   - [Implementing the transactional outbox producer](#implementing-the-transactional-outbox-producer)
   - [Implementing the transactional inbox consumer](#implementing-the-transactional-inbox-consumer)
-- [Testing](#testing)
+  - [Message format](#message-format)
+  - [Concurrency Strategy](#concurrency-strategy)
+  - [Other Strategies](#other-strategies)
+  - [Testing](#testing)
 
 # Context
 
 A service often needs to update data in its database and send events (when its
 data was changed) and commands (to request some action in another service). All
 the database operations can be done in a single transaction. But sending the
-message must (most often) be done as a different action. This can lead to data
+message must (most often) be done as a separate action. This can lead to data
 inconsistencies if one or the other fails.
 
-Storing a product order in the order service but failing to send an event to the
-shipping service can lead to products not being shipped. This would be the case
-when the database transaction succeeded but sending the event failed. Sending
-the event first and only then completing the database transaction does not fix
-it either. The products might then be shipped but the system would not know the
-order for which the shipment was done.
+Storing a product order in the Order Service but failing to send an event to the
+shipping service can lead to products not being shipped - case 1 in the diagram
+below. This would be the case when the database transaction succeeded but
+sending the event failed. Sending the event first and only then completing the
+database transaction does not fix it either. The products might then be shipped
+but the system would not know the order for which the shipment was done (case
+2).
+
+Similar issues exist in the Shipment Service. The service might receive a
+message and start the shipment but fail to acknowledge the message. The message
+would then be re-sent and if the operation is not done in an idempotent way
+there might be two shipments for a single order (case 3). Or the message is
+acknowledged as handled but submitting the database transaction fails. Then the
+message is lost and the customer will not receive the goods (case 4).
+
+![postgresql_outbox_pattern](https://user-images.githubusercontent.com/9946441/286744174-d8df1317-ce78-4be3-94a1-c48f9bc57331.png)
+_Potential messaging pitfalls_
 
 One way to solve this would be to use distributed transactions using a two-phase
 commit (2PC). PostgreSQL supports the 2PC but many message brokers and event
@@ -47,6 +62,8 @@ do, it would often not be good to use 2PC. Distributed transactions need to lock
 data until all participating services commit their second phase. This works
 often well for a small number of services. But with a lot of (micro) services
 communicating with each other this often leads to severe bottlenecks.
+
+# The Patterns
 
 When delivering messages we mostly have three different delivery guarantees:
 
@@ -57,7 +74,7 @@ When delivering messages we mostly have three different delivery guarantees:
   least once - but potentially multiple times.
 - **Exactly once** - this is on the delivery itself most often considered to not
   be possible. Multiple mechanisms need to play together to ensure that a
-  message is sent (at least) once but guaranteed to be processed only once.
+  message is sent (at least) once but guaranteed to be processed (exactly) once.
 
 The transactional outbox and transactional inbox pattern provide such a
 combination that guarantees exactly-once **processing** (with at least once
@@ -68,52 +85,56 @@ reliability and atomicity of message processing are important, such as in an
 event-driven architecture where the loss or duplication of a message could have
 significant consequences.
 
-# Patterns
+This diagram shows the involved components to implement both the transactional
+outbox and the transactional inbox pattern. The following chapters explain the
+components and the interactions in detail.
 
-![postgresql_outbox_pattern](https://user-images.githubusercontent.com/9946441/215294397-b9b622a1-f923-4d28-a3e0-2ca9f849b63b.png)
+![postgresql_outbox_pattern](https://user-images.githubusercontent.com/9946441/286744183-7b616f46-e4d8-4d6f-88c1-6ceae5207997.png)
 _Components involved in the transactional outbox and inbox pattern
 implementation_
 
 ## What is the transactional outbox pattern
 
 The transactional outbox pattern is a design pattern that allows you to reliably
-send messages within the context of a database transaction. It is used to ensure
-that messages are only sent if the transaction is committed and that they are
-not lost in case of failure.
+"send" messages within the context of a database transaction. It is used to
+ensure that messages are only sent if the transaction is committed and that they
+are not lost in case of failure.
 
 The transactional outbox pattern uses the following approach to guarantee the
 exactly-once processing (in combination with the transactional inbox pattern):
 
 1. Some business logic needs to update data in its database and send an event
    with details of the changes.
-2. It uses a database transaction to add all of its mutations and inserts the
-   details of the message it needs to send into an "outbox" table within the
-   same database transactions. The message includes the necessary information to
-   send the message to the intended recipient(s), such as the message payload
-   and the destination topic or queue. This ensures that either everything is
-   persisted in the database or nothing. This is the `outbox storage` in the
-   above diagram.
-3. A background process checks if a new entry appears in the "outbox" table and
-   loads the data.
+2. It uses a database transaction to add all of the business data changes on the
+   one hand and it inserts the details of the message that should be sent into
+   an "outbox" table within the same database transaction. The message includes
+   the necessary information to send the message to the intended recipient(s),
+   such as the message payload and the destination topic or queue. This ensures
+   that either everything is persisted in the database or nothing. The
+   `outbox storage` component in the above diagram encapsulates the logic to
+   store messages in the outbox table.
+3. A background process notices when a new entry appears in the "outbox" table
+   and loads the message data.
 4. Now the message can be sent. This can be done via a message broker, an event
    stream, or any other option. The outbox table entry is then marked as
    processed _only_ if the message was successfully sent. In case of a
    message-sending error, or if the outbox entry cannot be marked as processed,
-   the message is sent again. The `outbox service` is responsible for this step.
+   the message is sent again. The `outbox listener` is responsible for this
+   step.
 
-The third step can be implemented via the Polling-Publisher pattern or via the
-Transactional log tailing pattern.
+The third step can be implemented via the Polling-Publisher pattern or the
+Transactional Log Tailing pattern.
 
-- Polling-Publisher: an external process queries the outbox table on a (short)
-  interval. This has the drawback, that the database is put under load and often
-  results in no newly found entries.
-- Transactional (also called capture-based) log tailing reads from the
-  transactional log or change stream that contains the changes to the outbox
-  table. For PostgreSQL, this is handled with the Write-Ahead Log (WAL) and
-  logical replication which is described further down in more detail. Using this
-  approach, the transactional outbox pattern can be implemented with minimal
-  impact on the database, as the WAL tailing process does not need to hold locks
-  or block other transactions.
+- **Polling-Publisher**: an external process queries the outbox table on a
+  (short) interval. This has the drawback, that the database is put under load
+  and often results in no newly found entries.
+- **Transactional Log Tailing** (also called Capture-Based Log Tailing) reads
+  from the transactional log or change stream that contains the changes to the
+  outbox table. For PostgreSQL, this is handled with the Write-Ahead Log (WAL)
+  and logical replication which is depicted in the diagram and described further
+  down in more detail. Using this approach, the transactional outbox pattern can
+  be implemented with minimal impact on the database, as the WAL tailing process
+  does not need to hold locks or block other transactions.
 
 You can read more about the transactional outbox pattern in this
 [microservices.io](https://microservices.io/patterns/data/transactional-outbox.html)
@@ -121,74 +142,63 @@ article.
 
 ## What is the transactional inbox pattern
 
-The transactional outbox pattern solves the challenges from the producing side.
-
-The _transactional inbox_ pattern targets the message consumer. It is a design
-pattern that allows you to reliably receive and process messages within the
-context of a database transaction. It is used to ensure that messages are only
-processed if the transaction is committed and that they are not lost or
-processed multiple times in case of failure.
+The _transactional inbox_ pattern targets the message consumer side of the
+process. It is a design pattern that allows you to reliably receive messages and
+process each message exactly once.
 
 The transactional inbox pattern uses the following approach to guarantee the
 exactly-once processing (in combination with the transactional outbox pattern):
 
-1. A message was sent to a message broker (such as RabbitMQ) and stored in a
-   queue. Or it was sent to an event stream or another message exchange.
+1. A message is sent to a message broker (such as RabbitMQ) and stored in a
+   queue, event stream, or any other location.
 2. A background process consumes messages from the queue and inserts them into
    an "inbox" table in the database. The process uses the unique message
    identifier to store the message in the inbox as the primary key. This ensures
-   that each message is only written once to this database table. The
-   `inbox storage` component from the above diagram handles this step.
+   that each message is only written once to this database table even if the
+   same message was delivered multiple times. The `inbox storage` component from
+   the above diagram handles this step.
 3. A consumer process receives the messages that were stored in the inbox table
-   and processes them. It uses a transaction to store service relevant data and
-   mark the inbox message as processed. This is done by the `inbox service` in
-   the above diagram.
+   and processes them. It uses a transaction to store all the service-relevant
+   data and mark the inbox message in the inbox table as processed. This is done
+   by the `inbox listener` in the above diagram.
 
 Step three can be implemented again as a Polling-Publisher or via the
-Transactional log tailing approach like for the outbox pattern.
-
-An added benefit of the transactional inbox is, that the message processing is
-now decoupled from the message receiving. In many message brokers, a message is
-sent to the consumer and locked for other consumers. Once the consumer finishes
-the message processing it sends an acknowledgment that the message was
-successfully processed and can be removed from e.g. the queue. If the time until
-the message is acknowledged takes too long, the message could be made available
-again. But at least it will keep a lock on the message for a longer time. With
-the inbox pattern, the message is not processed when it is received but only
-stored in the inbox table. The actual processing can then take whatever time is
-needed.
+Transactional Log Tailing approach like for the outbox pattern.
 
 ## What is the PostgreSQL Logical Replication
 
 PostgreSQL logical replication is a method that offers the possibility of
-replicating data from a PostgreSQL database to another PostgreSQL database or
+replicating data from one PostgreSQL server to another PostgreSQL server or
 other consumer. It works by streaming the changes that are made to the data in a
 database in a logical, row-based format, rather than replicating at the physical
 storage level.
 
 This is achieved by using a feature called "Logical Replication Slot", which
-allows a PostgreSQL server to stream changes made to a specific table or set of
-tables to a replication client. The client can then apply these changes to its
-own database (effectively replicating the data). Or more generally the client
-can use those changes for any kind of updates/notifications.
+allows the primary PostgreSQL server (publisher) to stream changes made to a
+specific table or set of tables to a replication client. The client can then
+apply these changes to its own database (effectively replicating the data). Or
+more generally the client can use those changes for any kind of
+updates/notifications.
 
 The replication process begins with the creation of a replication slot on the
-primary database server. This is a named data structure that holds information
-about the replication process, such as the current position of the replication
-stream and the name of the table(s) that are being replicated. In the
-transactional outbox/inbox pattern case, the outbox and inbox table are
-replicated.
+primary database server. A replication slot is a feature on the PostgreSQL
+server that persists information about the state of replication streams.
+Replication slots serve to retain WAL (Write-Ahead Logging) files on the
+publisher , ensuring that the required logs for replication are not removed
+before the subscribing server received them. It keeps track of the last WAL
+location that was successfully sent to the subscriber, so that upon reconnection
+after a disconnect, replication can resume from that position without missing
+any data. In the transactional outbox/inbox pattern case, the outbox and inbox
+tables are replicated.
 
-Once the replication slot is created, the primary server will begin streaming
-changes made to the specified table(s) to the replication client. These changes
-are sent in the form of "WAL records" (Write-Ahead Log records), which are the
-individual changes made to the data in the outbox/inbox tables.
-
-The publisher keeps track of the current position of the replication stream
-using the logical replication slot. A logical replication slot is a named data
-structure on the publisher that stores information about the current position of
-the replication stream, including the transaction ID and the write-ahead log
-(WAL) location.
+A publisher prepares and sends the stream of data changes from specified tables
+to the subscribers. For the transactional outbox and inbox scenario the outbox
+and inbox tables are configured for publication. The publisher creates a set of
+changes that need to be replicated based on insert, updates, and deletes on the
+published tables. These changes are sent in the form of "WAL records"
+(Write-Ahead Log records). Publications are used in conjunction with
+subscriptions to set up logical replication from the publisher to the
+subscriber.
 
 When the subscriber (client) connects to the publisher, it specifies the name of
 the logical replication slot it wants to use. The publisher uses this
@@ -197,7 +207,7 @@ in the replication slot. As the subscriber receives changes, it updates the
 position of the replication slot on the publisher to keep track of where it is
 in the stream. The position defines the last data record that the client
 successfully consumed and acknowledged. It is not possible to acknowledge only
-specific messages - everything up to this position is acknowledged.
+specific WAL records - everything up to this position is acknowledged.
 
 In this way, the publisher and subscriber can maintain a consistent position in
 the replication stream, allowing the subscriber to catch up with any changes
@@ -206,11 +216,12 @@ that may have occurred while it was disconnected.
 # The pg-transactional-outbox library
 
 This library implements the transactional outbox and inbox pattern using the
-PostgreSQL server and the Transactional log tailing approach via the PostgreSQL
+PostgreSQL server and the Transactional Tog Tailing approach via the PostgreSQL
 Write-Ahead Log (WAL).
 
 You can use the library in your node.js projects that use a PostgreSQL database
-as the data store and some event-sending approach (e.g. RabbitMQ or Kafka).
+as the data store and some message sending/streaming software (e.g. RabbitMQ or
+Kafka).
 
 ## Database server
 
@@ -224,16 +235,17 @@ duration. An example `postgres.conf` file is shown in the `./infra` folder. This
 folder includes also a `docker-compose.yml` file to set up a PostgreSQL server
 with these default values (and a RabbitMQ instance for running the examples).
 
-This library uses the standard PostgreSQL logical decoding plugin `pgoutput`
-plugin. This plugin is included directly in PostgreSQL since version 9.4. Other
-alternatives would be wal2json, decoding-json, and others (not used in this
-library).
+This library uses the standard PostgreSQL logical decoding plugin `pgoutput`.
+This plugin is included directly in PostgreSQL since version 9.4. Other
+alternatives would be wal2json or decoding-json but those are not used in this
+library.
 
 ## Database setup for the producer
 
 The outbox table in the producer service must have the following structure. You
-can decide to put this table in the `public` or some separate database schema.
-You can set this schema in the configuration settings of the library.
+can decide to put this table in the `public` or some separate database schema
+(recommended). You can set this schema in the configuration settings of the
+library.
 
 You can follow the steps below or use the
 `examples/rabbitmq/producer/setup/init-db.ts` script as an example to generate
@@ -252,15 +264,15 @@ CREATE TABLE public.outbox (
 ```
 
 The database role that is used to mutate the business-relevant data must be
-granted the select, insert and delete permissions for this table.
+granted the select, insert and delete permissions for this outbox table.
 
 ```sql
 GRANT SELECT, INSERT, DELETE ON public.outbox TO db_login_outbox;
 ```
 
 Then you need to create a new database role for the WAL subscription. As this
-role has a lot of rights it is not advised to give this role to the same role
-that reads and mutates the business-relevant data.
+role has a lot of rights it is not advised to give the replication permission to
+the same role that reads and mutates the business-relevant data.
 
 The following statements can be used:
 
@@ -268,7 +280,7 @@ The following statements can be used:
 BEGIN;
   CREATE ROLE db_outbox WITH REPLICATION LOGIN PASSWORD 'db_outbox_password';
   CREATE PUBLICATION pg_transactional_outbox_pub
-  FOR TABLE public.outbox WITH (publish = 'insert');
+    FOR TABLE public.outbox WITH (publish = 'insert');
 COMMIT;
 
 SELECT pg_create_logical_replication_slot('pg_transactional_outbox_slot', 'pgoutput');
@@ -286,7 +298,8 @@ SELECT pg_create_logical_replication_slot('pg_transactional_outbox_slot', 'pgout
 ## Database setup for the consumer
 
 Corresponding to the outbox table, the consumer service must have the inbox
-table. You can also decide to put it in a separate database schema.
+table. You can also decide to put it in a separate database schema
+(recommended).
 
 You can follow again the steps below or use the
 `examples/rabbitmq/consumer/setup/init-db.ts` script as an example to generate
@@ -306,12 +319,13 @@ CREATE TABLE public.inbox (
 );
 ```
 
-The database role that reads from this table and should mutate the
-business-relevant data must be granted the select, insert and delete permissions
-for this table.
+The database role that stores the incoming messages in the inbox table must be
+granted the select and insert permissions for this table. If the same role is
+also used to process the inbox messages later on it requires also the update and
+maybe also the delete permissions.
 
 ```sql
-GRANT SELECT, INSERT, DELETE ON public.inbox TO db_login_inbox;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.inbox TO db_login_inbox;
 ```
 
 Just like for accessing the outbox table WAL, the inbox solution requires a
@@ -389,6 +403,8 @@ import {
   // aggregate type (movie) and the message type (movie_created). It will be
   // called to insert the outgoing message into the outbox as part of the DB
   // transaction that is responsible for this event.
+  // You can alternatively use initializeGeneralOutboxMessageStorage for a
+  // outbox message storage function to store different message/aggregate types.
   const storeOutboxMessage = initializeOutboxMessageStorage(
     'movie',
     'movie_created',
@@ -408,7 +424,7 @@ import {
   try {
     client.connect();
     // The movie and the outbox message must be inserted in the same transaction.
-    await client.query('BEGIN');
+    await client.query('START TRANSACTION ISOLATION LEVEL SERIALIZABLE');
     // Insert the movie (and query/mutate potentially a lot more data)
     const result = await client.query(
       `INSERT INTO public.movies (title) VALUES ('some movie') RETURNING id, title;`,
@@ -465,7 +481,7 @@ import {
   const config: InboxConfig = {
     // This configuration is used to start a transaction that locks and updates
     // the row in the inbox table that was found from the WAL log. This connection
-    // will also be used in the message handler so every query and mutation is
+    // will also be used in the message handler so every select and data change is
     // part of the same database transaction. The inbox database row is then
     // marked as "processed" when everything went fine.
     pgConfig: {
@@ -522,8 +538,7 @@ import {
   initializeInboxListener(
     config,
     // This array holds a list of all message handlers for all the aggregate
-    // and message types. More than one handler can be configured for the same
-    // aggregate type and message type.
+    // and message types.
     [
       {
         aggregateType: 'movie',
@@ -532,7 +547,7 @@ import {
           message: InboxMessage,
           client: ClientBase,
         ): Promise<void> => {
-          // Execute the message handler logic using the same database
+          // Executes the message handler logic using the same database
           // transaction as the inbox message acknowledgement.
           const { payload } = message;
           if (
@@ -548,6 +563,21 @@ import {
               [payload.id, payload.title],
             );
           }
+        },
+        handleError: async (
+          error: Error,
+          message: InboxMessage,
+          _client: ClientBase,
+          { current, max }: { current: number; max: number },
+        ): Promise<'transient_error' | 'permanent_error'> => {
+          if (current < max) {
+            return 'transient_error';
+          }
+          logger.error(
+            error,
+            `Giving up processing message with ID ${message.id}.`,
+          );
+          return 'permanent_error';
         },
       },
     ],
@@ -574,6 +604,65 @@ import {
 > can be a few hours but also some days. Messages that are older than this
 > defined duration should not be processed anymore.
 
+## Message format
+
+Messages are the means to transport information in a structured way from the
+message producer to the message consumer.
+
+Both the outbox and inbox message have the following properties:
+
+| Field Name    | Field Type | Description                                                                            |
+| ------------- | ---------- | -------------------------------------------------------------------------------------- |
+| id            | string     | The unique identifier of the message. Used to ensure a message is only processed once. |
+| aggregateType | string     | The type of the aggregate root (in DDD context) to which this message is related.      |
+| aggregateId   | string     | The unique identifier of the aggregate.                                                |
+| messageType   | string     | The type name of the event or command.                                                 |
+| payload       | object     | The message payload with the details for an event or instructions for a command.       |
+| metadata      | object     | Optional metadata used for the actual message transfer.                                |
+| createdAt     | string     | The date and time in ISO 8601 UTC format when the message was created.                 |
+
+In addition the inbox message keeps track of when it was processed and the
+number of attempts it took/currently has done.
+
+| Field Name  | Field Type | Description                                                              |
+| ----------- | ---------- | ------------------------------------------------------------------------ |
+| attempts    | number     | The number of times an inbox message was attempted to be processed.      |
+| processedAt | string     | The date and time in ISO 8601 UTC format when the message was processed. |
+
+## Concurrency Strategy
+
+The outbox and inbox listeners process messages that were stored in their
+corresponding tables. When they process the messages, you can influence the
+level of concurrency of the listeners. The default concurrency controller will
+use a mutex to guarantee sequential message processing. There are the following
+pre-build ones but you can also write your own (e.g. using a semaphore):
+
+- `createFullConcurrencyController` - this controller allows the parallel
+  processing of messages without guarantees on the processing order.
+- `createMutexConcurrencyController` - this controller guarantees sequential
+  message processing across all messages.
+- `createDiscriminatingMutexConcurrencyController` - this controller enables
+  sequential message processing based on a specified discriminator. This could
+  be the message type or some other (calculated) value. The controller still
+  guarantees sequential message processing but only across messages with the
+  same discriminator.
+- `createMultiConcurrencyController` - this is a combined concurrency
+  controller. You can define for every message which from the above controllers
+  should be use to manage concurrency.
+
+## Other Strategies
+
+The `messageProcessingTimeoutStrategy` allows you to define a message-based
+timeout on how long the message is allowed to be processed (in milliseconds).
+This allows you to give more time to process "expensive" messages while still
+processing others on a short timeout. By default, it uses the configured
+`messageProcessingTimeout`` or falls back to a 15-second timeout.
+
+The inbox listener lets you define the `messageProcessingTransactionLevel` per
+message. Some message processing may have higher isolation level requirements
+than others. If no custom strategy is provided it uses the default database
+transaction level via `BEGIN`.
+
 ## Testing
 
 The `__tests__` folder contains integration tests that test the functionality of
@@ -581,9 +670,3 @@ the outbox and inbox listener implementation. The tests are using the
 `testcontainers` library to start up a new docker PostgreSQL server.
 
 You can simply run the `test` script to execute the tests.
-
-The script `logical-rep-service` starts a manual test of the used
-[LogicalReplicationService](https://github.com/kibae/pg-logical-replication)
-library. This can be used to see how the library acts on different outage
-scenarios like a lost database server or other issues. This script depends on
-the infrastructure that is created with the `infra:up` script.
