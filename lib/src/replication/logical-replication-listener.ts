@@ -38,13 +38,12 @@ export interface TransactionalStrategies {
 }
 
 /**
- * Initiate the outbox/inbox table to listen for WAL messages.
+ * Initiate the outbox or inbox listener to listen for WAL messages.
  * @param config The replication connection settings and general replication settings
  * @param messageHandler The message handler that handles the outbox/inbox message
  * @param errorHandler A handler that can decide if the WAL message should be acknowledged (permanent_error) or not (transient_error which restarts the logical replication listener)
  * @param logger A logger instance for logging trace up to error logs
  * @param strategies Strategies to provide custom logic for handling specific scenarios
- * @param mapAdditionalRows The inbox table requires an additional row to be mapped to the inbox message
  * @returns A function to stop the logical replication listener
  */
 export const createLogicalReplicationListener = <T extends OutboxMessage>(
@@ -53,7 +52,7 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
   errorHandler: (message: T, err: Error) => Promise<ErrorType>,
   logger: TransactionalLogger,
   strategies: TransactionalStrategies,
-  mapAdditionalRows?: (row: object) => Record<string, unknown>,
+  listenerType: 'inbox' | 'outbox',
 ): [shutdown: { (): Promise<void> }] => {
   const plugin = new PgoutputPlugin({
     protoVersion: 1,
@@ -75,7 +74,7 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
     if (stopped) {
       return;
     }
-    logger.debug(`Transactional outbox/inbox listener starting`);
+    logger.debug(`Transactional ${listenerType} listener starting`);
     restartTimeout = undefined;
     client = new Client({
       ...pgReplicationConfig,
@@ -88,7 +87,7 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
         .catch((e) => {
           const err = ensureError(e);
           if (!(err instanceof MessageError)) {
-            logger.error(err, `Transactional outbox/inbox listener error`);
+            logger.error(err, `Transactional ${listenerType} listener error`);
           }
           return err;
         })
@@ -107,7 +106,9 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
     };
 
     // Start background functions to connect the DB client and handle replication data
-    applyRestart(subscribe(client, plugin, settings.postgresSlot, logger));
+    applyRestart(
+      subscribe(client, plugin, settings.postgresSlot, logger, listenerType),
+    );
     applyRestart(
       handleIncomingData(
         client,
@@ -118,14 +119,13 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
         concurrencyStrategy,
         messageProcessingTimeoutStrategy,
         logger,
-        mapAdditionalRows,
       ),
     );
   })();
 
   return [
     async (): Promise<void> => {
-      logger.debug('Started transactional outbox/inbox listener cleanup');
+      logger.debug(`Started transactional ${listenerType} listener cleanup`);
       stopped = true;
       if (restartTimeout) {
         clearTimeout(restartTimeout);
@@ -139,19 +139,15 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
 const getRelevantMessage = <T extends OutboxMessage>(
   log: Pgoutput.Message,
   { dbSchema, dbTable }: TransactionalOutboxInboxConfig['settings'],
-  mapAdditionalRows?: (row: object) => Record<string, unknown>,
 ): T | undefined =>
   log.tag === 'insert' &&
   log.relation.schema === dbSchema &&
   log.relation.name === dbTable
-    ? mapMessage(log.new, mapAdditionalRows)
+    ? mapMessage(log.new)
     : undefined;
 
 /** Maps the WAL log entry to an outbox or inbox message */
-const mapMessage = <T extends OutboxMessage>(
-  input: unknown,
-  mapAdditionalRows?: (row: object) => Record<string, unknown>,
-): T | undefined => {
+const mapMessage = <T extends OutboxMessage>(input: unknown): T | undefined => {
   if (typeof input !== 'object' || input === null) {
     return undefined;
   }
@@ -171,7 +167,6 @@ const mapMessage = <T extends OutboxMessage>(
   ) {
     return undefined;
   }
-  const additional = mapAdditionalRows?.(input);
   const message: OutboxMessage = {
     id: input.id,
     aggregateType: input.aggregate_type,
@@ -180,7 +175,6 @@ const mapMessage = <T extends OutboxMessage>(
     payload: input.payload,
     metadata: input.metadata as Record<string, unknown> | undefined,
     createdAt: input.created_at.toISOString(),
-    ...additional,
   };
   return message as T;
 };
@@ -190,19 +184,23 @@ const subscribe = async (
   plugin: AbstractPlugin,
   slotName: string,
   logger: TransactionalLogger,
+  listenerType: 'inbox' | 'outbox',
   uptoLsn?: string,
 ) => {
   const lastLsn = uptoLsn || '0/00000000';
 
   await client.connect();
   client.on('error', (e) => {
-    logger.error(e, `Transactional outbox/inbox listener DB client error`);
+    logger.error(e, `Transactional ${listenerType} listener DB client error`);
   });
   client.connection.on('error', (e) => {
-    logger.error(e, `Transactional outbox/inbox listener DB connection error`);
+    logger.error(
+      e,
+      `Transactional ${listenerType} listener DB connection error`,
+    );
   });
   client.connection.once('replicationStart', () => {
-    logger.trace(`Transactional outbox/inbox listener started`);
+    logger.trace(`Transactional ${listenerType} listener started`);
   });
 
   return plugin.start(client, slotName, lastLsn);
@@ -312,7 +310,6 @@ const handleIncomingData = <T extends OutboxMessage>(
     message: T,
   ) => number,
   logger: TransactionalLogger,
-  mapAdditionalRows?: (row: object) => Record<string, unknown>,
 ): Promise<void> => {
   if (!client.connection) {
     throw new Error('Client not connected.');
@@ -401,11 +398,7 @@ const handleIncomingData = <T extends OutboxMessage>(
 
           if (buffer[0] === LOG_FLAG) {
             const xLogData = plugin.parse(buffer.subarray(25));
-            const message = getRelevantMessage<T>(
-              xLogData,
-              config,
-              mapAdditionalRows,
-            );
+            const message = getRelevantMessage<T>(xLogData, config);
             if (!message) {
               return;
             }

@@ -77,6 +77,11 @@ export const getConfig = (env: Env = process.env) => {
     rmqMgmtPort: getEnvVariableNumber(env, 'RABBITMQ_MGMT_PORT', 15672),
 
     maxAttempts: getEnvVariableNumber(env, 'MAX_ATTEMPTS', 5),
+    maxPoisonousAttempts: getEnvVariableNumber(
+      env,
+      'MAX_POISONOUS_ATTEMPTS',
+      3,
+    ),
   };
 };
 
@@ -105,6 +110,7 @@ export const getInboxConfig = (config: Config): InboxConfig => {
       postgresPub: config.postgresInboxPub,
       postgresSlot: config.postgresInboxSlot,
       maxAttempts: config.maxAttempts,
+      maxPoisonousAttempts: config.maxPoisonousAttempts,
     },
   };
 };

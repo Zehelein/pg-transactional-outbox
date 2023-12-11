@@ -37,5 +37,6 @@ export const initializeOutboxListener = (
     logErrors,
     logger,
     strategies,
+    'outbox',
   );
 };

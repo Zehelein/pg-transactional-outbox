@@ -39,8 +39,8 @@ export const awaitWithTimeout = <T>(
 /**
  * PostgreSQL available isolation levels. The isolation level "Read uncommitted"
  * is the same as "Read committed" in PostgreSQL. And the readonly variants are
- * not usable as the inbox message must be marked as processed or the "attempts"
- * counter is updated for the message.
+ * not usable as the inbox message must be marked as processed or the
+ * "finished_attempts" counter is updated for the message.
  */
 export enum IsolationLevel {
   Serializable = 'SERIALIZABLE',

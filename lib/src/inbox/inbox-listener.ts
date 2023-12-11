@@ -1,4 +1,4 @@
-import { ClientBase, ClientConfig, Pool } from 'pg';
+import { ClientBase, ClientConfig, Pool, PoolClient } from 'pg';
 import { ErrorType } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { InboxMessage } from '../common/message';
@@ -9,9 +9,11 @@ import {
   createLogicalReplicationListener,
 } from '../replication/logical-replication-listener';
 import {
+  PoisonousCheck,
   ackInbox,
   getMaxAttempts,
   nackInbox,
+  poisonousMessageUpdate,
   verifyInbox,
 } from './inbox-message-storage';
 
@@ -29,6 +31,12 @@ export type InboxConfig = TransactionalOutboxInboxConfig & {
      * four more times for retries.
      */
     maxAttempts?: number;
+    /**
+     * Defines the maximum number of times a message is going to be processed
+     * when it is (likely) a poisonous message which is causing a server crash.
+     * Defaults to three.
+     */
+    maxPoisonousAttempts?: number;
   };
 };
 
@@ -54,7 +62,7 @@ export interface InboxMessageHandler {
   /**
    * Custom (optional) business logic to handle an error that was caused by the
    * "handle" method. Please ensure that this function does not throw an error
-   * as the attempts counter is increased in the same transaction.
+   * as the finished_attempts counter is increased in the same transaction.
    * @param error The error that was thrown in the handle method.
    * @param message The inbox message with the payload that was attempted to be handled.
    * @param client The database client that is part of a (new) transaction to safely handle the error.
@@ -76,6 +84,17 @@ export interface InboxStrategies extends TransactionalStrategies {
    * inbox message. If none is provided it uses the Postgres transaction default.
    */
   messageProcessingTransactionLevel?: (message: InboxMessage) => IsolationLevel;
+
+  /**
+   * Decide based on the message, the poisonous attempts counter (which is
+   * already increased by one), and the processing attempts if the message
+   * should be retried again or not. This method is called if the
+   * "started_attempts" and the "finished_attempts" differ by more than one.
+   */
+  poisonousMessageRetryStrategy?: (
+    message: InboxMessage,
+    poisonousCheck: PoisonousCheck,
+  ) => boolean;
 }
 
 /**
@@ -115,6 +134,7 @@ export const initializeInboxListener = (
     errorResolver,
     logger,
     strategies,
+    'inbox',
   );
   return [
     async () => {
@@ -150,6 +170,20 @@ const createMessageHandler = (
   return async (message: InboxMessage) => {
     const transactionLevel =
       strategies.messageProcessingTransactionLevel?.(message);
+
+    // increase the "started_attempts" and check if the message is probably not a poisonous message
+    const attempt = await executeTransaction(
+      pool,
+      async (client) =>
+        poisonousMessageCheck(message, strategies, client, config, logger),
+      transactionLevel,
+      logger,
+    );
+
+    if (!attempt) {
+      return;
+    }
+
     await executeTransaction(
       pool,
       async (client) => {
@@ -158,6 +192,10 @@ const createMessageHandler = (
           const handler = messageHandlers[getMessageHandlerKey(message)];
           if (handler) {
             await handler.handle(message, client);
+          } else {
+            logger.debug(
+              `No message handler found for aggregate type "${message.aggregateType}" and message tye "${message.messageType}"`,
+            );
           }
           await ackInbox(message, client, config);
         } else {
@@ -171,6 +209,43 @@ const createMessageHandler = (
       logger,
     );
   };
+};
+
+/**
+ * Increases the "started_attempts" counter and checks if it is now more than
+ * one higher than the "finished_attempts". It calls the
+ * "poisonousMessageRetryStrategy" if it is provided or checks based on the
+ * configured maxPoisonousAttempts (default: 3) if another retry should be done.
+ * @returns true if the message should be attempted or false if not
+ */
+const poisonousMessageCheck = async (
+  message: InboxMessage,
+  strategies: InboxStrategies,
+  client: PoolClient,
+  config: InboxConfig,
+  logger: TransactionalLogger,
+) => {
+  const result = await poisonousMessageUpdate(message, client, config);
+  if (!result) {
+    return false; // message not found
+  }
+
+  const diff = result.startedAttempts - result.finishedAttempts;
+  if (diff > 1) {
+    const retry = strategies.poisonousMessageRetryStrategy
+      ? strategies.poisonousMessageRetryStrategy(message, result)
+      : diff <= (config.settings.maxPoisonousAttempts ?? 3);
+
+    if (!retry) {
+      logger.error(
+        message,
+        `Stopped processing the message with ID ${message.id} as it is likely a poisonous message.`,
+      );
+      await ackInbox(message, client, config);
+      return false;
+    }
+  }
+  return true;
 };
 
 const getMessageHandlerKey = (
@@ -199,7 +274,7 @@ const getMessageHandlerDict = (
 };
 
 /**
- * Increase the attempts counter of the message and retry it later.
+ * Increase the "finished_attempts" counter of the message and (potentially) retry it later.
  */
 const createErrorResolver = (
   messageHandlers: Record<string, InboxMessageHandler>,
@@ -209,10 +284,10 @@ const createErrorResolver = (
   logger: TransactionalLogger,
 ) => {
   /**
-   * An error handler that will increase the inbox attempts counter on transient
-   * errors or sets the attempts counter to max attempts for permanent errors.
-   * The message handler `handleError` is called to allow for your code to
-   * decide if the error is a transient or a permanent one.
+   * An error handler that will increase the "finished_attempts" counter on
+   * transient errors or sets the "finished_attempts" counter to max attempts
+   * for permanent errors. The message handler `handleError` is called to allow
+   * your code to decide if the error is a transient or a permanent one.
    * @param message: the InboxMessage that failed to be processed
    * @param error: the error that was thrown while processing the message
    */
@@ -228,14 +303,14 @@ const createErrorResolver = (
           const maxAttempts = getMaxAttempts(config.settings.maxAttempts);
           if (handler?.handleError) {
             errorType = await handler.handleError(error, message, client, {
-              current: message.attempts + 1,
+              current: message.finishedAttempts + 1,
               max: maxAttempts,
             });
           }
           let attempts: number | undefined;
           if (
             errorType === 'permanent_error' ||
-            message.attempts + 1 >= maxAttempts
+            message.finishedAttempts + 1 >= maxAttempts
           ) {
             attempts = maxAttempts;
             logger.error(
@@ -261,7 +336,7 @@ const createErrorResolver = (
           ? 'The error handling of the message failed. Please make sure that your error handling code does not throw an error!'
           : 'The error handling of the message failed.',
       );
-      // In case the error handling logic failed do a best effort to increase the attempts counter
+      // In case the error handling logic failed do a best effort to increase the "finished_attempts" counter
       try {
         await executeTransaction(
           pool,

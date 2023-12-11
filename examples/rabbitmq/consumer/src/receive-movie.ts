@@ -21,6 +21,11 @@ export const getStorePublishedMovie =
     const { payload } = message;
     assertPublishedMovie(payload);
     logger.trace(payload, 'Started to insert the published movie');
+    // You can test poisonous messages by changing 'Z' to e.g. '0'
+    if (message.id.startsWith('Z')) {
+      logger.fatal(message, `Crashing message with ID ${message.id}.`);
+      process.exit(1);
+    }
     await insertPublishedMovie(payload, client);
     logger.trace(payload, 'Inserted the published movie');
   };

@@ -8,7 +8,11 @@ import { sleep } from '../common/utils';
 import { InboxConfig, initializeInboxListener } from './inbox-listener';
 import * as inboxSpy from './inbox-message-storage';
 
-type MessageIdType = 'not_processed_id' | 'processed_id' | 'attempts_exceeded';
+type MessageIdType =
+  | 'not_processed_id'
+  | 'processed_id'
+  | 'attempts_exceeded'
+  | 'poisonous_message_exceeded';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
@@ -78,6 +82,9 @@ const sendReplicationChunk = (id: MessageIdType) => {
     case 'attempts_exceeded':
       data[25] = 2;
       break;
+    case 'poisonous_message_exceeded':
+      data[25] = 3;
+      break;
   }
   const chunk = Buffer.from(data);
   (client as any).connection.emit('copyData', {
@@ -118,7 +125,8 @@ const inboxDbMessages = [
     payload: { result: 'success' },
     metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
     created_at: new Date('2023-01-18T21:02:27.000Z'),
-    attempts: 2,
+    started_attempts: 2,
+    finished_attempts: 2,
     processed_at: null,
   },
   {
@@ -129,7 +137,8 @@ const inboxDbMessages = [
     payload: { result: 'success' },
     metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
     created_at: new Date('2023-01-18T21:02:27.000Z'),
-    attempts: 0,
+    started_attempts: 0,
+    finished_attempts: 0,
     processed_at: new Date('2023-01-18T21:02:27.000Z'),
   },
   {
@@ -140,23 +149,37 @@ const inboxDbMessages = [
     payload: { result: 'success' },
     metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
     created_at: new Date('2023-01-18T21:02:27.000Z'),
-    attempts: 4, // 5 is max by default
+    started_attempts: 4,
+    finished_attempts: 4, // 5 is max by default
+    processed_at: null,
+  },
+  {
+    id: 'poisonous_message_exceeded' as MessageIdType,
+    aggregate_type,
+    message_type,
+    aggregate_id: 'test_aggregate_id',
+    payload: { result: 'success' },
+    metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
+    created_at: new Date('2023-01-18T21:02:27.000Z'),
+    started_attempts: 4, // maximum of 3 poisonous retries difference
+    finished_attempts: 1,
     processed_at: null,
   },
 ];
 
-/** The message directly from the DB with current attempts/processed_at */
+/** The message directly from the DB with started_attempts/finished_attempts/processed_at */
 const inboxDbMessageById = (id: MessageIdType) =>
   inboxDbMessages.find((m) => m.id === id);
 
-/** The message from the WAL having attempts=0 and processed_at=null  */
+/** The message from the WAL having no started_attempts/finished_attempts/processed_at */
 const inboxMessageById = (id: MessageIdType) => {
   const message = inboxDbMessageById(id);
   if (!message) {
     return;
   }
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { attempts, processed_at, ...messageRest } = message;
+  const { started_attempts, finished_attempts, processed_at, ...messageRest } =
+    message;
   return messageRest;
 };
 
@@ -168,6 +191,8 @@ const inboxMessageByFlag = (buffer: Buffer) => {
       return inboxMessageById('not_processed_id');
     case 2:
       return inboxMessageById('attempts_exceeded');
+    case 3:
+      return inboxMessageById('poisonous_message_exceeded');
   }
 };
 
@@ -221,21 +246,43 @@ describe('Inbox service unit tests - initializeInboxService', () => {
 
     client = {
       query: jest.fn((sql: string, params: [any]) => {
-        switch (sql) {
-          case 'SELECT processed_at, attempts FROM test_schema.test_table WHERE id = $1 FOR UPDATE NOWAIT': {
-            const dbMessage = inboxDbMessageById(params[0] as MessageIdType);
-            return {
-              rowCount: dbMessage ? 1 : 0,
-              rows: dbMessage
-                ? [
-                    {
-                      processed_at: dbMessage.processed_at,
-                      attempts: dbMessage.attempts,
-                    },
-                  ]
-                : [],
-            };
-          }
+        if (
+          sql.includes(
+            'SELECT started_attempts, finished_attempts, processed_at FROM test_schema.test_table WHERE id = $1 FOR UPDATE NOWAIT',
+          )
+        ) {
+          const dbMessage = inboxDbMessageById(params[0] as MessageIdType);
+          return {
+            rowCount: dbMessage ? 1 : 0,
+            rows: dbMessage
+              ? [
+                  {
+                    processed_at: dbMessage.processed_at,
+                    started_attempts: dbMessage.started_attempts,
+                    finished_attempts: dbMessage.finished_attempts,
+                  },
+                ]
+              : [],
+          };
+        } else if (
+          sql.includes(
+            'UPDATE test_schema.test_table SET started_attempts = started_attempts + 1 WHERE id = $1',
+          )
+        ) {
+          const dbMessage = inboxDbMessageById(params[0] as MessageIdType);
+          return {
+            rowCount: dbMessage ? 1 : 0,
+            rows: dbMessage
+              ? [
+                  {
+                    started_attempts: dbMessage.started_attempts + 1,
+                    finished_attempts: dbMessage.finished_attempts,
+                  },
+                ]
+              : [],
+          };
+        } else {
+          throw new Error(`Found an SQL query that was not mocked: ${sql}`);
         }
       }),
       connect: jest.fn(),
@@ -262,7 +309,8 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
-      attempts: 2,
+      startedAttempts: 2,
+      finishedAttempts: 2,
       processedAt: null,
     };
     const [cleanup] = initializeInboxListener(
@@ -416,7 +464,8 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
-      attempts: 2,
+      startedAttempts: 2,
+      finishedAttempts: 2,
       processedAt: null,
     };
     const [cleanup] = initializeInboxListener(
@@ -466,7 +515,51 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
   });
 
-  it('should call a messageHandler on a message that has reached the attempts limit and thus acknowledge the WAL message when the message handler throws an error', async () => {
+  it('should not call the messageHandler on a poisonous message that already has exceeded the maximum poisonous retries', async () => {
+    // Arrange
+    const messageHandler = jest.fn(() => Promise.resolve());
+    const message = {
+      id: 'poisonous_message_exceeded',
+      aggregateType: aggregate_type,
+      messageType: message_type,
+      aggregateId: 'test_aggregate_id',
+      payload: { result: 'success' },
+      metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
+      createdAt: '2023-01-18T21:02:27.000Z',
+      // The following fields are only mapped when the message should be (re)tried:
+      // startedAttempts, finishedAttempts, and processedAt
+    };
+    const [cleanup] = initializeInboxListener(
+      config,
+      [
+        {
+          aggregateType: message.aggregateType,
+          messageType: message.messageType,
+          handle: messageHandler,
+        },
+      ],
+      getDisabledLogger(),
+    );
+
+    // Act
+    sendReplicationChunk('poisonous_message_exceeded');
+    await continueEventLoop();
+
+    // Assert
+    expect(messageHandler).not.toHaveBeenCalled();
+    expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
+    expect(ackInboxSpy).toHaveBeenCalledWith(
+      message,
+      expect.any(Object),
+      expect.any(Object),
+    );
+    expect(nackInboxSpy).not.toHaveBeenCalled();
+    expect(client.connect).toHaveBeenCalledTimes(1);
+    await cleanup();
+    expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
+  it('should not process a message when the', async () => {
     // Arrange
     const unusedMessageHandler = jest.fn(() => Promise.resolve());
     const message = {
@@ -477,7 +570,8 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
-      attempts: 4,
+      startedAttempts: 4,
+      finishedAttempts: 4,
       processedAt: null,
     };
     const [cleanup] = initializeInboxListener(
@@ -532,7 +626,8 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
-      attempts: 2,
+      startedAttempts: 2,
+      finishedAttempts: 2,
       processedAt: null,
     };
     const [logger, logs] = getInMemoryLogger('unit test');

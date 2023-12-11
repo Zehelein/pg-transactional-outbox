@@ -24,6 +24,7 @@ export const getConfigs = (port: number) => {
       postgresSlot: 'pg_transactional_inbox_tests_slot',
       restartDelay: 1,
       maxAttempts: 5,
+      maxPoisonousAttempts: 3,
     },
   };
 

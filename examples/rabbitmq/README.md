@@ -14,6 +14,23 @@ messages. The root folder `./infra` contains a `docker-compose.yml` file to
 create a local PostgreSQL and RabbitMQ instance for you. You can adjust the
 settings - especially the ports.
 
+You can use the pgAdmin interface to check the database for the inbox and outbox
+tables as well as the movie tables. With the default settings, the URL is
+http://localhost:8084/ and the username and password are `dev@local.com` and
+`pgAdmin`.
+
+You can add the PostgreSQL server if you kept the defaults with the following
+details:
+
+- hostname: `postgres`
+- port: 5432
+- username: `postgres`
+- password: `postgres`
+
+You can find the RabbitMQ management interface to check messages under the URL
+http://localhost:35672/ and the username and password are `guest` / `guest` if
+you use the defaults.
+
 ## Setup
 
 The producer and consumer services include a `.env.template` file in the project

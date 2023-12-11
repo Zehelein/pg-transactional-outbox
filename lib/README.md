@@ -3,13 +3,27 @@
 The `pg-transactional-outbox` library implements the transactional outbox and
 transactional inbox pattern based on PostgreSQL. It ensures that outgoing
 messages are only sent when your code successfully commits your transaction. On
-the receiving side it ensures that a message is stored exactly once and that
+the receiving side, it ensures that a message is stored exactly once and that
 your handler marks the message only as done when your code finishes
 successfully.
 
 ![postgresql_outbox_pattern](https://user-images.githubusercontent.com/9946441/211221740-a10d3c0b-dfa9-4c4e-84fb-068f6e63aaac.jpeg)
 _Message delivery via the PostgreSQL-based transactional outbox pattern
 (generated with Midjourney)_
+
+Install the library
+[npmjs | pg-transactional-outbox](https://www.npmjs.com/package/pg-transactional-outbox)
+e.g. via
+
+```
+npm i pg-transactional-outbox
+```
+
+or
+
+```
+yarn add pg-transactional-outbox
+```
 
 **Table of contents:**
 
@@ -18,16 +32,18 @@ _Message delivery via the PostgreSQL-based transactional outbox pattern
   - [What is the transactional outbox pattern](#what-is-the-transactional-outbox-pattern)
   - [What is the transactional inbox pattern](#what-is-the-transactional-inbox-pattern)
   - [What is the PostgreSQL Logical Replication](#what-is-the-postgresql-logical-replication)
-- [The pg-transactional-outbox library](#the-pg-transactional-outbox-library)
+- [The pg-transactional-outbox library usage](#the-pg-transactional-outbox-library-overview)
   - [Database server](#database-server)
   - [Database setup for the producer](#database-setup-for-the-producer)
   - [Database setup for the consumer](#database-setup-for-the-consumer)
   - [Implementing the transactional outbox producer](#implementing-the-transactional-outbox-producer)
   - [Implementing the transactional inbox consumer](#implementing-the-transactional-inbox-consumer)
   - [Message format](#message-format)
-  - [Concurrency Strategy](#concurrency-strategy)
+- [Strategies](#strategies)
+  - [Concurrency strategy](#concurrency-strategy)
+  - [Poisonous message retries](#poisonous-message-retries)
   - [Other Strategies](#other-strategies)
-  - [Testing](#testing)
+- [Testing](#testing)
 
 # Context
 
@@ -159,8 +175,10 @@ exactly-once processing (in combination with the transactional outbox pattern):
    the above diagram handles this step.
 3. A consumer process receives the messages that were stored in the inbox table
    and processes them. It uses a transaction to store all the service-relevant
-   data and mark the inbox message in the inbox table as processed. This is done
-   by the `inbox listener` in the above diagram.
+   data and mark the inbox message in the inbox table as processed. If an error
+   happens during message processing the message can be retried for a
+   configurable amount of attempts. This is done by the `inbox listener` in the
+   above diagram.
 
 Step three can be implemented again as a Polling-Publisher or via the
 Transactional Log Tailing approach like for the outbox pattern.
@@ -184,7 +202,7 @@ The replication process begins with the creation of a replication slot on the
 primary database server. A replication slot is a feature on the PostgreSQL
 server that persists information about the state of replication streams.
 Replication slots serve to retain WAL (Write-Ahead Logging) files on the
-publisher , ensuring that the required logs for replication are not removed
+publisher, ensuring that the required logs for replication are not removed
 before the subscribing server received them. It keeps track of the last WAL
 location that was successfully sent to the subscriber, so that upon reconnection
 after a disconnect, replication can resume from that position without missing
@@ -194,7 +212,7 @@ tables are replicated.
 A publisher prepares and sends the stream of data changes from specified tables
 to the subscribers. For the transactional outbox and inbox scenario the outbox
 and inbox tables are configured for publication. The publisher creates a set of
-changes that need to be replicated based on insert, updates, and deletes on the
+changes that need to be replicated based on inserts, updates, and deletes on the
 published tables. These changes are sent in the form of "WAL records"
 (Write-Ahead Log records). Publications are used in conjunction with
 subscriptions to set up logical replication from the publisher to the
@@ -213,10 +231,10 @@ In this way, the publisher and subscriber can maintain a consistent position in
 the replication stream, allowing the subscriber to catch up with any changes
 that may have occurred while it was disconnected.
 
-# The pg-transactional-outbox library
+# The pg-transactional-outbox library overview
 
 This library implements the transactional outbox and inbox pattern using the
-PostgreSQL server and the Transactional Tog Tailing approach via the PostgreSQL
+PostgreSQL server and the Transactional Log Tailing approach via the PostgreSQL
 Write-Ahead Log (WAL).
 
 You can use the library in your node.js projects that use a PostgreSQL database
@@ -315,7 +333,8 @@ CREATE TABLE public.inbox (
   metadata JSONB,
   created_at TIMESTAMPTZ NOT NULL,
   processed_at TIMESTAMPTZ,
-  attempts smallint NOT NULL DEFAULT 0
+  started_attempts smallint NOT NULL DEFAULT 0,
+  finished_attempts smallint NOT NULL DEFAULT 0
 );
 ```
 
@@ -344,7 +363,7 @@ SELECT pg_create_logical_replication_slot('pg_transactional_inbox_slot', 'pgoutp
 
 The following code shows the producer side of the transactional outbox pattern.
 The two main functions are the `initializeOutboxListener` to listen to the WAL
-messages when an outbox message was written to the outbox table. And the
+messages when an outbox message is written to the outbox table. And the
 `initializeOutboxMessageStorage` generator function to store outgoing messages
 in the outbox table (for a specific aggregate type and message type).
 
@@ -454,8 +473,8 @@ transactional inbox pattern. The main functions are the
 receiver like a RabbitMQ-based message handler to store the incoming message
 (which was based on an outbox message) in the inbox table. The other central
 function is `initializeInboxListener`. It uses one database connection based on
-a user with the replication permission to receive notifications when a new inbox
-message was created. And a second database connection to open a transaction,
+a user with replication permission to receive notifications when a new inbox
+message is created. It uses a second database connection to open a transaction,
 load the inbox message from the database and lock it, execute the message
 handler queries/mutations, and finally mark the inbox message as processed in
 the database.
@@ -621,17 +640,28 @@ Both the outbox and inbox message have the following properties:
 | metadata      | object     | Optional metadata used for the actual message transfer.                                |
 | createdAt     | string     | The date and time in ISO 8601 UTC format when the message was created.                 |
 
-In addition the inbox message keeps track of when it was processed and the
+In addition, the inbox message keeps track of when it was processed and the
 number of attempts it took/currently has done.
 
-| Field Name  | Field Type | Description                                                              |
-| ----------- | ---------- | ------------------------------------------------------------------------ |
-| attempts    | number     | The number of times an inbox message was attempted to be processed.      |
-| processedAt | string     | The date and time in ISO 8601 UTC format when the message was processed. |
+| Field Name        | Field Type | Description                                                                               |
+| ----------------- | ---------- | ----------------------------------------------------------------------------------------- |
+| started_attempts  | number     | The number of times an inbox message was attempted to be processed.                       |
+| finished_attempts | number     | The number of times an inbox message was processed (successfully or with a caught error). |
+| processedAt       | string     | The date and time in ISO 8601 UTC format when the message was processed.                  |
 
-## Concurrency Strategy
+# Strategies
 
-The outbox and inbox listeners process messages that were stored in their
+The strategy pattern is a behavioral design pattern that enables selecting an
+algorithm at runtime. Instead of implementing a single algorithm directly, the
+listeners receive run-time instructions as to which algorithm should be used.
+This allows you to customize different parts of the message handling for
+concurrency, retries, poisonous message handling, etc. By defining a common
+interface for different scenarios you can use either existing code or write your
+custom implementations.
+
+## Concurrency strategy
+
+The outbox and inbox listeners process messages that are stored in their
 corresponding tables. When they process the messages, you can influence the
 level of concurrency of the listeners. The default concurrency controller will
 use a mutex to guarantee sequential message processing. There are the following
@@ -647,8 +677,28 @@ pre-build ones but you can also write your own (e.g. using a semaphore):
   guarantees sequential message processing but only across messages with the
   same discriminator.
 - `createMultiConcurrencyController` - this is a combined concurrency
-  controller. You can define for every message which from the above controllers
-  should be use to manage concurrency.
+  controller. You can define which of the above controllers should be used for
+  different kinds of messages.
+
+## Poisonous message retries
+
+A poisonous message is a message that causes the service to crash repeatedly and
+prevents other messages from being processed. To avoid this situation, the
+service tracks the number of times a message is started and finished, regardless
+of the outcome (success or error). If the service crashes while processing a
+message, it will retry the message until it succeeds or reaches a maximum number
+of attempts.
+
+You can customize the behavior of the service by changing the following options:
+
+- `settings.maxPoisonousAttempts`: This is the maximum number of times the
+  service will retry a message before marking it as poisonous. The default value
+  is 3, but you can change it to any positive integer.
+- `poisonousMessageRetryStrategy`: This is a function that determines whether a
+  message should be retried or not, based on the started and finished counts.
+  The default function is (started, finished) => started - finished >= 3, but
+  you can implement your own logic and pass it as an argument to the service
+  constructor.
 
 ## Other Strategies
 

@@ -18,8 +18,10 @@ export interface OutboxMessage {
 
 /** The inbox message for storing it to the DB and receiving it back from the WAL */
 export interface InboxMessage extends OutboxMessage {
-  /** The number of times an inbox message was already tried to be processed */
-  attempts: number;
+  /** The number of times an inbox message was attempted to be processed. */
+  startedAttempts: number;
+  /** The number of times an inbox message was processed (successfully or with a caught error). */
+  finishedAttempts: number;
   /** The date and time in ISO 8601 "internet time" UTC format (e.g. "2023-10-17T11:48:14Z") when the message was processed */
   processedAt: string | null;
 }

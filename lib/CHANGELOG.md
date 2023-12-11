@@ -3,7 +3,7 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
-## [0.4.0] - 2023-11-23
+## [0.4.0] - 2023-12-10
 
 ### Changed
 
@@ -12,6 +12,14 @@ this file.
   to the outbox and inbox listener.
 - BREAKING CHANGE: changed the term "service" to "listener" in multiple places
   to more accurately reflect what the code does.
+- BREAKING CHANGE: renamed "attempts" to "finished_attempts" and added the
+  column "started_attempts" in the transactional inbox. This was done to
+  implement the poisonous message handling. Please run the following command to
+  update your database (adjust the namespace to yours):
+  ```sql
+  ALTER TABLE app_public.inbox RENAME COLUMN attempts TO finished_attempts;
+  ALTER TABLE app_public.inbox ADD COLUMN started_attempts smallint NOT NULL DEFAULT 0;
+  ```
 
 ### Added
 

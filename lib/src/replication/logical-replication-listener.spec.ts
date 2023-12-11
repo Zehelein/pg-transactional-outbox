@@ -170,7 +170,6 @@ const relation: Pgoutput.MessageRelation = {
 
 describe('Local replication service unit tests', () => {
   describe('getRelevantMessage', () => {
-    const mapAdditionalRows = jest.fn();
     it('should return undefined if log tag is not "insert"', () => {
       // Arrange
       const update: Pgoutput.MessageUpdate = {
@@ -241,11 +240,7 @@ describe('Local replication service unit tests', () => {
       };
 
       // Act
-      const message = tests?.getRelevantMessage?.(
-        log,
-        settings,
-        mapAdditionalRows,
-      );
+      const message = tests?.getRelevantMessage?.(log, settings);
 
       // Assert
       expect(message).toEqual({
@@ -256,15 +251,6 @@ describe('Local replication service unit tests', () => {
         payload: { test: 'payload' },
         metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
         createdAt: '2023-01-18T21:02:27.000Z',
-      });
-      expect(mapAdditionalRows).toHaveBeenCalledWith({
-        id: 'test_aggregate_id',
-        aggregate_type: 'test_aggregate_type',
-        aggregate_id: 'test_aggregate_id',
-        message_type: 'test_message_type',
-        payload: { test: 'payload' },
-        metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
-        created_at: new Date('2023-01-18T21:02:27.000Z'),
       });
     });
   });
@@ -330,50 +316,15 @@ describe('Local replication service unit tests', () => {
         createdAt: '2023-01-18T21:02:27.000Z',
       });
     });
-
-    it('should map additional properties if mapAdditionalRows is provided', () => {
-      // Arrange
-      const input = {
-        id: '123',
-        aggregate_type: 'test_aggregate_type',
-        aggregate_id: 'test_aggregate_id',
-        message_type: 'test_message_type',
-        created_at: new Date('2023-01-18T21:02:27.000Z'),
-        payload: { test: 'payload' },
-        metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
-        additional_property: 'additional_value',
-      };
-      const mapAdditionalRows = (row: object) => ({
-        additional_property: (row as typeof input).additional_property,
-      });
-
-      // Act
-      const message = tests?.mapMessage?.(input, mapAdditionalRows);
-
-      // Assert
-      expect(message).toBeDefined();
-      expect(message).toEqual({
-        id: '123',
-        aggregateType: 'test_aggregate_type',
-        aggregateId: 'test_aggregate_id',
-        messageType: 'test_message_type',
-        payload: { test: 'payload' },
-        metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
-        createdAt: '2023-01-18T21:02:27.000Z',
-        additional_property: 'additional_value',
-      });
-    });
   });
 
   describe('createService', () => {
     let messageHandler: jest.Mock;
     let errorHandler: jest.Mock;
-    let mapAdditionalRows: jest.Mock;
 
     beforeEach(() => {
       messageHandler = jest.fn();
       errorHandler = jest.fn();
-      mapAdditionalRows = jest.fn();
 
       const connection = new EventEmitter();
       (connection as any).sendCopyFromChunk = jest.fn();
@@ -400,7 +351,7 @@ describe('Local replication service unit tests', () => {
         errorHandler,
         getDisabledLogger(),
         {},
-        mapAdditionalRows,
+        'inbox',
       );
       await continueEventLoop();
 
@@ -411,7 +362,6 @@ describe('Local replication service unit tests', () => {
       // Assert
       expect(messageHandler).toHaveBeenCalledWith(message);
       expect(errorHandler).not.toHaveBeenCalled();
-      expect(mapAdditionalRows).toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
       expect(client.connect).toHaveBeenCalledTimes(1);
       await cleanup();
@@ -439,7 +389,7 @@ describe('Local replication service unit tests', () => {
         },
         getDisabledLogger(),
         {},
-        mapAdditionalRows,
+        'inbox',
       );
       await continueEventLoop();
 
@@ -449,7 +399,6 @@ describe('Local replication service unit tests', () => {
 
       // Assert
       expect(errorHandlerCalled).toBe(true);
-      expect(mapAdditionalRows).toHaveBeenCalled();
       expect(errorHandler).not.toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
       expect(client.connect).toHaveBeenCalledTimes(1);
@@ -478,7 +427,7 @@ describe('Local replication service unit tests', () => {
         },
         getDisabledLogger(),
         {},
-        mapAdditionalRows,
+        'inbox',
       );
       await continueEventLoop();
 
@@ -489,7 +438,6 @@ describe('Local replication service unit tests', () => {
       // Assert
       expect(errorHandlerCalled).toBe(true);
       expect(errorHandler).not.toHaveBeenCalled();
-      expect(mapAdditionalRows).toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).toHaveBeenCalledTimes(1);
       expect(client.connect).toHaveBeenCalledTimes(1);
       await cleanup();
@@ -508,7 +456,7 @@ describe('Local replication service unit tests', () => {
         errorHandler,
         getDisabledLogger(),
         {},
-        mapAdditionalRows,
+        'inbox',
       );
       await continueEventLoop();
 
@@ -521,7 +469,6 @@ describe('Local replication service unit tests', () => {
 
       // Assert
       expect(messageHandler).not.toHaveBeenCalled();
-      expect(mapAdditionalRows).not.toHaveBeenCalled();
       expect(errorHandler).not.toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
       expect(client.connect).toHaveBeenCalledTimes(1);
@@ -541,7 +488,7 @@ describe('Local replication service unit tests', () => {
         errorHandler,
         getDisabledLogger(),
         {},
-        mapAdditionalRows,
+        'inbox',
       );
       await continueEventLoop();
 
@@ -554,7 +501,6 @@ describe('Local replication service unit tests', () => {
 
       // Assert
       expect(messageHandler).not.toHaveBeenCalled();
-      expect(mapAdditionalRows).not.toHaveBeenCalled();
       expect(errorHandler).not.toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
       expect(client.connect).toHaveBeenCalledTimes(1);
@@ -580,7 +526,7 @@ describe('Local replication service unit tests', () => {
         errorHandler,
         getDisabledLogger(),
         {},
-        mapAdditionalRows,
+        'inbox',
       );
       await continueEventLoop();
 
@@ -627,7 +573,7 @@ describe('Local replication service unit tests', () => {
         },
         getDisabledLogger(),
         {},
-        mapAdditionalRows,
+        'inbox',
       );
       await continueEventLoop();
 
@@ -638,7 +584,6 @@ describe('Local replication service unit tests', () => {
       // Assert
       expect(messageHandlerCalled).toBe(true);
       expect(errorHandlerCalled).toBe(true);
-      expect(mapAdditionalRows).toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
       await cleanup();
     });
@@ -669,7 +614,7 @@ describe('Local replication service unit tests', () => {
         {
           messageProcessingTimeoutStrategy: () => 100,
         },
-        mapAdditionalRows,
+        'inbox',
       );
       await continueEventLoop();
 
@@ -680,7 +625,6 @@ describe('Local replication service unit tests', () => {
       // Assert
       expect(messageHandlerCalled).toBe(true);
       expect(errorHandlerCalled).toBe(true);
-      expect(mapAdditionalRows).toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
       await cleanup();
     });
@@ -699,7 +643,7 @@ describe('Local replication service unit tests', () => {
         {
           messageProcessingTimeoutStrategy: () => 200,
         },
-        mapAdditionalRows,
+        'inbox',
       );
       await continueEventLoop();
 
@@ -710,7 +654,6 @@ describe('Local replication service unit tests', () => {
       // Assert
       expect(messageHandler).toHaveBeenCalledWith(message);
       expect(errorHandler).not.toHaveBeenCalled();
-      expect(mapAdditionalRows).toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
       expect(client.connect).toHaveBeenCalledTimes(1);
       await cleanup();

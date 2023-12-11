@@ -557,11 +557,11 @@ describe('Outbox and inbox integration tests', () => {
     await sleep(1000);
     expect(inboxHandlerCounter).toBe(5);
     const inboxResult = await loginPool.query(
-      `SELECT attempts FROM ${configs.inboxConfig.settings.dbSchema}.${configs.inboxConfig.settings.dbTable} WHERE id = $1;`,
+      `SELECT finished_attempts FROM ${configs.inboxConfig.settings.dbSchema}.${configs.inboxConfig.settings.dbTable} WHERE id = $1;`,
       [msg.id],
     );
     expect(inboxResult.rowCount).toBe(1);
-    expect(inboxResult.rows[0].attempts).toBe(5);
+    expect(inboxResult.rows[0].finished_attempts).toBe(5);
   });
 
   test('Two messages are processed in order even if the first takes longer.', async () => {

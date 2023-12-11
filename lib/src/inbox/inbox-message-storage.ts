@@ -60,11 +60,54 @@ export const initializeInboxMessageStorage = (
 };
 
 /**
+ * This function increases the "started_attempts" for the inbox message by one
+ * in the inbox table. This number can then be compared to the
+ * "finished_attempts" number which is only increased when a message processing
+ * exception was correctly handled or an error was caught. A difference between
+ * the two can only happen if the service crashes after increasing the
+ * "started_attempts" but before successfully marking the message as done
+ * (success case) or catching an error (error case). If the "started_attempts"
+ * and the "finished_attempts" field differ by more than one, the chances are
+ * high that this message is causing a service crash.
+ * @param message The inbox message for which to check/increase the "started_attempts".
+ * @param client The database client. Must be part of the transaction where the message handling changes are done.
+ * @param config The configuration settings that defines inbox database schema and poisonous settings.
+ * @returns The "started_attempts" (one or higher) and the "finished_attempts" (zero or higher). Or undefined if the message was not found.
+ */
+export const poisonousMessageUpdate = async (
+  { id }: InboxMessage,
+  client: PoolClient,
+  { settings }: Pick<InboxConfig, 'settings'>,
+): Promise<PoisonousCheck | undefined> => {
+  const inboxResult = await client.query(
+    /* sql*/ `
+      UPDATE ${settings.dbSchema}.${settings.dbTable} SET started_attempts = started_attempts + 1 WHERE id = $1
+        RETURNING started_attempts, finished_attempts;`,
+    [id],
+  );
+  if (inboxResult.rowCount === 0) {
+    return undefined;
+  }
+  const dbItem = inboxResult.rows[0];
+  return {
+    startedAttempts: dbItem.started_attempts,
+    finishedAttempts: dbItem.finished_attempts,
+  };
+};
+
+export interface PoisonousCheck {
+  startedAttempts: number;
+  finishedAttempts: number;
+}
+
+/**
  * Make sure the inbox item was not and is not currently being worked on. And
- * set the actual attempts and processed_at values for the WAL message.
- * As the inbox listener does not run in the same transaction as the message
- * handler code there is a small chance that the handler code succeeds but the
- * WAL inbox message was not acknowledged. This takes care of such cases.
+ * set the started_attempts, finished_attempts and processed_at values for the
+ * WAL message. As the inbox listener does not run in the same transaction as
+ * the message handler code there is a small chance that the handler code
+ * succeeds but the WAL inbox message was not acknowledged. This takes care of
+ * such cases by ensuring that the message was not yet processed and does not
+ * have too many attempts.
  * @param message The inbox message to check and later process.
  * @param client The database client. Must be part of the transaction where the message handling changes are done.
  * @param config The configuration settings that defines inbox database schema.
@@ -82,7 +125,7 @@ export const verifyInbox = async (
 > => {
   // Get the inbox data and lock it for updates. Use NOWAIT to immediately fail if another process is locking it.
   const inboxResult = await client.query(
-    /* sql*/ `SELECT processed_at, attempts FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT`,
+    /* sql*/ `SELECT started_attempts, finished_attempts, processed_at FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT`,
     [message.id],
   );
   if (inboxResult.rowCount === 0) {
@@ -92,11 +135,12 @@ export const verifyInbox = async (
   if (dbItem.processed_at) {
     return 'ALREADY_PROCESSED';
   }
-  if (dbItem.attempts >= getMaxAttempts(settings.maxAttempts)) {
+  if (dbItem.finished_attempts >= getMaxAttempts(settings.maxAttempts)) {
     return 'MAX_ATTEMPTS_EXCEEDED';
   }
-  // assign the actual attempts/processed_at to the WAL message
-  message.attempts = dbItem.attempts;
+  // assign the started_attempts, finished_attempts, and processed_at to the WAL message
+  message.startedAttempts = dbItem.started_attempts;
+  message.finishedAttempts = dbItem.finished_attempts;
   message.processedAt = dbItem.processed_at;
   return true;
 };
@@ -113,7 +157,7 @@ export const ackInbox = async (
   { settings }: Pick<InboxConfig, 'settings'>,
 ): Promise<void> => {
   await client.query(
-    /* sql*/ `UPDATE ${settings.dbSchema}.${settings.dbTable} SET processed_at = $1, attempts = attempts + 1 WHERE id = $2`,
+    /* sql*/ `UPDATE ${settings.dbSchema}.${settings.dbTable} SET processed_at = $1, finished_attempts = finished_attempts + 1 WHERE id = $2`,
     [new Date().toISOString(), id],
   );
 };
@@ -124,24 +168,24 @@ export const ackInbox = async (
  * @param message The inbox message to NOT acknowledge.
  * @param client The database client. Must be part of the transaction where the message handling changes are done.
  * @param config The configuration settings that defines inbox database schema.
- * @param attempts Optionally set the number of attempts to a specific value. Especially relevant for non-transient errors to directly set it to the maximum attempts value.
+ * @param finishedAttempts Optionally set the number of finished_attempts to a specific value. Especially relevant for non-transient errors to directly set it to the maximum attempts value.
  */
 export const nackInbox = async (
   { id }: InboxMessage,
   client: PoolClient,
   { settings }: Pick<InboxConfig, 'settings'>,
-  attempts?: number,
+  finishedAttempts?: number,
 ): Promise<void> => {
-  if (attempts) {
+  if (finishedAttempts) {
     await client.query(
       /* sql*/ `
-      UPDATE ${settings.dbSchema}.${settings.dbTable} SET attempts = $1 WHERE id = $2;`,
-      [attempts, id],
+      UPDATE ${settings.dbSchema}.${settings.dbTable} SET finished_attempts = $1 WHERE id = $2;`,
+      [finishedAttempts, id],
     );
   } else {
     await client.query(
       /* sql*/ `
-    UPDATE ${settings.dbSchema}.${settings.dbTable} SET attempts = attempts + 1 WHERE id = $1;`,
+    UPDATE ${settings.dbSchema}.${settings.dbTable} SET finished_attempts = finished_attempts + 1 WHERE id = $1;`,
       [id],
     );
   }

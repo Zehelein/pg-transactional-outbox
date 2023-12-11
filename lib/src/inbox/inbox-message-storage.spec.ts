@@ -30,7 +30,8 @@ const message: OutboxMessage = {
 
 const inboxMessage: InboxMessage = {
   ...message,
-  attempts: 0,
+  startedAttempts: 1,
+  finishedAttempts: 0,
   processedAt: null,
 };
 
@@ -139,10 +140,10 @@ describe('Inbox unit tests', () => {
       result = await verifyInbox(inboxMessage, client, config);
       expect(result).toBe('ALREADY_PROCESSED');
 
-      // Test for MAX_ATTEMPTS_EXCEEDED (one row found but has too many attempts)
+      // Test for MAX_ATTEMPTS_EXCEEDED (one row found but has too many finished_attempts)
       client.query = jest.fn().mockResolvedValue({
         rowCount: 1,
-        rows: [{ attempts: (config.settings.maxAttempts ?? 5) + 1 }],
+        rows: [{ finished_attempts: (config.settings.maxAttempts ?? 5) + 1 }],
       });
       result = await verifyInbox(inboxMessage, client, config);
       expect(result).toBe('MAX_ATTEMPTS_EXCEEDED');
@@ -157,7 +158,7 @@ describe('Inbox unit tests', () => {
     });
 
     it.each([0, 1, 2, 3, 4, 5, 6])(
-      'should return "true" when attempts are less or equal than maxAttempts: %p',
+      'should return "true" when finished_attempts are less or equal than maxAttempts: %p',
       async (attempts) => {
         // Arrange
         const pool = new Pool();
@@ -177,14 +178,14 @@ describe('Inbox unit tests', () => {
     );
 
     it.each([7, 8, 999])(
-      'should return MAX_ATTEMPTS_EXCEEDED when attempts are equal or larger than maxAttempts: %p',
-      async (attempts) => {
+      'should return MAX_ATTEMPTS_EXCEEDED when finished_attempts are equal or larger than maxAttempts: %p',
+      async (finished_attempts) => {
         // Arrange
         const pool = new Pool();
         const client = await pool.connect();
         client.query = jest.fn().mockResolvedValue({
           rowCount: 1,
-          rows: [{ attempts }],
+          rows: [{ finished_attempts }],
         });
 
         // Act
@@ -211,14 +212,14 @@ describe('Inbox unit tests', () => {
 
       // Assert
       expect(client.query).toHaveBeenCalledWith(
-        `UPDATE ${config.settings.dbSchema}.${config.settings.dbTable} SET processed_at = $1, attempts = attempts + 1 WHERE id = $2`,
+        `UPDATE ${config.settings.dbSchema}.${config.settings.dbTable} SET processed_at = $1, finished_attempts = finished_attempts + 1 WHERE id = $2`,
         [expect.any(String), inboxMessage.id],
       );
     });
   });
 
   describe('nackInbox', () => {
-    it('The nack logic still tries to increment attempts even when the corresponding inbox row was not found', async () => {
+    it('The nack logic still tries to increment the finished_attempts even when the corresponding inbox row was not found', async () => {
       // Arrange
       const pool = new Pool();
       const client = await pool.connect();
@@ -233,7 +234,7 @@ describe('Inbox unit tests', () => {
       // Assert
       expect(client.query).toHaveBeenCalledWith(
         expect.stringContaining(
-          'UPDATE test_schema.test_table SET attempts = attempts + 1 WHERE id = $1',
+          'UPDATE test_schema.test_table SET finished_attempts = finished_attempts + 1 WHERE id = $1',
         ),
         [inboxMessage.id],
       );
