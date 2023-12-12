@@ -55,17 +55,21 @@ describe('createMutexConcurrencyController', () => {
       orderArray.push(2);
     };
 
-    // Act: these will execute in parallel - first tasks should succeed but second tasks wait and get cancelled while waiting
+    // Act
+
+    // This tasks will start immediately as it does not have to wait for a mutex
     protectedAsyncFunction(controller, successTask(order)).catch(() =>
       error.push(1),
     );
+
+    // This task will have to wait for the mutex to be free but the cancel further down will be faster
     protectedAsyncFunction(controller, errorTask(order)).catch(() =>
       error.push(2),
     );
 
     controller.cancel();
 
-    // Assert - verify the order of execution
+    // Assert
     await sleep(200);
     expect(order).toEqual([1]);
     expect(error).toEqual([2]);

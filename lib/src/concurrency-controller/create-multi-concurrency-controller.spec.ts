@@ -231,4 +231,90 @@ describe('createMultiConcurrencyController', () => {
     expect(diff).toBeGreaterThanOrEqual(40);
     expect(diff).toBeLessThan(60);
   });
+
+  it('Throws an error if a discriminating mutex is used but the controller was not configured.', async () => {
+    // Arrange
+    const controller = createMultiConcurrencyController(
+      () => 'discriminating-mutex',
+    );
+
+    // Act + Assert
+    await expect(() =>
+      protectedAsyncFunction(
+        controller,
+        () => sleep(1),
+        createOutboxMessage(1, 'A', 'D1'),
+      ),
+    ).rejects.toThrow('A discriminating mutex controller was not configured.');
+  });
+
+  it('Cancel works for all types', async () => {
+    // Arrange
+    const controller = createMultiConcurrencyController(
+      (message) => {
+        switch (message.messageType) {
+          case 'A':
+            return 'discriminating-mutex';
+          case 'B':
+            return 'full-concurrency';
+          default:
+            return 'mutex';
+        }
+      },
+      (message) => message.aggregateType,
+    );
+    const success: number[] = [];
+    const error: number[] = [];
+    const createTask =
+      (orderArray: number[], sleepTime: number) =>
+      async (message: OrderMessage) => {
+        await sleep(sleepTime);
+        orderArray.push(message.id);
+      };
+
+    // Act
+
+    // discriminating tasks (1 and only then 2)
+    protectedAsyncFunction(
+      controller,
+      createTask(success, 5),
+      createOutboxMessage(1, 'A', 'D1'),
+    ).catch(() => error.push(1));
+    protectedAsyncFunction(
+      controller,
+      createTask(success, 50),
+      createOutboxMessage(2, 'A', 'D1'),
+    ).catch(() => error.push(2));
+
+    // concurrent tasks (5+6 in parallel --> takes ~40ms)
+    protectedAsyncFunction(
+      controller,
+      createTask(success, 5),
+      createOutboxMessage(3, 'B'),
+    ).catch(() => error.push(3));
+    protectedAsyncFunction(
+      controller,
+      createTask(success, 50),
+      createOutboxMessage(4, 'B'),
+    ).catch(() => error.push(4));
+
+    // mutex tasks (7 then 8 --> takes ~40ms)
+    protectedAsyncFunction(
+      controller,
+      createTask(success, 5),
+      createOutboxMessage(5, 'C'),
+    ).catch(() => error.push(5));
+    protectedAsyncFunction(
+      controller,
+      createTask(success, 50),
+      createOutboxMessage(6, 'C'),
+    ).catch(() => error.push(6));
+
+    controller.cancel();
+
+    // Assert
+    await sleep(100);
+    expect(success.sort()).toEqual([1, 3, 4, 5]);
+    expect(error.sort()).toEqual([2, 6]);
+  });
 });

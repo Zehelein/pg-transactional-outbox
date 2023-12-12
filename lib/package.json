@@ -45,6 +45,7 @@
     "clean": "rimraf dist && rimraf tsconfig.tsbuildinfo",
     "prepack": "yarn clean && tsc",
     "test": "jest",
+    "test:coverage": "jest --coverage --silent",
     "dev:watch": "tsc-watch"
   },
   "dependencies": {

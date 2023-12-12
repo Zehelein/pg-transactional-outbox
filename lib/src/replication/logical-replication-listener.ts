@@ -1,4 +1,4 @@
-import { Client, ClientConfig, Connection, DatabaseError } from 'pg';
+import { Client, ClientConfig, Connection } from 'pg';
 import { Pgoutput, PgoutputPlugin } from 'pg-logical-replication';
 import { AbstractPlugin } from 'pg-logical-replication/dist/output-plugins/abstract.plugin';
 import { ErrorType, MessageError, ensureError } from '../common/error';
@@ -77,7 +77,12 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
       void promise
         .catch((e) => {
           const err = ensureError(e);
-          if (err instanceof DatabaseError && err.code === '55006') {
+          if (
+            'routine' in err &&
+            err.routine === 'ReplicationSlotAcquire' &&
+            'code' in err &&
+            err.code === '55006'
+          ) {
             logger.trace(
               err,
               `The replication slot for the ${listenerType} listener is currently in use.`,
