@@ -589,6 +589,8 @@ import {
           _client: ClientBase,
           { current, max }: { current: number; max: number },
         ): Promise<'transient_error' | 'permanent_error'> => {
+          // Lets you decide if a message should be retried (transient error) or
+          // not (permanent error). You can run also run your compensation code.
           if (current < max) {
             return 'transient_error';
           }
@@ -622,6 +624,41 @@ import {
 > define your own logic on how long the messages should stay in this table. This
 > can be a few hours but also some days. Messages that are older than this
 > defined duration should not be processed anymore.
+
+### Message Handler
+
+The message handler is a component that defines how to process messages of a
+specific aggregate type and message type. The message handler is used by the
+transactional inbox service to process messages in a reliable and consistent
+way. The service will invoke the `handle` function of the appropriate handler
+for each message in the inbox, and handle any errors or retries using the
+`handleError` function if provided.
+
+It implements the `InboxMessageHandler` interface, which has the following
+properties:
+
+- `aggregateType`: The name of the aggregate root type that the message belongs
+  to. For example, `movie`, `customer`, `product`, etc.
+- `messageType`: The name of the message type that the handler can handle. For
+  example, `movie_created`, `customer_updated`, `restock_product`, etc.
+- `handle`: A function that contains the custom business logic to handle an
+  inbox message. It receives two parameters: `message` and `client`. The
+  `message` parameter is an object that contains the message id, payload, and
+  metadata. The `client` parameter is a database client that is part of a
+  transaction to safely handle the inbox message. The function should return a
+  promise that resolves when the message is successfully processed, or rejects
+  with an error if the message cannot be processed. The error will cause the
+  message to be retried later.
+- `handleError`: An optional function that contains the custom business logic to
+  handle an error that was caused by the `handle` function. It receives four
+  parameters: `error`, `message`, `client`, and `attempts`. The `error`
+  parameter is the error that was thrown in the `handle` function. The `message`
+  parameter is the same as in the `handle` function. The `client` parameter is a
+  database client that is part of a new transaction to safely handle the error.
+  The `attempts` parameter is an object that contains the current and maximum
+  number of times the message will be attempted. The function should return a
+  promise that resolves to a flag that defines if the message should be retried
+  (`transient_error`) or not (`permanent_error`).
 
 ## Message format
 

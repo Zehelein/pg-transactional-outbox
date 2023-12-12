@@ -5,7 +5,7 @@ export const sleep = async (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 /** Sleep until the callback evaluates to true. Return the elapsed amount of milliseconds */
-export const sleepUntilTrue = async <T>(
+export const sleepUntilTrue = async (
   callback: () => boolean | Promise<boolean>,
   timeout: number,
   delay = 1,

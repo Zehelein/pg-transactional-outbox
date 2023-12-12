@@ -46,8 +46,8 @@ describe('createFullConcurrencyController', () => {
     };
 
     // Act: these will execute in parallel and should not wait for each other
-    protectedAsyncFunction(controller, task(1));
-    protectedAsyncFunction(controller, task(2));
+    void protectedAsyncFunction(controller, task(1));
+    void protectedAsyncFunction(controller, task(2));
 
     controller.cancel();
 

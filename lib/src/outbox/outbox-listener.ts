@@ -6,6 +6,8 @@ import {
   TransactionalStrategies,
   createLogicalReplicationListener,
 } from '../replication/logical-replication-listener';
+import { defaultConcurrencyStrategy } from '../strategies/concurrency-strategy';
+import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
 
 export type OutboxConfig = TransactionalOutboxInboxConfig;
 
@@ -30,13 +32,23 @@ export const initializeOutboxListener = (
     logger.error(error, 'An error ocurred while handling an outbox message.');
     return 'transient_error';
   };
-  strategies = strategies ?? {};
   return createLogicalReplicationListener(
     config,
     sendMessage,
     logErrors,
     logger,
-    strategies,
+    applyDefaultStrategies(strategies, config),
     'outbox',
   );
 };
+
+const applyDefaultStrategies = (
+  strategies: TransactionalStrategies | undefined,
+  config: OutboxConfig,
+): Required<TransactionalStrategies> => ({
+  concurrencyStrategy:
+    strategies?.concurrencyStrategy ?? defaultConcurrencyStrategy(),
+  messageProcessingTimeoutStrategy:
+    strategies?.messageProcessingTimeoutStrategy ??
+    defaultMessageProcessingTimeoutStrategy(config),
+});

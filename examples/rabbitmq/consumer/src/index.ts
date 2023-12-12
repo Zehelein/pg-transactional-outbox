@@ -26,7 +26,7 @@ process.on('unhandledRejection', (err, promise) => {
 });
 
 /** The main entry point of the message producer. */
-(async () => {
+void (async () => {
   const config = getConfig();
   const inboxConfig = getInboxConfig(config);
 
@@ -59,7 +59,8 @@ process.on('unhandledRejection', (err, promise) => {
     {
       concurrencyStrategy: createMutexConcurrencyController(),
       messageProcessingTimeoutStrategy: () => 2000,
-      messageProcessingTransactionLevel: () => IsolationLevel.Serializable,
+      messageProcessingTransactionLevelStrategy: () =>
+        IsolationLevel.Serializable,
     },
   );
 

@@ -23,7 +23,7 @@ export {
   initializeInboxListener,
 } from './inbox/inbox-listener';
 export {
-  getMaxAttempts,
+  PoisonousCheck,
   initializeInboxMessageStorage,
 } from './inbox/inbox-message-storage';
 export {
@@ -39,3 +39,7 @@ export {
   TransactionalOutboxInboxConfig,
 } from './replication/config';
 export { TransactionalStrategies } from './replication/logical-replication-listener';
+export { MessageProcessingTimeoutStrategy } from './strategies/message-processing-timeout-strategy';
+export { MessageProcessingTransactionLevelStrategy } from './strategies/message-processing-transaction-level-strategy';
+export { MessageRetryStrategy } from './strategies/message-retry-strategy';
+export { PoisonousMessageRetryStrategy } from './strategies/poisonous-message-retry-strategy';

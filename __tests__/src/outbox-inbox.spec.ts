@@ -160,12 +160,12 @@ describe('Outbox and inbox integration tests', () => {
         database,
       });
       try {
-        rootInboxClient.connect();
+        await rootInboxClient.connect();
         await rootInboxClient.query(
           `SELECT * FROM pg_replication_slot_advance('${postgresSlot}', pg_current_wal_lsn());`,
         );
       } finally {
-        rootInboxClient.end();
+        await rootInboxClient.end();
       }
     };
     await resetReplication(configs.inboxConfig);

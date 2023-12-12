@@ -2,16 +2,28 @@ import { ClientBase, ClientConfig, Pool, PoolClient } from 'pg';
 import { ErrorType } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { InboxMessage } from '../common/message';
-import { IsolationLevel, executeTransaction } from '../common/utils';
+import { executeTransaction } from '../common/utils';
 import { TransactionalOutboxInboxConfig } from '../replication/config';
 import {
   TransactionalStrategies,
   createLogicalReplicationListener,
 } from '../replication/logical-replication-listener';
+import { defaultConcurrencyStrategy } from '../strategies/concurrency-strategy';
+import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
 import {
-  PoisonousCheck,
+  MessageProcessingTransactionLevelStrategy,
+  defaultMessageProcessingTransactionLevelStrategy,
+} from '../strategies/message-processing-transaction-level-strategy';
+import {
+  MessageRetryStrategy,
+  defaultMessageRetryStrategy,
+} from '../strategies/message-retry-strategy';
+import {
+  PoisonousMessageRetryStrategy,
+  defaultPoisonousMessageRetryStrategy,
+} from '../strategies/poisonous-message-retry-strategy';
+import {
   ackInbox,
-  getMaxAttempts,
   nackInbox,
   poisonousMessageUpdate,
   verifyInbox,
@@ -77,24 +89,26 @@ export interface InboxMessageHandler {
   ) => Promise<ErrorType>;
 }
 
-/** Optional strategies to provide custom logic for handling specific scenarios */
+/** Strategies to provide the desired logic for handling specific scenarios */
 export interface InboxStrategies extends TransactionalStrategies {
   /**
    * Defines the PostgreSQL transaction level to use for handling an incoming
-   * inbox message. If none is provided it uses the Postgres transaction default.
+   * inbox message.
    */
-  messageProcessingTransactionLevel?: (message: InboxMessage) => IsolationLevel;
+  messageProcessingTransactionLevelStrategy: MessageProcessingTransactionLevelStrategy;
+
+  /**
+   * Decides if a message should be retried or not based on the current amount
+   * of attempts.
+   */
+  messageRetryStrategy: MessageRetryStrategy;
 
   /**
    * Decide based on the message, the poisonous attempts counter (which is
    * already increased by one), and the processing attempts if the message
-   * should be retried again or not. This method is called if the
-   * "started_attempts" and the "finished_attempts" differ by more than one.
+   * should be retried again or not.
    */
-  poisonousMessageRetryStrategy?: (
-    message: InboxMessage,
-    poisonousCheck: PoisonousCheck,
-  ) => boolean;
+  poisonousMessageRetryStrategy: PoisonousMessageRetryStrategy;
 }
 
 /**
@@ -109,22 +123,22 @@ export const initializeInboxListener = (
   config: InboxConfig,
   messageHandlers: InboxMessageHandler[],
   logger: TransactionalLogger,
-  strategies?: InboxStrategies,
+  strategies?: Partial<InboxStrategies>,
 ): [shutdown: { (): Promise<void> }] => {
   const pool = createPgPool(config, logger);
-  strategies = strategies ?? {};
+  const allStrategies = applyDefaultStrategies(strategies, config);
   const messageHandlerDict = getMessageHandlerDict(messageHandlers);
   const messageHandler = createMessageHandler(
     messageHandlerDict,
     pool,
-    strategies,
+    allStrategies,
     config,
     logger,
   );
   const errorResolver = createErrorResolver(
     messageHandlerDict,
     pool,
-    strategies,
+    allStrategies,
     config,
     logger,
   );
@@ -133,7 +147,7 @@ export const initializeInboxListener = (
     messageHandler,
     errorResolver,
     logger,
-    strategies,
+    allStrategies,
     'inbox',
   );
   return [
@@ -169,7 +183,7 @@ const createMessageHandler = (
 ) => {
   return async (message: InboxMessage) => {
     const transactionLevel =
-      strategies.messageProcessingTransactionLevel?.(message);
+      strategies.messageProcessingTransactionLevelStrategy(message);
 
     // increase the "started_attempts" and check if the message is probably not a poisonous message
     const attempt = await executeTransaction(
@@ -188,7 +202,10 @@ const createMessageHandler = (
       pool,
       async (client) => {
         const result = await verifyInbox(message, client, config);
-        if (result === true) {
+        if (
+          result === true &&
+          strategies.messageRetryStrategy.shouldAttempt(message)
+        ) {
           const handler = messageHandlers[getMessageHandlerKey(message)];
           if (handler) {
             await handler.handle(message, client);
@@ -232,10 +249,7 @@ const poisonousMessageCheck = async (
 
   const diff = result.startedAttempts - result.finishedAttempts;
   if (diff > 1) {
-    const retry = strategies.poisonousMessageRetryStrategy
-      ? strategies.poisonousMessageRetryStrategy(message, result)
-      : diff <= (config.settings.maxPoisonousAttempts ?? 3);
-
+    const retry = strategies.poisonousMessageRetryStrategy(message, result);
     if (!retry) {
       logger.error(
         message,
@@ -294,16 +308,18 @@ const createErrorResolver = (
   return async (message: InboxMessage, error: Error): Promise<ErrorType> => {
     const handler = messageHandlers[getMessageHandlerKey(message)];
     const transactionLevel =
-      strategies.messageProcessingTransactionLevel?.(message);
+      strategies.messageProcessingTransactionLevelStrategy(message);
     try {
       return await executeTransaction(
         pool,
         async (client) => {
           let errorType: ErrorType = 'transient_error';
-          const maxAttempts = getMaxAttempts(config.settings.maxAttempts);
+          const current = message.finishedAttempts + 1;
+          const maxAttempts =
+            strategies.messageRetryStrategy.maxAttempts(message);
           if (handler?.handleError) {
             errorType = await handler.handleError(error, message, client, {
-              current: message.finishedAttempts + 1,
+              current,
               max: maxAttempts,
             });
           }
@@ -353,3 +369,22 @@ const createErrorResolver = (
     }
   };
 };
+
+const applyDefaultStrategies = (
+  strategies: Partial<InboxStrategies> | undefined,
+  config: InboxConfig,
+): InboxStrategies => ({
+  concurrencyStrategy:
+    strategies?.concurrencyStrategy ?? defaultConcurrencyStrategy(),
+  messageProcessingTimeoutStrategy:
+    strategies?.messageProcessingTimeoutStrategy ??
+    defaultMessageProcessingTimeoutStrategy(config),
+  messageProcessingTransactionLevelStrategy:
+    strategies?.messageProcessingTransactionLevelStrategy ??
+    defaultMessageProcessingTransactionLevelStrategy(),
+  messageRetryStrategy:
+    strategies?.messageRetryStrategy ?? defaultMessageRetryStrategy(config),
+  poisonousMessageRetryStrategy:
+    strategies?.poisonousMessageRetryStrategy ??
+    defaultPoisonousMessageRetryStrategy(config),
+});

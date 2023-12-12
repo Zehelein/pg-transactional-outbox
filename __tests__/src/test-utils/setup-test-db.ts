@@ -34,7 +34,7 @@ const dbmsSetup = async (
     user: 'postgres',
     password: 'postgres',
   });
-  rootClient.connect();
+  await rootClient.connect();
 
   await rootClient.query(/* sql*/ `
       SELECT pg_terminate_backend (pg_stat_activity.pid)
@@ -61,7 +61,7 @@ const dbmsSetup = async (
       CREATE ROLE ${user} WITH LOGIN PASSWORD '${password}';
       GRANT CONNECT ON DATABASE ${database} TO ${user};
     `);
-  rootClient.end();
+  await rootClient.end();
 };
 
 const outboxSetup = async (
@@ -76,7 +76,7 @@ const outboxSetup = async (
     user: 'postgres',
     password: 'postgres',
   });
-  dbClient.connect();
+  await dbClient.connect();
 
   await dbClient.query(/* sql*/ `
       CREATE SCHEMA IF NOT EXISTS ${dbSchema}
@@ -110,7 +110,7 @@ const outboxSetup = async (
       );
       GRANT SELECT, INSERT, UPDATE, DELETE ON public.source_entities TO ${user};
     `);
-  dbClient.end();
+  await dbClient.end();
 };
 
 /** All the changes related to the inbox implementation in the database */
@@ -126,7 +126,7 @@ const inboxSetup = async (
     user: 'postgres',
     password: 'postgres',
   });
-  dbClient.connect();
+  await dbClient.connect();
 
   await dbClient.query(/* sql*/ `
       CREATE SCHEMA IF NOT EXISTS ${dbSchema}
@@ -163,5 +163,5 @@ const inboxSetup = async (
       );
       GRANT SELECT, INSERT, UPDATE, DELETE ON public.received_entities TO ${user};
     `);
-  dbClient.end();
+  await dbClient.end();
 };

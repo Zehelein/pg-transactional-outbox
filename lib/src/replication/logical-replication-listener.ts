@@ -1,4 +1,4 @@
-import { Client, ClientConfig, Connection } from 'pg';
+import { Client, ClientConfig, Connection, DatabaseError } from 'pg';
 import { Pgoutput, PgoutputPlugin } from 'pg-logical-replication';
 import { AbstractPlugin } from 'pg-logical-replication/dist/output-plugins/abstract.plugin';
 import { ErrorType, MessageError, ensureError } from '../common/error';
@@ -6,7 +6,7 @@ import { TransactionalLogger } from '../common/logger';
 import { OutboxMessage } from '../common/message';
 import { awaitWithTimeout } from '../common/utils';
 import { ConcurrencyController } from '../concurrency-controller/concurrency-controller';
-import { createMutexConcurrencyController } from '../concurrency-controller/create-mutex-concurrency-controller';
+import { MessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
 import { createAcknowledgeManager } from './acknowledge-manager';
 import {
   ReplicationListenerConfig,
@@ -24,7 +24,7 @@ export interface TransactionalStrategies {
    * Define the concurrency strategy - defaults to using a mutex to guarantee
    * sequential message processing.
    */
-  concurrencyStrategy?: ConcurrencyController;
+  concurrencyStrategy: ConcurrencyController;
 
   /**
    * Defines the message processing timeout strategy. By default, it uses the
@@ -32,9 +32,7 @@ export interface TransactionalStrategies {
    * @param message The message that should be handled
    * @returns Number of milliseconds how long the message can take at most
    */
-  messageProcessingTimeoutStrategy?: <T extends OutboxMessage>(
-    message: T,
-  ) => number;
+  messageProcessingTimeoutStrategy: MessageProcessingTimeoutStrategy;
 }
 
 /**
@@ -61,13 +59,6 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
   let client: ReplicationClient | undefined;
   let restartTimeout: NodeJS.Timeout | undefined;
   let stopped = false;
-  const concurrencyStrategy =
-    strategies.concurrencyStrategy ?? createMutexConcurrencyController();
-  const messageProcessingTimeoutStrategy =
-    strategies.messageProcessingTimeoutStrategy ??
-    (() => {
-      return settings.messageProcessingTimeout ?? 15_000;
-    });
 
   // Run the listener in a self restarting background event "loop" until it gets stopped
   (function start() {
@@ -83,16 +74,21 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
     } as ClientConfig) as ReplicationClient;
     // On errors stop the DB client and reconnect from a clean state
     const applyRestart = (promise: Promise<unknown>) => {
-      promise
+      void promise
         .catch((e) => {
           const err = ensureError(e);
-          if (!(err instanceof MessageError)) {
+          if (err instanceof DatabaseError && err.code === '55006') {
+            logger.trace(
+              err,
+              `The replication slot for the ${listenerType} listener is currently in use.`,
+            );
+          } else if (!(err instanceof MessageError)) {
             logger.error(err, `Transactional ${listenerType} listener error`);
           }
           return err;
         })
-        .then((err) => {
-          stopClient(client, logger);
+        .then(async (err) => {
+          await stopClient(client, logger);
           return err;
         })
         .then((err) => {
@@ -116,8 +112,8 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
         settings,
         messageHandler,
         errorHandler,
-        concurrencyStrategy,
-        messageProcessingTimeoutStrategy,
+        strategies.concurrencyStrategy,
+        strategies.messageProcessingTimeoutStrategy,
         logger,
       ),
     );
@@ -306,9 +302,7 @@ const handleIncomingData = <T extends OutboxMessage>(
   messageHandler: (message: T) => Promise<void>,
   errorHandler: (message: T, err: Error) => Promise<ErrorType>,
   concurrencyStrategy: ConcurrencyController,
-  messageProcessingTimeoutStrategy: <T extends OutboxMessage>(
-    message: T,
-  ) => number,
+  messageProcessingTimeoutStrategy: MessageProcessingTimeoutStrategy,
   logger: TransactionalLogger,
 ): Promise<void> => {
   if (!client.connection) {
@@ -345,7 +339,7 @@ const handleIncomingData = <T extends OutboxMessage>(
             message,
             `Executing the message handler for LSN ${lsn}.`,
           );
-          await messageHandler(message as T);
+          await messageHandler(message);
           finishProcessingLSN(lsn);
         },
         messageProcessingTimeout,

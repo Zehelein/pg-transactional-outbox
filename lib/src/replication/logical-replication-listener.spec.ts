@@ -7,7 +7,11 @@ import { Pgoutput } from 'pg-logical-replication';
 import { getDisabledLogger } from '../common/logger';
 import { OutboxMessage } from '../common/message';
 import { sleep } from '../common/utils';
+import { defaultConcurrencyStrategy } from '../strategies/concurrency-strategy';
+import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
+import { TransactionalOutboxInboxConfig } from './config';
 import {
+  TransactionalStrategies,
   createLogicalReplicationListener,
   __only_for_unit_tests__ as tests,
 } from './logical-replication-listener';
@@ -166,6 +170,20 @@ const relation: Pgoutput.MessageRelation = {
     },
   ],
   keyColumns: ['id'],
+};
+
+const getStrategies = (
+  config?: TransactionalOutboxInboxConfig,
+): TransactionalStrategies => {
+  return {
+    concurrencyStrategy: defaultConcurrencyStrategy(),
+    messageProcessingTimeoutStrategy: defaultMessageProcessingTimeoutStrategy(
+      config ??
+        ({
+          settings: { ...settings, messageProcessingTimeout: 2000 },
+        } as TransactionalOutboxInboxConfig),
+    ),
+  };
 };
 
 describe('Local replication service unit tests', () => {
@@ -350,7 +368,7 @@ describe('Local replication service unit tests', () => {
         messageHandler,
         errorHandler,
         getDisabledLogger(),
-        {},
+        getStrategies(),
         'inbox',
       );
       await continueEventLoop();
@@ -388,7 +406,7 @@ describe('Local replication service unit tests', () => {
           return 'transient_error';
         },
         getDisabledLogger(),
-        {},
+        getStrategies(),
         'inbox',
       );
       await continueEventLoop();
@@ -426,7 +444,7 @@ describe('Local replication service unit tests', () => {
           return 'permanent_error';
         },
         getDisabledLogger(),
-        {},
+        getStrategies(config),
         'inbox',
       );
       await continueEventLoop();
@@ -455,7 +473,7 @@ describe('Local replication service unit tests', () => {
         messageHandler,
         errorHandler,
         getDisabledLogger(),
-        {},
+        getStrategies(config),
         'inbox',
       );
       await continueEventLoop();
@@ -487,7 +505,7 @@ describe('Local replication service unit tests', () => {
         messageHandler,
         errorHandler,
         getDisabledLogger(),
-        {},
+        getStrategies(config),
         'inbox',
       );
       await continueEventLoop();
@@ -525,7 +543,7 @@ describe('Local replication service unit tests', () => {
         delayedMessageHandler,
         errorHandler,
         getDisabledLogger(),
-        {},
+        getStrategies(config),
         'inbox',
       );
       await continueEventLoop();
@@ -572,7 +590,7 @@ describe('Local replication service unit tests', () => {
           return 'transient_error';
         },
         getDisabledLogger(),
-        {},
+        getStrategies(config),
         'inbox',
       );
       await continueEventLoop();
@@ -612,6 +630,7 @@ describe('Local replication service unit tests', () => {
         },
         getDisabledLogger(),
         {
+          concurrencyStrategy: defaultConcurrencyStrategy(),
           messageProcessingTimeoutStrategy: () => 100,
         },
         'inbox',
@@ -641,6 +660,7 @@ describe('Local replication service unit tests', () => {
         errorHandler,
         getDisabledLogger(),
         {
+          concurrencyStrategy: defaultConcurrencyStrategy(),
           messageProcessingTimeoutStrategy: () => 200,
         },
         'inbox',

@@ -106,23 +106,17 @@ export interface PoisonousCheck {
  * WAL message. As the inbox listener does not run in the same transaction as
  * the message handler code there is a small chance that the handler code
  * succeeds but the WAL inbox message was not acknowledged. This takes care of
- * such cases by ensuring that the message was not yet processed and does not
- * have too many attempts.
+ * such cases by ensuring that the message was not yet processed.
  * @param message The inbox message to check and later process.
  * @param client The database client. Must be part of the transaction where the message handling changes are done.
  * @param config The configuration settings that defines inbox database schema.
- * @throws Throws an error if the database row does not exist, is locked by some other transaction, or was already processed.
+ * @returns 'INBOX_MESSAGE_NOT_FOUND' if the message was not found, 'ALREADY_PROCESSED' if it was processed, and otherwise assigns the properties to the message and returns true.
  */
 export const verifyInbox = async (
   message: InboxMessage,
   client: PoolClient,
   { settings }: Pick<InboxConfig, 'settings'>,
-): Promise<
-  | true
-  | 'INBOX_MESSAGE_NOT_FOUND'
-  | 'ALREADY_PROCESSED'
-  | 'MAX_ATTEMPTS_EXCEEDED'
-> => {
+): Promise<true | 'INBOX_MESSAGE_NOT_FOUND' | 'ALREADY_PROCESSED'> => {
   // Get the inbox data and lock it for updates. Use NOWAIT to immediately fail if another process is locking it.
   const inboxResult = await client.query(
     /* sql*/ `SELECT started_attempts, finished_attempts, processed_at FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT`,
@@ -135,9 +129,7 @@ export const verifyInbox = async (
   if (dbItem.processed_at) {
     return 'ALREADY_PROCESSED';
   }
-  if (dbItem.finished_attempts >= getMaxAttempts(settings.maxAttempts)) {
-    return 'MAX_ATTEMPTS_EXCEEDED';
-  }
+
   // assign the started_attempts, finished_attempts, and processed_at to the WAL message
   message.startedAttempts = dbItem.started_attempts;
   message.finishedAttempts = dbItem.finished_attempts;
@@ -190,10 +182,6 @@ export const nackInbox = async (
     );
   }
 };
-
-/** Gets the maximum attempts to process a message. Defaults to 5 if not configured. */
-export const getMaxAttempts = (maxAttempts?: number): number =>
-  maxAttempts ?? 5;
 
 const insertInbox = async (
   message: OutboxMessage,

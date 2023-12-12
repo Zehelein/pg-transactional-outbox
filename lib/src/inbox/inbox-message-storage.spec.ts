@@ -140,60 +140,40 @@ describe('Inbox unit tests', () => {
       result = await verifyInbox(inboxMessage, client, config);
       expect(result).toBe('ALREADY_PROCESSED');
 
-      // Test for MAX_ATTEMPTS_EXCEEDED (one row found but has too many finished_attempts)
-      client.query = jest.fn().mockResolvedValue({
-        rowCount: 1,
-        rows: [{ finished_attempts: (config.settings.maxAttempts ?? 5) + 1 }],
-      });
-      result = await verifyInbox(inboxMessage, client, config);
-      expect(result).toBe('MAX_ATTEMPTS_EXCEEDED');
-
       // Test for success (one row found that was not processed yet)
       client.query = jest.fn().mockResolvedValue({
         rowCount: 1,
-        rows: [{ processed_at: null }],
+        rows: [{ processed_at: null, finished_attempts: 0 }],
       });
       result = await verifyInbox(inboxMessage, client, config);
       expect(result).toBe(true);
     });
 
-    it.each([0, 1, 2, 3, 4, 5, 6])(
-      'should return "true" when finished_attempts are less or equal than maxAttempts: %p',
-      async (attempts) => {
-        // Arrange
-        const pool = new Pool();
-        const client = await pool.connect();
-        client.query = jest.fn().mockResolvedValue({
-          rowCount: 1,
-          rows: [{ attempts }],
-        });
-
-        // Act
-        // config defines 7 for max attempts (default: 5)
-        const result = await verifyInbox(inboxMessage, client, config);
-
-        // Assert
-        expect(result).toBe(true);
-      },
-    );
-
-    it.each([7, 8, 999])(
-      'should return MAX_ATTEMPTS_EXCEEDED when finished_attempts are equal or larger than maxAttempts: %p',
+    it.each([0, 1, 2, 3, 4, 5, 6, 7, 100])(
+      'should return "true" when the message is found and was not processed and add the values to the message: %p',
       async (finished_attempts) => {
         // Arrange
         const pool = new Pool();
         const client = await pool.connect();
         client.query = jest.fn().mockResolvedValue({
           rowCount: 1,
-          rows: [{ finished_attempts }],
+          rows: [
+            {
+              finished_attempts,
+              started_attempts: finished_attempts + 1,
+              processed_at: null,
+            },
+          ],
         });
 
         // Act
-        // config defines 7 for max attempts (default: 5)
         const result = await verifyInbox(inboxMessage, client, config);
 
         // Assert
-        expect(result).toBe('MAX_ATTEMPTS_EXCEEDED');
+        expect(result).toBe(true);
+        expect(inboxMessage.finishedAttempts).toBe(finished_attempts);
+        expect(inboxMessage.startedAttempts).toBe(finished_attempts + 1);
+        expect(inboxMessage.processedAt).toBeNull();
       },
     );
   });
