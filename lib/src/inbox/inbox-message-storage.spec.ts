@@ -1,13 +1,15 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import inspector from 'inspector';
 import { Client, Pool, PoolClient } from 'pg';
-import { getDisabledLogger } from '../common/logger';
+import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { InboxMessage, OutboxMessage } from '../common/message';
 import { InboxConfig } from './inbox-listener';
 import {
+  PoisonousCheck,
   ackInbox,
   initializeInboxMessageStorage,
   nackInbox,
+  poisonousMessageUpdate,
   verifyInbox,
 } from './inbox-message-storage';
 
@@ -60,17 +62,31 @@ const config: InboxConfig = {
 };
 
 // required for the initializeInboxMessageStorage
+let onPoolError: (err: Error) => void;
 jest.mock('pg', () => {
   return {
     ...jest.requireActual('pg'),
     Pool: jest.fn().mockImplementation(() => ({
       connect: jest.fn(() => new Client()),
-      on: jest.fn(),
+      on: jest.fn((_name, func) => {
+        onPoolError = func;
+      }),
       end: jest.fn(() => Promise.resolve()),
       removeAllListeners: jest.fn(),
     })),
     Client: jest.fn().mockImplementation(() => ({
-      query: jest.fn(async (sql: string, _params: [unknown]) => {
+      query: jest.fn(async (sql: string, params: [unknown]) => {
+        if (params[0] === 'throw-error') {
+          throw new Error('message not stored');
+        }
+        if (
+          sql.indexOf(
+            `INSERT INTO ${config.settings.dbSchema}.${config.settings.dbTable}`,
+          ) &&
+          params[0] === 'already-existed'
+        ) {
+          return { rowCount: 0 };
+        }
         if (
           sql.indexOf(
             `INSERT INTO ${config.settings.dbSchema}.${config.settings.dbTable}`,
@@ -115,6 +131,166 @@ describe('Inbox unit tests', () => {
       // Assert
       await expect(storeInboxMessage(message)).resolves.not.toThrow();
       await shutdown();
+    });
+
+    test('it logs an PostgreSQL error when it is raised', async () => {
+      // Arrange
+      const [logger, logs] = getInMemoryLogger('test');
+      const error = new Error('Test');
+
+      // Act
+      const [_, shutdown] = initializeInboxMessageStorage(config, logger);
+      onPoolError(error);
+
+      // Assert
+      expect(logs).toHaveLength(1);
+      expect(logs[0].args).toEqual([error, 'PostgreSQL pool error']);
+      await shutdown();
+    });
+
+    test('it initializes the inbox message storage and catches an error and logs it', async () => {
+      // Act
+      const [storeInboxMessage, shutdown] = initializeInboxMessageStorage(
+        config,
+        getDisabledLogger(),
+      );
+      // Let the `await pool.end();` throw an error
+      (Pool as any).mock.results[0].value.end = () => {
+        throw new Error('test');
+      };
+
+      // Assert
+      await expect(
+        storeInboxMessage({
+          ...message,
+          id: 'throw-error',
+        }),
+      ).rejects.toThrow(
+        `Could not store the inbox message with id throw-error`,
+      );
+      await shutdown();
+    });
+
+    test('it catches an error during shutdown and logs it', async () => {
+      // Arrange
+      const [logger, logs] = getInMemoryLogger('test');
+      const error = new Error('test');
+
+      // Act
+      const [_, shutdown] = initializeInboxMessageStorage(config, logger);
+
+      // Assert
+      // Let the `await pool.end();` throw an error
+      const testPoolIndex = (Pool as any).mock.results.length;
+      (Pool as any).mock.results[testPoolIndex - 1].value.end = () => {
+        throw error;
+      };
+      await shutdown();
+      expect(logs).toHaveLength(1);
+      expect(logs[0].args).toEqual([
+        error,
+        'Inbox message storage shutdown error',
+      ]);
+      await shutdown();
+    });
+
+    test('it logs a warning when the message already existed', async () => {
+      // Arrange
+      const [logger, logs] = getInMemoryLogger('unit test');
+      const [storeInboxMessage, shutdown] = initializeInboxMessageStorage(
+        config,
+        logger,
+      );
+
+      // Assert
+      await expect(
+        storeInboxMessage({ ...message, id: 'already-existed' }),
+      ).resolves.not.toThrow();
+      const log = logs.filter(
+        (log) =>
+          log.args[1] === 'The message with id already-existed already existed',
+      );
+      expect(log).toBeDefined();
+      await shutdown();
+    });
+  });
+
+  describe('poisonousMessageUpdate', () => {
+    it('should update the started attempts and return the poisonous check', async () => {
+      // Arrange
+      const id = '1';
+      const startedAttempts = 1;
+      const finishedAttempts = 0;
+      const inboxResult = {
+        rowCount: 1,
+        rows: [
+          {
+            started_attempts: startedAttempts + 1,
+            finished_attempts: finishedAttempts,
+          },
+        ],
+      };
+      const pool = new Pool();
+      const client = await pool.connect();
+      client.query = jest.fn().mockResolvedValue(inboxResult);
+      const settings = {
+        dbSchema: 'test_schema',
+        dbTable: 'test_table',
+      };
+      const expected: PoisonousCheck = {
+        startedAttempts: startedAttempts + 1,
+        finishedAttempts: finishedAttempts,
+      };
+
+      // Act
+      const result = await poisonousMessageUpdate(
+        { id } as InboxMessage,
+        client,
+        { settings } as InboxConfig,
+      );
+
+      // Assert
+      expect(client.query).toHaveBeenCalledTimes(1);
+      expect(client.query).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `UPDATE ${settings.dbSchema}.${settings.dbTable}`,
+        ),
+        [id],
+      );
+      expect(result).toEqual(expected);
+    });
+
+    it('should return undefined if the inbox message does not exist', async () => {
+      // Arrange
+      const id = '1';
+      const inboxResult = {
+        rowCount: 0,
+        rows: [],
+      };
+      const pool = new Pool();
+      const client = await pool.connect();
+      client.query = jest.fn().mockResolvedValue(inboxResult);
+      const settings = {
+        dbSchema: 'test_schema',
+        dbTable: 'test_table',
+      };
+
+      // Act
+      const result = await poisonousMessageUpdate(
+        { id } as InboxMessage,
+        client,
+        { settings } as InboxConfig,
+      );
+
+      // Assert
+      expect(client.query).toHaveBeenCalledTimes(1);
+      expect(client.query).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `UPDATE ${settings.dbSchema}.${settings.dbTable}`,
+        ),
+        [id],
+      );
+      expect(result).toBeUndefined();
     });
   });
 
@@ -199,7 +375,7 @@ describe('Inbox unit tests', () => {
   });
 
   describe('nackInbox', () => {
-    it('The nack logic still tries to increment the finished_attempts even when the corresponding inbox row was not found', async () => {
+    it('The nack logic increments the finished_attempts by one', async () => {
       // Arrange
       const pool = new Pool();
       const client = await pool.connect();
@@ -217,6 +393,27 @@ describe('Inbox unit tests', () => {
           'UPDATE test_schema.test_table SET finished_attempts = finished_attempts + 1 WHERE id = $1',
         ),
         [inboxMessage.id],
+      );
+    });
+
+    it('The nack logic sets the finished_attempts directly to the desired value', async () => {
+      // Arrange
+      const pool = new Pool();
+      const client = await pool.connect();
+      client.query = jest.fn().mockResolvedValue({
+        rowCount: 0,
+        rows: [],
+      });
+
+      // Act
+      await nackInbox({ ...inboxMessage }, client, config, 5);
+
+      // Assert
+      expect(client.query).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'UPDATE test_schema.test_table SET finished_attempts = $1 WHERE id = $2;',
+        ),
+        [5, inboxMessage.id],
       );
     });
   });

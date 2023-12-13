@@ -340,11 +340,14 @@ CREATE TABLE public.inbox (
 
 The database role that stores the incoming messages in the inbox table must be
 granted the select and insert permissions for this table. If the same role is
-also used to process the inbox messages later on it requires also the update and
-maybe also the delete permissions.
+also used to process the inbox messages later on it requires also the update
+permissions for the `started_attempts`, `finished_attempts` and `processed_at`
+fields and maybe also the delete permissions to cleanup the inbox from old
+messages.
 
 ```sql
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.inbox TO db_login_inbox;
+GRANT SELECT, INSERT ON public.inbox TO db_login_inbox;
+GRANT UPDATE (started_attempts, finished_attempts, processed_at) ON public.inbox TO db_login_inbox;
 ```
 
 Just like for accessing the outbox table WAL, the inbox solution requires a

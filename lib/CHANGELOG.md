@@ -16,9 +16,12 @@ this file.
   column "started_attempts" in the transactional inbox. This was done to
   implement the poisonous message handling. Please run the following command to
   update your database (adjust the namespace to yours):
+
   ```sql
   ALTER TABLE app_public.inbox RENAME COLUMN attempts TO finished_attempts;
   ALTER TABLE app_public.inbox ADD COLUMN started_attempts smallint NOT NULL DEFAULT 0;
+  GRANT UPDATE (started_attempts, finished_attempts, processed_at) ON app_public.inbox TO db_login_inbox;
+
   ```
 
 ### Added
@@ -41,15 +44,21 @@ this file.
   - `createMultiConcurrencyController` - this is a combined concurrency
     controller. You can define for every message which from the above
     controllers the message should use.
+- Messages can fail when they are processed. The `messageRetryStrategy` allows
+  you to define how often a message can be attempted. And in case a message is
+  (likely) a poisonous message that crashes the service you can use the
+  `poisonousMessageRetryStrategy` to customize if and how often such a message
+  can be retried.
 - The `messageProcessingTimeoutStrategy` allows you to define a message-based
   timeout on how long the message is allowed to be processed in milliseconds.
   This allows you to allow some more expensive messages to take longer while
   still keeping others on a short timeout. By default, it uses the configured
   messageProcessingTimeout or falls back to a 15-second timeout.
-- The inbox listener lets you define the `messageProcessingTransactionLevel` per
-  message. Some message processing logic may have higher isolation level
-  requirements than for processing other messages. If no custom strategy is
-  provided it uses the default database transaction level via `BEGIN`.
+- The inbox listener lets you define the
+  `messageProcessingTransactionLevelStrategy` per message. Some message
+  processing logic may have higher isolation level requirements than for
+  processing other messages. If no custom strategy is provided it uses the
+  default database transaction level via `BEGIN`.
 
 ## [0.3.0] - 2023-10-23
 

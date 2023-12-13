@@ -24,7 +24,7 @@ export const addMovies = async (
   config: Config,
   outboxConfig: OutboxConfig,
   logger: TransactionalLogger,
-): Promise<void> => {
+): Promise<NodeJS.Timeout> => {
   const pool = new Pool({
     host: config.postgresHost,
     port: config.postgresPort,
@@ -43,7 +43,7 @@ export const addMovies = async (
     outboxConfig,
   );
 
-  setInterval(async () => {
+  return setInterval(async () => {
     try {
       await executeTransaction(
         pool,

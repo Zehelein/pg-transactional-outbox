@@ -58,7 +58,7 @@ void (async () => {
     logger,
     {
       concurrencyStrategy: createMutexConcurrencyController(),
-      messageProcessingTimeoutStrategy: () => 2000,
+      messageProcessingTimeoutStrategy: () => 2_000,
       messageProcessingTransactionLevelStrategy: () =>
         IsolationLevel.Serializable,
     },
@@ -71,7 +71,6 @@ void (async () => {
       shutdownRmq(),
       shutdownInSrv(),
     ]);
-    process.exit(0);
   };
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);

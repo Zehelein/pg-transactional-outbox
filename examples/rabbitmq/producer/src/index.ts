@@ -30,7 +30,7 @@ process.on('unhandledRejection', (err, promise) => {
   );
 
   // Initialize and start the outbox subscription
-  const [shutdownOutSrv] = initializeOutboxListener(
+  const [shutdownOutListener] = initializeOutboxListener(
     outboxConfig,
     rmqPublisher,
     logger,
@@ -41,12 +41,12 @@ process.on('unhandledRejection', (err, promise) => {
   );
 
   // Add movies and produce outbox messages on a timer
-  await addMovies(config, outboxConfig, logger);
+  const timeout = await addMovies(config, outboxConfig, logger);
 
   // Close all connections
   const cleanup = async () => {
-    await Promise.allSettled([shutdownRmq(), shutdownOutSrv()]);
-    process.exit(0);
+    clearTimeout(timeout);
+    await Promise.allSettled([shutdownRmq(), shutdownOutListener()]);
   };
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);

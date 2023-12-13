@@ -2,7 +2,10 @@
 import inspector from 'inspector';
 import { Client, Pool } from 'pg';
 import { OutboxConfig } from './outbox-listener';
-import { initializeOutboxMessageStorage } from './outbox-message-storage';
+import {
+  initializeGeneralOutboxMessageStorage,
+  initializeOutboxMessageStorage,
+} from './outbox-message-storage';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
@@ -126,6 +129,81 @@ describe('Outbox unit tests', () => {
       // Act + Assert
       await expect(
         storeOutboxMessage('test-aggregate-id', { test: 'data' }, client),
+      ).rejects.toThrow('Could not insert the message into the outbox!');
+    });
+  });
+
+  describe('initializeGeneralOutboxMessageStorage', () => {
+    it('should store the outbox message data to the database', async () => {
+      // Arrange
+      const pool = new Pool();
+      const client = await pool.connect();
+      client.query = jest
+        .fn()
+        .mockReturnValueOnce({
+          rowCount: 1,
+          rows: [{ created_at: new Date() }],
+        })
+        .mockReturnValueOnce({});
+      const aggregateId = 'test-aggregate-id';
+      const aggregateType = 'movie';
+      const messageType = 'created';
+      const payload = { test: 'data' };
+      const metadata = { routingKey: 'test.route', exchange: 'test-exchange' };
+      const storeOutboxMessage = initializeGeneralOutboxMessageStorage(config);
+
+      // Act
+      const result = await storeOutboxMessage(
+        aggregateId,
+        aggregateType,
+        messageType,
+        payload,
+        client,
+        metadata,
+      );
+
+      // Assert
+      expect(client.query).toHaveBeenCalledTimes(2);
+      expect(client.query).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `INSERT INTO ${config.settings.dbSchema}.${config.settings.dbTable}`,
+        ),
+        [
+          expect.any(String),
+          aggregateType,
+          aggregateId,
+          messageType,
+          payload,
+          metadata,
+        ],
+      );
+      expect(result).toEqual({
+        id: expect.any(String),
+        aggregateType,
+        aggregateId,
+        messageType,
+        payload,
+        metadata,
+        createdAt: expect.any(Date),
+      });
+    });
+
+    it('should throw an error if the outbox message could not be created', async () => {
+      // Arrange
+      const pool = new Pool();
+      const client = await pool.connect();
+      client.query = jest.fn().mockReturnValue({ rowCount: 0 });
+      const storeOutboxMessage = initializeGeneralOutboxMessageStorage(config);
+
+      // Act + Assert
+      await expect(
+        storeOutboxMessage(
+          'test-aggregate-id',
+          'movie',
+          'created',
+          { test: 'data' },
+          client,
+        ),
       ).rejects.toThrow('Could not insert the message into the outbox!');
     });
   });

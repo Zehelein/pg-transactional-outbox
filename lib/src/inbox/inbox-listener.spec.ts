@@ -1,11 +1,19 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+// eslint-disable-next-line prettier/prettier
+// import * as wtf from 'wtfnode';
+// use `wtf.dump();` to get all open handles
+// eslint-disable-next-line prettier/prettier
 import EventEmitter from 'events';
 import inspector from 'inspector';
 import { Client, Connection, Pool, PoolClient } from 'pg';
 import { Pgoutput } from 'pg-logical-replication';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
-import { sleep } from '../common/utils';
-import { InboxConfig, initializeInboxListener } from './inbox-listener';
+import { IsolationLevel, sleep } from '../common/utils';
+import {
+  InboxConfig,
+  InboxStrategies,
+  initializeInboxListener,
+} from './inbox-listener';
 import * as inboxSpy from './inbox-message-storage';
 
 type MessageIdType =
@@ -161,7 +169,7 @@ const inboxDbMessages = [
     payload: { result: 'success' },
     metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
     created_at: new Date('2023-01-18T21:02:27.000Z'),
-    started_attempts: 4, // maximum of 3 poisonous retries difference
+    started_attempts: 4, // maximum difference of 3
     finished_attempts: 1,
     processed_at: null,
   },
@@ -674,5 +682,138 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     );
     expect(log).toBeDefined();
     await cleanup();
+  });
+
+  it('should log a debug message when no messageHandler was found for a message', async () => {
+    // Arrange
+    const [logger, logs] = getInMemoryLogger('unit test');
+    const messageHandler = jest.fn(() => Promise.resolve());
+    const message = {
+      id: 'not_processed_id',
+      aggregateType: aggregate_type,
+      aggregateId: 'test_aggregate_id',
+      messageType: message_type,
+      payload: { result: 'success' },
+      metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
+      createdAt: '2023-01-18T21:02:27.000Z',
+      startedAttempts: 2,
+      finishedAttempts: 2,
+      processedAt: null,
+    };
+    const [cleanup] = initializeInboxListener(
+      config,
+      [
+        {
+          aggregateType: 'different-type',
+          messageType: 'different-type',
+          handle: messageHandler,
+        },
+      ],
+      logger,
+    );
+
+    // Act
+    sendReplicationChunk('not_processed_id');
+    await continueEventLoop();
+
+    // Assert
+    expect(messageHandler).not.toHaveBeenCalled();
+    expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
+    expect(ackInboxSpy).toHaveBeenCalledWith(
+      message,
+      expect.any(Object),
+      expect.any(Object),
+    );
+    expect(nackInboxSpy).not.toHaveBeenCalled();
+    const log = logs.filter(
+      (log) =>
+        log.args[0] ===
+        'No message handler found for aggregate type "test_type" and message tye "test_message_type"',
+    );
+    expect(log).toBeDefined();
+    expect(client.connect).toHaveBeenCalledTimes(1);
+    await cleanup();
+    expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
+  it('should raise an error if no message handlers are defined', () => {
+    // Act
+    expect(() =>
+      initializeInboxListener(config, [], getDisabledLogger()),
+    ).toThrow('At least one message handler must be provided');
+  });
+
+  it('should use all the strategies', async () => {
+    // Arrange
+    const messageHandler = jest.fn(() => Promise.resolve());
+    const unusedMessageHandler = jest.fn(() => Promise.resolve());
+    const message = {
+      id: 'not_processed_id',
+      aggregateType: aggregate_type,
+      aggregateId: 'test_aggregate_id',
+      messageType: message_type,
+      payload: { result: 'success' },
+      metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
+      createdAt: '2023-01-18T21:02:27.000Z',
+      startedAttempts: 2,
+      finishedAttempts: 2,
+      processedAt: null,
+    };
+    const strategies: InboxStrategies = {
+      concurrencyStrategy: {
+        acquire: jest.fn().mockReturnValue(() => {
+          /** just release */
+        }),
+        cancel: jest.fn(),
+      },
+      messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(2_000),
+      messageProcessingTransactionLevelStrategy: jest
+        .fn()
+        .mockReturnValue(IsolationLevel.Serializable),
+      messageRetryStrategy: {
+        maxAttempts: jest.fn().mockReturnValue(5),
+        shouldAttempt: jest.fn().mockReturnValue(true),
+      },
+      poisonousMessageRetryStrategy: jest.fn().mockReturnValue(true),
+    };
+    const [cleanup] = initializeInboxListener(
+      config,
+      [
+        {
+          aggregateType: message.aggregateType,
+          messageType: message.messageType,
+          handle: messageHandler,
+        },
+      ],
+      getDisabledLogger(),
+      strategies,
+    );
+
+    // Act
+    sendReplicationChunk('not_processed_id');
+    await continueEventLoop();
+
+    // Assert
+    expect(messageHandler).toHaveBeenCalledWith(message, expect.any(Object));
+    expect(strategies.concurrencyStrategy.acquire).toHaveBeenCalled();
+    expect(strategies.concurrencyStrategy.cancel).not.toHaveBeenCalled();
+    expect(strategies.messageProcessingTimeoutStrategy).toHaveBeenCalled();
+    expect(
+      strategies.messageProcessingTransactionLevelStrategy,
+    ).toHaveBeenCalled();
+    expect(strategies.messageRetryStrategy.maxAttempts).not.toHaveBeenCalled();
+    expect(strategies.messageRetryStrategy.shouldAttempt).toHaveBeenCalled();
+    expect(strategies.poisonousMessageRetryStrategy).not.toHaveBeenCalled();
+    expect(unusedMessageHandler).not.toHaveBeenCalled();
+    expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
+    expect(ackInboxSpy).toHaveBeenCalledWith(
+      message,
+      expect.any(Object),
+      expect.any(Object),
+    );
+    expect(nackInboxSpy).not.toHaveBeenCalled();
+    expect(client.connect).toHaveBeenCalledTimes(1);
+    await cleanup();
+    expect(client.end).toHaveBeenCalledTimes(1);
   });
 });

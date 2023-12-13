@@ -218,7 +218,7 @@ const stopClient = async (
     client.connection?.removeAllListeners();
     client.removeAllListeners();
     await awaitWithTimeout(
-      () => client.end(),
+      async () => client.end(),
       1000,
       `The PostgreSQL client could not be stopped within a reasonable time frame.`,
     );

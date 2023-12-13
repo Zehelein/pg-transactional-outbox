@@ -6,6 +6,7 @@ import { Pgoutput } from 'pg-logical-replication';
 import { EventEmitter } from 'stream';
 import { getDisabledLogger } from '../../dist';
 import { sleep } from '../common/utils';
+import { TransactionalStrategies } from '../replication/logical-replication-listener';
 import { OutboxConfig, initializeOutboxListener } from './outbox-listener';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
@@ -209,6 +210,43 @@ describe('Outbox listener unit tests - initializeOutboxListener', () => {
     expect(messageHandler).not.toHaveBeenCalledWith(outboxMessage);
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
+    await shutdown();
+    expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
+  it('should use all the strategies', async () => {
+    // Arrange
+    const messageHandler = jest.fn(() => Promise.resolve());
+    const strategies: TransactionalStrategies = {
+      concurrencyStrategy: {
+        acquire: jest.fn().mockReturnValue(() => {
+          /** just release */
+        }),
+        cancel: jest.fn(),
+      },
+      messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(2_000),
+    };
+    const [shutdown] = initializeOutboxListener(
+      config,
+      messageHandler,
+      getDisabledLogger(),
+      strategies,
+    );
+    await continueEventLoop();
+
+    // Act
+    sendReplicationChunk();
+    await continueEventLoop();
+
+    // Assert
+    expect(messageHandler).toHaveBeenCalledWith(outboxMessage);
+    expect(client.connection.sendCopyFromChunk).toHaveBeenCalledWith(
+      expect.any(Buffer), // acknowledge
+    );
+    expect(client.connect).toHaveBeenCalledTimes(1);
+    expect(strategies.messageProcessingTimeoutStrategy).toHaveBeenCalled();
+    expect(strategies.concurrencyStrategy.acquire).toHaveBeenCalled();
+    expect(strategies.concurrencyStrategy.cancel).not.toHaveBeenCalled();
     await shutdown();
     expect(client.end).toHaveBeenCalledTimes(1);
   });

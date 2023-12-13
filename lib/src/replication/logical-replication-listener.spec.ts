@@ -180,7 +180,7 @@ const getStrategies = (
     messageProcessingTimeoutStrategy: defaultMessageProcessingTimeoutStrategy(
       config ??
         ({
-          settings: { ...settings, messageProcessingTimeout: 2000 },
+          settings: { ...settings, messageProcessingTimeout: 2_000 },
         } as TransactionalOutboxInboxConfig),
     ),
   };
@@ -610,7 +610,7 @@ describe('Local replication service unit tests', () => {
       // Arrange
       const config = {
         pgReplicationConfig: {},
-        settings: { ...settings, messageProcessingTimeout: 2000 },
+        settings: { ...settings, messageProcessingTimeout: 2_000 },
       };
       let messageHandlerCalled = false;
       let errorHandlerCalled = false;
