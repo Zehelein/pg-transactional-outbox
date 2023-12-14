@@ -403,7 +403,7 @@ describe('Local replication service unit tests', () => {
           expect(msg).toStrictEqual(message);
           expect(error).toStrictEqual(testError);
           errorHandlerCalled = true;
-          return 'transient_error';
+          return true;
         },
         getDisabledLogger(),
         getStrategies(),
@@ -441,7 +441,7 @@ describe('Local replication service unit tests', () => {
           expect(msg).toStrictEqual(message);
           expect(error).toStrictEqual(testError);
           errorHandlerCalled = true;
-          return 'permanent_error';
+          return false;
         },
         getDisabledLogger(),
         getStrategies(config),
@@ -587,7 +587,7 @@ describe('Local replication service unit tests', () => {
             new RegExp(`Could not process the message with ID ${message.id}.*`),
           );
           errorHandlerCalled = true;
-          return 'transient_error';
+          return true;
         },
         getDisabledLogger(),
         getStrategies(config),
@@ -626,7 +626,7 @@ describe('Local replication service unit tests', () => {
             new RegExp(`Could not process the message with ID ${message.id}.*`),
           );
           errorHandlerCalled = true;
-          return 'transient_error';
+          return true;
         },
         getDisabledLogger(),
         {

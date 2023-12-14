@@ -45,7 +45,7 @@ this file.
     controller. You can define for every message which from the above
     controllers the message should use.
 - Messages can fail when they are processed. The `messageRetryStrategy` allows
-  you to define how often a message can be attempted. And in case a message is
+  you to define how often a message can be retried. And in case a message is
   (likely) a poisonous message that crashes the service you can use the
   `poisonousMessageRetryStrategy` to customize if and how often such a message
   can be retried.

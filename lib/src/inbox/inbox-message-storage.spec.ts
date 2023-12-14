@@ -395,26 +395,5 @@ describe('Inbox unit tests', () => {
         [inboxMessage.id],
       );
     });
-
-    it('The nack logic sets the finished_attempts directly to the desired value', async () => {
-      // Arrange
-      const pool = new Pool();
-      const client = await pool.connect();
-      client.query = jest.fn().mockResolvedValue({
-        rowCount: 0,
-        rows: [],
-      });
-
-      // Act
-      await nackInbox({ ...inboxMessage }, client, config, 5);
-
-      // Assert
-      expect(client.query).toHaveBeenCalledWith(
-        expect.stringContaining(
-          'UPDATE test_schema.test_table SET finished_attempts = $1 WHERE id = $2;',
-        ),
-        [5, inboxMessage.id],
-      );
-    });
   });
 });

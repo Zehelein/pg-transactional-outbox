@@ -1,5 +1,4 @@
 import { ClientBase, ClientConfig, Pool, PoolClient } from 'pg';
-import { ErrorType } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { InboxMessage } from '../common/message';
 import { executeTransaction } from '../common/utils';
@@ -76,17 +75,17 @@ export interface InboxMessageHandler {
    * "handle" method. Please ensure that this function does not throw an error
    * as the finished_attempts counter is increased in the same transaction.
    * @param error The error that was thrown in the handle method.
-   * @param message The inbox message with the payload that was attempted to be handled.
+   * @param message The inbox message with the payload that was attempted to be handled. The finishedAttempts property includes the number of processing attempts - including the current one.
    * @param client The database client that is part of a (new) transaction to safely handle the error.
-   * @param attempts The number of times that message was already attempted (including the current attempt). And the maximum number of times the message will be attempted.
+   * @param retry True if the message should be retried again.
    * @returns A flag that defines if the message should be retried ('transient_error') or not ('permanent_error')
    */
   handleError?: (
     error: Error,
     message: InboxMessage,
     client: ClientBase,
-    attempts: { current: number; max: number },
-  ) => Promise<ErrorType>;
+    retry: boolean,
+  ) => Promise<void>;
 }
 
 /** Strategies to provide the desired logic for handling specific scenarios */
@@ -202,10 +201,7 @@ const createMessageHandler = (
       pool,
       async (client) => {
         const result = await verifyInbox(message, client, config);
-        if (
-          result === true &&
-          strategies.messageRetryStrategy.shouldAttempt(message)
-        ) {
+        if (result === true) {
           const handler = messageHandlers[getMessageHandlerKey(message)];
           if (handler) {
             await handler.handle(message, client);
@@ -305,7 +301,7 @@ const createErrorResolver = (
    * @param message: the InboxMessage that failed to be processed
    * @param error: the error that was thrown while processing the message
    */
-  return async (message: InboxMessage, error: Error): Promise<ErrorType> => {
+  return async (message: InboxMessage, error: Error): Promise<boolean> => {
     const handler = messageHandlers[getMessageHandlerKey(message)];
     const transactionLevel =
       strategies.messageProcessingTransactionLevelStrategy(message);
@@ -313,34 +309,24 @@ const createErrorResolver = (
       return await executeTransaction(
         pool,
         async (client) => {
-          let errorType: ErrorType = 'transient_error';
-          const current = message.finishedAttempts + 1;
-          const maxAttempts =
-            strategies.messageRetryStrategy.maxAttempts(message);
+          message.finishedAttempts++;
+          const shouldRetry = strategies.messageRetryStrategy(message);
           if (handler?.handleError) {
-            errorType = await handler.handleError(error, message, client, {
-              current,
-              max: maxAttempts,
-            });
+            await handler.handleError(error, message, client, shouldRetry);
           }
-          let attempts: number | undefined;
-          if (
-            errorType === 'permanent_error' ||
-            message.finishedAttempts + 1 >= maxAttempts
-          ) {
-            attempts = maxAttempts;
-            logger.error(
-              error,
-              `Giving up processing the message with id ${message.id}.`,
-            );
-          } else {
+          if (shouldRetry) {
             logger.warn(
               error,
               `An error ocurred while processing the message with id ${message.id}.`,
             );
+          } else {
+            logger.error(
+              error,
+              `Giving up processing the message with id ${message.id}.`,
+            );
           }
-          await nackInbox(message, client, config, attempts);
-          return errorType;
+          await nackInbox(message, client, config);
+          return shouldRetry;
         },
         transactionLevel,
         logger,
@@ -362,9 +348,9 @@ const createErrorResolver = (
           transactionLevel,
           logger,
         );
-        return 'transient_error';
+        return true;
       } catch {
-        return 'permanent_error';
+        return false;
       }
     }
   };

@@ -1,4 +1,3 @@
-import { ErrorType } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { OutboxMessage } from '../common/message';
 import { TransactionalOutboxInboxConfig } from '../replication/config';
@@ -28,9 +27,9 @@ export const initializeOutboxListener = (
   const logErrors = async (
     _m: OutboxMessage,
     error: Error,
-  ): Promise<ErrorType> => {
+  ): Promise<boolean> => {
     logger.error(error, 'An error ocurred while handling an outbox message.');
-    return 'transient_error';
+    return true;
   };
   return createLogicalReplicationListener(
     config,

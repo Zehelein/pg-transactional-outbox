@@ -1,7 +1,7 @@
 import { Client, ClientConfig, Connection } from 'pg';
 import { Pgoutput, PgoutputPlugin } from 'pg-logical-replication';
 import { AbstractPlugin } from 'pg-logical-replication/dist/output-plugins/abstract.plugin';
-import { ErrorType, MessageError, ensureError } from '../common/error';
+import { MessageError, ensureError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { OutboxMessage } from '../common/message';
 import { awaitWithTimeout } from '../common/utils';
@@ -47,7 +47,7 @@ export interface TransactionalStrategies {
 export const createLogicalReplicationListener = <T extends OutboxMessage>(
   { pgReplicationConfig, settings }: TransactionalOutboxInboxConfig,
   messageHandler: (message: T) => Promise<void>,
-  errorHandler: (message: T, err: Error) => Promise<ErrorType>,
+  errorHandler: (message: T, err: Error) => Promise<boolean>,
   logger: TransactionalLogger,
   strategies: TransactionalStrategies,
   listenerType: 'inbox' | 'outbox',
@@ -305,7 +305,7 @@ const handleIncomingData = <T extends OutboxMessage>(
   plugin: AbstractPlugin,
   config: ReplicationListenerConfig,
   messageHandler: (message: T) => Promise<void>,
-  errorHandler: (message: T, err: Error) => Promise<ErrorType>,
+  errorHandler: (message: T, err: Error) => Promise<boolean>,
   concurrencyStrategy: ConcurrencyController,
   messageProcessingTimeoutStrategy: MessageProcessingTimeoutStrategy,
   logger: TransactionalLogger,
@@ -323,7 +323,7 @@ const handleIncomingData = <T extends OutboxMessage>(
   let stopped = false;
   const handleOutboxInboxMessage = async <T extends OutboxMessage>(
     messageHandler: (message: T) => Promise<void>,
-    errorHandler: ((message: T, err: Error) => Promise<ErrorType>) | undefined,
+    errorHandler: (message: T, err: Error) => Promise<boolean>,
     message: T,
     lsn: string,
     finishProcessingLSN: (lsn: string) => void,
@@ -356,12 +356,10 @@ const handleIncomingData = <T extends OutboxMessage>(
       );
     } catch (e) {
       const err = ensureError(e);
-      if (errorHandler) {
-        const errorType = await errorHandler(message, err);
-        if (errorType === 'permanent_error') {
-          finishProcessingLSN(lsn);
-          return;
-        }
+      const shouldRetry = await errorHandler(message, err);
+      if (!shouldRetry) {
+        finishProcessingLSN(lsn);
+        return;
       }
       throw new MessageError(
         `An error ocurred while handling the message with ID ${message.id} and LSN ${lsn}`,

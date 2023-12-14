@@ -41,8 +41,10 @@ yarn add pg-transactional-outbox
   - [Message format](#message-format)
 - [Strategies](#strategies)
   - [Concurrency strategy](#concurrency-strategy)
-  - [Poisonous message retries](#poisonous-message-retries)
-  - [Other Strategies](#other-strategies)
+  - [Message retries strategy](#message-retries-strategy)
+  - [Poisonous message retries strategy](#poisonous-message-retries-strategy)
+  - [Message processing timeouts strategy](#message-processing-timeouts-strategy)
+  - [Message processing Transaction level strategy](#message-processing-transaction-level-strategy)
 - [Testing](#testing)
 
 # Context
@@ -465,8 +467,50 @@ import {
   }
   await shutdown();
 })();
-
 ```
+
+### Outbox Storage
+
+The outbox storage is used to store the message that should later be sent into
+the `outbox` database table. It comes in two flavors:
+
+The `initializeOutboxMessageStorage` is initialized to store a specific
+combination of aggregate type and message type. In the above example, it is used
+to store outbox messages for the aggregate type `movie` and the message type
+`movie_created`. The storage function accepts the following parameters:
+
+- `aggregateId`: the unique identifier of the aggregate - e.g. the movie
+  database ID
+- `payload`: the message payload that is used on the receiving side to act on
+  such a message.
+- `dbClient`: the database client with an open database transaction to both do
+  the business logic as well as store the outgoing message within that
+  transaction.
+- `metadata`: optional metadata that can be used for the actual message
+  transport like routing keys and the target queue.
+
+The more generic outbox storage can be created with the
+`initializeGeneralOutboxMessageStorage` function. It has the same input
+parameters as the above storage function but in addition also the
+`aggregateType` and the `messageType`.
+
+### Outbox Listener
+
+The `initializeOutboxListener` is used to create and start the WAL listener that
+gets notified when a new outbox message is written to the outbox table. It takes
+the message publisher instance as an input parameter (`sendMessage`) and calls
+it to send out messages. Other parameters are the `config` object, a `logger`
+instance and an optional strategies object to fine-tune and customize specific
+aspects of the outbox listener.
+
+### Message Publisher
+
+The message publisher is responsible for the actual transport of the message to
+the recipient(s). It receives the outbox `message` with all the fields -
+including the metadata. Based on the metadata the message publisher should send
+out the message. The messaging publisher logic or the used system is responsible
+for guaranteeing at least once message delivery. You can find a RabbitMQ-based
+implementation in the examples folder.
 
 ## Implementing the transactional inbox consumer
 
@@ -628,6 +672,31 @@ import {
 > can be a few hours but also some days. Messages that are older than this
 > defined duration should not be processed anymore.
 
+### Message receiver
+
+The message receiver is the counterpart to the message publisher. It receives
+the transferred message and has to store it in the inbox table. It is the
+responsibility of the receiver to guarantee that the message is written to the
+inbox table via the inbox storage functionality. It can try it multiple times if
+needed. You can find a RabbitMQ-based implementation in the examples folder.
+
+### Message Storage
+
+When a message is received it must use the inbox storage functionality to store
+the message. The `initializeInboxMessageStorage` is used to create to create an
+inbox storage instance. The inbox storage takes the incoming `OutboxMessage` and
+stores it as an `InboxMessage` in the inbox table.
+
+### Inbox Listener
+
+The `initializeInboxListener` initializes the inbox listener which is notified
+whenever a new inbox message is written to the inbox table. It takes a list of
+message handlers and invokes the one that matches the incoming messages
+aggregate type and message type.
+
+The optional `strategies` object can be provided to customize different inbox
+listener scenarios.
+
 ### Message Handler
 
 The message handler is a component that defines how to process messages of a
@@ -720,7 +789,17 @@ pre-build ones but you can also write your own (e.g. using a semaphore):
   controller. You can define which of the above controllers should be used for
   different kinds of messages.
 
-## Poisonous message retries
+## Message retry strategy
+
+When processing an inbox message an error can be thrown. The inbox listener
+catches that errors and needs to decide if the message should be processed
+again - or not. The `messageRetryStrategy` offers the possibility to customize
+the decision if a message should be retried or not. By default the
+`defaultMessageRetryStrategy` is used. It will retry the message up the
+configured value in the `maxAttempts` setting or as a fallback five times
+(including the initial attempt).
+
+## Poisonous message retry strategy
 
 A poisonous message is a message that causes the service to crash repeatedly and
 prevents other messages from being processed. To avoid this situation, the
@@ -740,20 +819,22 @@ You can customize the behavior of the service by changing the following options:
   you can implement your own logic and pass it as an argument to the service
   constructor.
 
-## Other Strategies
+## Message processing timeouts strategy
 
 The `messageProcessingTimeoutStrategy` allows you to define a message-based
 timeout on how long the message is allowed to be processed (in milliseconds).
 This allows you to give more time to process "expensive" messages while still
 processing others on a short timeout. By default, it uses the configured
-`messageProcessingTimeout`` or falls back to a 15-second timeout.
+`messageProcessingTimeout` or falls back to a 15-second timeout.
+
+## Message processing Transaction level strategy
 
 The inbox listener lets you define the `messageProcessingTransactionLevel` per
 message. Some message processing may have higher isolation level requirements
 than others. If no custom strategy is provided it uses the default database
 transaction level via `BEGIN`.
 
-## Testing
+# Testing
 
 The `__tests__` folder contains integration tests that test the functionality of
 the outbox and inbox listener implementation. The tests are using the

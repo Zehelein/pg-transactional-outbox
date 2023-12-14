@@ -12,8 +12,7 @@ describe('defaultMessageRetryStrategy', () => {
     } as InboxMessage;
     const retryStrategy = defaultMessageRetryStrategy(config);
 
-    expect(retryStrategy.shouldAttempt(message)).toBe(true);
-    expect(retryStrategy.maxAttempts(message)).toBe(5);
+    expect(retryStrategy(message)).toBe(true);
   });
 
   it('should use the configured message retry strategy', () => {
@@ -27,8 +26,7 @@ describe('defaultMessageRetryStrategy', () => {
     } as InboxMessage;
     const retryStrategy = defaultMessageRetryStrategy(config);
 
-    expect(retryStrategy.shouldAttempt(message)).toBe(true);
-    expect(retryStrategy.maxAttempts(message)).toBe(3);
+    expect(retryStrategy(message)).toBe(true);
   });
 
   it('should use the default message retry strategy and not retry a message if the attempts are exceeded', () => {
@@ -40,8 +38,7 @@ describe('defaultMessageRetryStrategy', () => {
     } as InboxMessage;
     const retryStrategy = defaultMessageRetryStrategy(config);
 
-    expect(retryStrategy.shouldAttempt(message)).toBe(false);
-    expect(retryStrategy.maxAttempts(message)).toBe(5);
+    expect(retryStrategy(message)).toBe(false);
   });
 
   it('should use the configured message retry strategy and not retry a message if the attempts are exceeded', () => {
@@ -55,7 +52,6 @@ describe('defaultMessageRetryStrategy', () => {
     } as InboxMessage;
     const retryStrategy = defaultMessageRetryStrategy(config);
 
-    expect(retryStrategy.shouldAttempt(message)).toBe(false);
-    expect(retryStrategy.maxAttempts(message)).toBe(3);
+    expect(retryStrategy(message)).toBe(false);
   });
 });

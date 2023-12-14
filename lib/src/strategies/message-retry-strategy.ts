@@ -7,18 +7,13 @@ import { InboxConfig } from '../inbox/inbox-listener';
  */
 export interface MessageRetryStrategy {
   /**
-   * Checks if the message should be attempted. The current number of attempts
-   * is available in the message object.
+   * Checks if the message should be retried after an error occured. The number
+   * of processing attempts (including the current) is available in the message
+   * object.
    * @param message The inbox message
-   * @returns true if the message should be attempted/retried, otherwise false.
+   * @returns true if the message should be retried, otherwise false.
    */
-  shouldAttempt: (message: InboxMessage) => boolean;
-  /**
-   * Calculates a number that defines how often this message should be attempted.
-   * @param message The inbox message
-   * @returns The maximum number of processing attempts.
-   */
-  maxAttempts: (message: InboxMessage) => number;
+  (message: InboxMessage): boolean;
 }
 
 /**
@@ -30,9 +25,6 @@ export const defaultMessageRetryStrategy = (
   config: InboxConfig,
 ): MessageRetryStrategy => {
   const maxAttempts = config.settings.maxAttempts ?? 5;
-  return {
-    shouldAttempt: (message: InboxMessage): boolean =>
-      message.finishedAttempts < maxAttempts,
-    maxAttempts: () => maxAttempts,
-  };
+  return (message: InboxMessage): boolean =>
+    message.finishedAttempts < maxAttempts;
 };

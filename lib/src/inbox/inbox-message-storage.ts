@@ -155,32 +155,21 @@ export const ackInbox = async (
 };
 
 /**
- * Reject the message and do not acknowledge it. Check the return value if the
- * WAL message should be acknowledged or not as the logic uses retries.
+ * Not acknowledging the inbox message means increasing the finished_attempts counter by one
  * @param message The inbox message to NOT acknowledge.
  * @param client The database client. Must be part of the transaction where the message handling changes are done.
  * @param config The configuration settings that defines inbox database schema.
- * @param finishedAttempts Optionally set the number of finished_attempts to a specific value. Especially relevant for non-transient errors to directly set it to the maximum attempts value.
  */
 export const nackInbox = async (
   { id }: InboxMessage,
   client: PoolClient,
   { settings }: Pick<InboxConfig, 'settings'>,
-  finishedAttempts?: number,
 ): Promise<void> => {
-  if (finishedAttempts) {
-    await client.query(
-      /* sql*/ `
-      UPDATE ${settings.dbSchema}.${settings.dbTable} SET finished_attempts = $1 WHERE id = $2;`,
-      [finishedAttempts, id],
-    );
-  } else {
-    await client.query(
-      /* sql*/ `
+  await client.query(
+    /* sql*/ `
     UPDATE ${settings.dbSchema}.${settings.dbTable} SET finished_attempts = finished_attempts + 1 WHERE id = $1;`,
-      [id],
-    );
-  }
+    [id],
+  );
 };
 
 const insertInbox = async (

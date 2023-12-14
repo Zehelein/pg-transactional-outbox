@@ -502,21 +502,24 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     await continueEventLoop();
 
     // Assert
+    const expectedMessage = {
+      ...message,
+      finishedAttempts: message.finishedAttempts + 1,
+    };
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(unusedErrorHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
     expect(ackInboxSpy).not.toHaveBeenCalled();
     expect(nackInboxSpy).toHaveBeenCalledWith(
-      message,
+      expectedMessage,
       expect.any(Object),
       expect.any(Object),
-      undefined,
     );
     expect(handleError).toHaveBeenCalledWith(
       expect.any(Object),
-      message,
+      expectedMessage,
       expect.any(Object),
-      { current: 3, max: 5 },
+      true,
     );
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
@@ -567,7 +570,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(client.end).toHaveBeenCalledTimes(1);
   });
 
-  it('should not process a message when the', async () => {
+  it('should not retry a message when there is an error and the attempts are exceeded', async () => {
     // Arrange
     const unusedMessageHandler = jest.fn(() => Promise.resolve());
     const message = {
@@ -609,16 +612,14 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
     expect(ackInboxSpy).not.toHaveBeenCalled();
-    expect(nackInboxSpy).toHaveBeenCalled();
     expect(nackInboxSpy).toHaveBeenCalledWith(
-      message,
+      { ...message, finishedAttempts: message.finishedAttempts + 1 },
       expect.any(Object),
       expect.any(Object),
-      5,
     );
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
-    expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
+    expect(client.end).toHaveBeenCalledTimes(1);
   });
 
   it('a messageHandler throws an error and the error handler throws an error as well the message should still increase attempts', async () => {
@@ -659,19 +660,22 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     await continueEventLoop();
 
     // Assert
+    const expectedMessage = {
+      ...message,
+      finishedAttempts: message.finishedAttempts + 1,
+    };
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
     expect(ackInboxSpy).not.toHaveBeenCalled();
     expect(nackInboxSpy).toHaveBeenCalledWith(
-      message,
+      expectedMessage,
       expect.any(Object),
       expect.any(Object),
-      // no fourth parameter is provided for the best effort attempts counter increase
     );
     expect(handleError).toHaveBeenCalledWith(
       expect.any(Object),
-      message,
+      expectedMessage,
       expect.any(Object),
-      { current: 3, max: 5 },
+      true,
     );
     expect(client.connect).toHaveBeenCalledTimes(1);
     expect(client.end).toHaveBeenCalledTimes(1);
@@ -682,6 +686,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     );
     expect(log).toBeDefined();
     await cleanup();
+    expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
   });
 
   it('should log a debug message when no messageHandler was found for a message', async () => {
@@ -770,10 +775,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       messageProcessingTransactionLevelStrategy: jest
         .fn()
         .mockReturnValue(IsolationLevel.Serializable),
-      messageRetryStrategy: {
-        maxAttempts: jest.fn().mockReturnValue(5),
-        shouldAttempt: jest.fn().mockReturnValue(true),
-      },
+      messageRetryStrategy: jest.fn().mockReturnValue(true),
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(true),
     };
     const [cleanup] = initializeInboxListener(
@@ -801,8 +803,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(
       strategies.messageProcessingTransactionLevelStrategy,
     ).toHaveBeenCalled();
-    expect(strategies.messageRetryStrategy.maxAttempts).not.toHaveBeenCalled();
-    expect(strategies.messageRetryStrategy.shouldAttempt).toHaveBeenCalled();
+    expect(strategies.messageRetryStrategy).not.toHaveBeenCalled();
     expect(strategies.poisonousMessageRetryStrategy).not.toHaveBeenCalled();
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
