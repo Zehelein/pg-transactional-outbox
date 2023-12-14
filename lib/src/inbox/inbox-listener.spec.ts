@@ -782,6 +782,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         .mockReturnValue(IsolationLevel.Serializable),
       messageRetryStrategy: jest.fn().mockReturnValue(true),
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(true),
+      listenerRestartTimeStrategy: jest.fn().mockReturnValue(123),
     };
     const [cleanup] = initializeInboxListener(
       config,

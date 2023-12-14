@@ -6,6 +6,7 @@ import { TransactionalLogger } from '../common/logger';
 import { OutboxMessage } from '../common/message';
 import { awaitWithTimeout } from '../common/utils';
 import { ConcurrencyController } from '../concurrency-controller/concurrency-controller';
+import { ListenerRestartTimeStrategy } from '../strategies/listener-restart-time-strategy';
 import { MessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
 import { createAcknowledgeManager } from './acknowledge-manager';
 import {
@@ -29,10 +30,14 @@ export interface TransactionalStrategies {
   /**
    * Defines the message processing timeout strategy. By default, it uses the
    * configured messageProcessingTimeout or falls back to a 15-second timeout.
-   * @param message The message that should be handled
-   * @returns Number of milliseconds how long the message can take at most
    */
   messageProcessingTimeoutStrategy: MessageProcessingTimeoutStrategy;
+
+  /**
+   * Returns the time in milliseconds after an error was caught until the
+   * listener should try to restart itself.
+   */
+  listenerRestartTimeStrategy: ListenerRestartTimeStrategy;
 }
 
 /**
@@ -100,7 +105,7 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
           if (!stopped && !restartTimeout) {
             restartTimeout = setTimeout(
               start,
-              getRestartTimeout(err, settings),
+              strategies.listenerRestartTimeStrategy(err),
             );
           }
         });
@@ -224,18 +229,6 @@ const stopClient = async (
     );
   } catch (e) {
     logger.warn(e, `Stopping the PostgreSQL client gave an error.`);
-  }
-};
-
-const getRestartTimeout = (
-  error: unknown,
-  config: ReplicationListenerConfig,
-): number => {
-  const err = error as Error & { code?: string; routine?: string };
-  if (err?.code === '55006' && err?.routine === 'ReplicationSlotAcquire') {
-    return config.restartDelaySlotInUse ?? 10_000;
-  } else {
-    return config.restartDelay ?? 250;
   }
 };
 

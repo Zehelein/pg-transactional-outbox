@@ -846,6 +846,17 @@ You can customize the behavior of the service by changing the following options:
   you can implement your own logic and pass it as an argument to the service
   constructor.
 
+## Listener restart time strategy
+
+When the inbox or outbox listener fails due to an error it is restarted. The
+`listenerRestartTimeStrategy` is used to define how long it should wait before
+it attempts to start again based on the caught error.
+
+The `defaultListenerRestartTimeStrategy` checks if the error message is a
+PostgreSQL error telling that the replication slot is in use. If this is the
+case it will wait for the configured `restartDelaySlotInUse` (default: 10sec)
+time and otherwise for the configured `restartDelay` (default: 250ms) one.
+
 # Testing
 
 The `__tests__` folder contains integration tests that test the functionality of

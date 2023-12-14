@@ -8,6 +8,7 @@ import {
   createLogicalReplicationListener,
 } from '../replication/logical-replication-listener';
 import { defaultConcurrencyStrategy } from '../strategies/concurrency-strategy';
+import { defaultListenerRestartTimeStrategy } from '../strategies/listener-restart-time-strategy';
 import {
   MessageProcessingClientStrategy,
   defaultMessageProcessingClientStrategy,
@@ -376,4 +377,7 @@ const applyDefaultStrategies = (
   poisonousMessageRetryStrategy:
     strategies?.poisonousMessageRetryStrategy ??
     defaultPoisonousMessageRetryStrategy(config),
+  listenerRestartTimeStrategy:
+    strategies?.listenerRestartTimeStrategy ??
+    defaultListenerRestartTimeStrategy(config),
 });

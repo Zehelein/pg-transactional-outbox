@@ -225,6 +225,7 @@ describe('Outbox listener unit tests - initializeOutboxListener', () => {
         cancel: jest.fn(),
       },
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(2_000),
+      listenerRestartTimeStrategy: jest.fn().mockReturnValue(123),
     };
     const [shutdown] = initializeOutboxListener(
       config,

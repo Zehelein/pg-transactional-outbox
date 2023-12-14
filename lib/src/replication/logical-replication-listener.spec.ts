@@ -8,6 +8,7 @@ import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { OutboxMessage } from '../common/message';
 import { sleep } from '../common/utils';
 import { defaultConcurrencyStrategy } from '../strategies/concurrency-strategy';
+import { defaultListenerRestartTimeStrategy } from '../strategies/listener-restart-time-strategy';
 import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
 import { TransactionalOutboxInboxConfig } from './config';
 import {
@@ -175,14 +176,16 @@ const relation: Pgoutput.MessageRelation = {
 const getStrategies = (
   config?: TransactionalOutboxInboxConfig,
 ): TransactionalStrategies => {
+  const cfg =
+    config ??
+    ({
+      settings: { ...settings, messageProcessingTimeout: 2_000 },
+    } as TransactionalOutboxInboxConfig);
   return {
     concurrencyStrategy: defaultConcurrencyStrategy(),
-    messageProcessingTimeoutStrategy: defaultMessageProcessingTimeoutStrategy(
-      config ??
-        ({
-          settings: { ...settings, messageProcessingTimeout: 2_000 },
-        } as TransactionalOutboxInboxConfig),
-    ),
+    messageProcessingTimeoutStrategy:
+      defaultMessageProcessingTimeoutStrategy(cfg),
+    listenerRestartTimeStrategy: defaultListenerRestartTimeStrategy(cfg),
   };
 };
 
@@ -632,6 +635,8 @@ describe('Local replication service unit tests', () => {
         {
           concurrencyStrategy: defaultConcurrencyStrategy(),
           messageProcessingTimeoutStrategy: () => 100,
+          listenerRestartTimeStrategy:
+            defaultListenerRestartTimeStrategy(config),
         },
         'inbox',
       );
@@ -662,6 +667,8 @@ describe('Local replication service unit tests', () => {
         {
           concurrencyStrategy: defaultConcurrencyStrategy(),
           messageProcessingTimeoutStrategy: () => 200,
+          listenerRestartTimeStrategy:
+            defaultListenerRestartTimeStrategy(config),
         },
         'inbox',
       );

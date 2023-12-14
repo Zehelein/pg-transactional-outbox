@@ -63,6 +63,9 @@ this file.
   (likely) a poisonous message that crashes the service you can use the
   `poisonousMessageRetryStrategy` to customize if and how often such a message
   can be retried.
+- When the inbox or outbox listener fails due to an error it is restarted. The
+  `listenerRestartTimeStrategy` is used to define how long it should wait before
+  it attempts to start again.
 
 ## [0.3.0] - 2023-10-23
 
