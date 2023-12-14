@@ -38,13 +38,13 @@ const metadata = { routingKey: 'test.route', exchange: 'test-exchange' };
 const createContent = (id: string) => `Content for id ${id}`;
 
 const insertSourceEntity = async (
-  loginPool: Pool,
+  client: PoolClient,
   id: string,
   content: string,
   storeOutboxMessage: ReturnType<typeof initializeOutboxMessageStorage>,
 ) => {
-  await executeTransaction(loginPool, async (client: PoolClient) => {
-    const entity = await client.query(
+  await executeTransaction(client, async (txnClient) => {
+    const entity = await txnClient.query(
       `INSERT INTO public.source_entities (id, content) VALUES ($1, $2) RETURNING id, content;`,
       [id, content],
     );
@@ -53,7 +53,7 @@ const insertSourceEntity = async (
         `Inserted ${entity.rowCount} source entities instead of 1.`,
       );
     }
-    await storeOutboxMessage(id, entity.rows[0], client, metadata);
+    await storeOutboxMessage(id, entity.rows[0], txnClient, metadata);
   });
 };
 
@@ -141,13 +141,13 @@ describe('Outbox and inbox resilience integration tests', () => {
     // Act
     // Store two message before starting up the outbox listener
     await insertSourceEntity(
-      loginPool,
+      await loginPool.connect(),
       entity1Id,
       content1,
       storeOutboxMessage,
     );
     await insertSourceEntity(
-      loginPool,
+      await loginPool.connect(),
       entity2Id,
       content2,
       storeOutboxMessage,

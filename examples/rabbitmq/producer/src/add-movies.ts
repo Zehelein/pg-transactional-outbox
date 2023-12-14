@@ -1,4 +1,4 @@
-import { Pool, PoolClient } from 'pg';
+import { ClientBase, Pool } from 'pg';
 import {
   IsolationLevel,
   OutboxConfig,
@@ -46,14 +46,13 @@ export const addMovies = async (
   return setInterval(async () => {
     try {
       await executeTransaction(
-        pool,
+        await pool.connect(),
         async (client) => {
           const payload = await insertMovie(client, logger);
           await storeOutboxMessage(payload.id, payload, client);
           return payload;
         },
         IsolationLevel.ReadCommitted,
-        logger,
       );
     } catch (error) {
       logger.error(error, 'Could not create a movie');
@@ -63,7 +62,7 @@ export const addMovies = async (
 
 let index = 1;
 const insertMovie = async (
-  dbClient: PoolClient,
+  dbClient: ClientBase,
   logger: TransactionalLogger,
 ) => {
   const movieInsertedIdResult = await dbClient.query(/* sql*/ `

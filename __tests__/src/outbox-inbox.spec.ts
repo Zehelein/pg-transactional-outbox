@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { resolve } from 'path';
-import { Client, ClientBase, Pool, PoolClient } from 'pg';
+import { Client, ClientBase, Pool } from 'pg';
 import {
   InMemoryLogEntry,
   InboxMessage,
@@ -102,7 +102,7 @@ const insertSourceEntity = async (
   content: string,
   storeOutboxMessage: ReturnType<typeof initializeOutboxMessageStorage>,
 ) => {
-  await executeTransaction(loginPool, async (client: PoolClient) => {
+  await executeTransaction(await loginPool.connect(), async (client) => {
     const entity = await client.query(
       `INSERT INTO public.source_entities (id, content) VALUES ($1, $2) RETURNING id, content;`,
       [id, content],
@@ -263,7 +263,7 @@ describe('Outbox and inbox integration tests', () => {
     const ids = Array.from({ length: 10 }, () => uuid());
 
     // Act
-    await executeTransaction(loginPool, async (client: PoolClient) => {
+    await executeTransaction(await loginPool.connect(), async (client) => {
       await Promise.all(
         ids.map(async (id) => {
           const entity = await client.query(

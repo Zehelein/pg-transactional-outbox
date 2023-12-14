@@ -1,4 +1,4 @@
-import { OutboxMessage } from '../../dist';
+import { OutboxMessage } from '../common/message';
 import { sleep } from '../common/utils';
 import { ConcurrencyController } from './concurrency-controller';
 import { createMultiConcurrencyController } from './create-multi-concurrency-controller';

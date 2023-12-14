@@ -107,10 +107,9 @@ jest.mock('../common/utils', () => {
     ...jest.requireActual('../common/utils'),
     executeTransaction: jest.fn(
       async (
-        pool: Pool,
+        client: PoolClient,
         callback: (client: PoolClient) => Promise<unknown>,
       ) => {
-        const client = await pool.connect();
         const response = await callback(client);
         client.release();
         return response;

@@ -1,4 +1,4 @@
-import { ClientBase, ClientConfig, Pool, PoolClient } from 'pg';
+import { ClientBase, ClientConfig } from 'pg';
 import { TransactionalLogger } from '../common/logger';
 import { InboxMessage } from '../common/message';
 import { executeTransaction } from '../common/utils';
@@ -8,6 +8,10 @@ import {
   createLogicalReplicationListener,
 } from '../replication/logical-replication-listener';
 import { defaultConcurrencyStrategy } from '../strategies/concurrency-strategy';
+import {
+  MessageProcessingClientStrategy,
+  defaultMessageProcessingClientStrategy,
+} from '../strategies/message-processing-client-strategy';
 import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
 import {
   MessageProcessingTransactionLevelStrategy,
@@ -97,6 +101,12 @@ export interface InboxStrategies extends TransactionalStrategies {
   messageProcessingTransactionLevelStrategy: MessageProcessingTransactionLevelStrategy;
 
   /**
+   * Decides from what pool to take a database client. This can be helpful if some
+   * message handlers have to run in higher trust roles than others.
+   */
+  messageProcessingClientStrategy: MessageProcessingClientStrategy;
+
+  /**
    * Decides if a message should be retried or not based on the current amount
    * of attempts.
    */
@@ -124,19 +134,16 @@ export const initializeInboxListener = (
   logger: TransactionalLogger,
   strategies?: Partial<InboxStrategies>,
 ): [shutdown: { (): Promise<void> }] => {
-  const pool = createPgPool(config, logger);
-  const allStrategies = applyDefaultStrategies(strategies, config);
+  const allStrategies = applyDefaultStrategies(strategies, config, logger);
   const messageHandlerDict = getMessageHandlerDict(messageHandlers);
   const messageHandler = createMessageHandler(
     messageHandlerDict,
-    pool,
     allStrategies,
     config,
     logger,
   );
   const errorResolver = createErrorResolver(
     messageHandlerDict,
-    pool,
     allStrategies,
     config,
     logger,
@@ -151,22 +158,12 @@ export const initializeInboxListener = (
   );
   return [
     async () => {
-      pool.removeAllListeners();
-      try {
-        await Promise.all([pool.end(), shutdown()]);
-      } catch (e) {
-        logger.error(e, 'Inbox listener shutdown error');
-      }
+      await Promise.all([
+        allStrategies.messageProcessingClientStrategy?.shutdown(),
+        shutdown(),
+      ]);
     },
   ];
-};
-
-const createPgPool = (config: InboxConfig, logger: TransactionalLogger) => {
-  const pool = new Pool(config.pgConfig);
-  pool.on('error', (err) => {
-    logger.error(err, 'PostgreSQL pool error');
-  });
-  return pool;
 };
 
 /**
@@ -175,7 +172,6 @@ const createPgPool = (config: InboxConfig, logger: TransactionalLogger) => {
  */
 const createMessageHandler = (
   messageHandlers: Record<string, InboxMessageHandler>,
-  pool: Pool,
   strategies: InboxStrategies,
   config: InboxConfig,
   logger: TransactionalLogger,
@@ -184,42 +180,48 @@ const createMessageHandler = (
     const transactionLevel =
       strategies.messageProcessingTransactionLevelStrategy(message);
 
-    // increase the "started_attempts" and check if the message is probably not a poisonous message
     const attempt = await executeTransaction(
-      pool,
-      async (client) =>
-        poisonousMessageCheck(message, strategies, client, config, logger),
-      transactionLevel,
-      logger,
-    );
-
-    if (!attempt) {
-      return;
-    }
-
-    await executeTransaction(
-      pool,
+      await strategies.messageProcessingClientStrategy.getClient(message),
       async (client) => {
+        // Check that the inbox message was not yet processed and fill the inbox specific properties
         const result = await verifyInbox(message, client, config);
-        if (result === true) {
-          const handler = messageHandlers[getMessageHandlerKey(message)];
-          if (handler) {
-            await handler.handle(message, client);
-          } else {
-            logger.debug(
-              `No message handler found for aggregate type "${message.aggregateType}" and message tye "${message.messageType}"`,
-            );
-          }
-          await ackInbox(message, client, config);
-        } else {
+        if (result !== true) {
           logger.warn(
             message,
             `Received inbox message cannot be processed: ${result}`,
           );
+          return false;
         }
+        // increase the "started_attempts" and check if the message is (probably) not a poisonous message
+        return poisonousMessageCheck(
+          message,
+          strategies,
+          client,
+          config,
+          logger,
+        );
       },
       transactionLevel,
-      logger,
+    );
+    if (!attempt) {
+      return;
+    }
+
+    // Execute the message handler
+    await executeTransaction(
+      await strategies.messageProcessingClientStrategy.getClient(message),
+      async (client) => {
+        const handler = messageHandlers[getMessageHandlerKey(message)];
+        if (handler) {
+          await handler.handle(message, client);
+        } else {
+          logger.debug(
+            `No message handler found for aggregate type "${message.aggregateType}" and message tye "${message.messageType}"`,
+          );
+        }
+        await ackInbox(message, client, config);
+      },
+      transactionLevel,
     );
   };
 };
@@ -234,7 +236,7 @@ const createMessageHandler = (
 const poisonousMessageCheck = async (
   message: InboxMessage,
   strategies: InboxStrategies,
-  client: PoolClient,
+  client: ClientBase,
   config: InboxConfig,
   logger: TransactionalLogger,
 ) => {
@@ -288,7 +290,6 @@ const getMessageHandlerDict = (
  */
 const createErrorResolver = (
   messageHandlers: Record<string, InboxMessageHandler>,
-  pool: Pool,
   strategies: InboxStrategies,
   config: InboxConfig,
   logger: TransactionalLogger,
@@ -307,7 +308,7 @@ const createErrorResolver = (
       strategies.messageProcessingTransactionLevelStrategy(message);
     try {
       return await executeTransaction(
-        pool,
+        await strategies.messageProcessingClientStrategy.getClient(message),
         async (client) => {
           message.finishedAttempts++;
           const shouldRetry = strategies.messageRetryStrategy(message);
@@ -329,7 +330,6 @@ const createErrorResolver = (
           return shouldRetry;
         },
         transactionLevel,
-        logger,
       );
     } catch (error) {
       logger.error(
@@ -341,12 +341,11 @@ const createErrorResolver = (
       // In case the error handling logic failed do a best effort to increase the "finished_attempts" counter
       try {
         await executeTransaction(
-          pool,
+          await strategies.messageProcessingClientStrategy.getClient(message),
           async (client) => {
             await nackInbox(message, client, config);
           },
           transactionLevel,
-          logger,
         );
         return true;
       } catch {
@@ -359,9 +358,13 @@ const createErrorResolver = (
 const applyDefaultStrategies = (
   strategies: Partial<InboxStrategies> | undefined,
   config: InboxConfig,
+  logger: TransactionalLogger,
 ): InboxStrategies => ({
   concurrencyStrategy:
     strategies?.concurrencyStrategy ?? defaultConcurrencyStrategy(),
+  messageProcessingClientStrategy:
+    strategies?.messageProcessingClientStrategy ??
+    defaultMessageProcessingClientStrategy(config, logger),
   messageProcessingTimeoutStrategy:
     strategies?.messageProcessingTimeoutStrategy ??
     defaultMessageProcessingTimeoutStrategy(config),

@@ -1,10 +1,11 @@
 import inspector from 'inspector';
 import { Pool } from 'pg';
-import { getDisabledLogger } from './logger';
+import { getInMemoryLogger } from './logger';
 import {
   IsolationLevel,
   awaitWithTimeout,
   executeTransaction,
+  getClient,
   sleep,
 } from './utils';
 
@@ -16,7 +17,6 @@ if (isDebugMode()) {
 }
 
 describe('Utils Unit Tests', () => {
-  const logger = getDisabledLogger();
   describe('sleep', () => {
     it('should sleep for the given amount of milliseconds', async () => {
       // Arrange
@@ -74,13 +74,11 @@ describe('Utils Unit Tests', () => {
     });
 
     it('should open a transaction and execute the callback', async () => {
+      // Arrange
+      const client = await pool.connect();
+
       // Act
-      await executeTransaction(
-        pool,
-        callback,
-        IsolationLevel.Serializable,
-        logger,
-      );
+      await executeTransaction(client, callback, IsolationLevel.Serializable);
 
       // Assert
       expect(pool.connect).toHaveBeenCalled();
@@ -92,12 +90,7 @@ describe('Utils Unit Tests', () => {
       const client = await pool.connect();
 
       // Act
-      await executeTransaction(
-        pool,
-        callback,
-        IsolationLevel.ReadCommitted,
-        logger,
-      );
+      await executeTransaction(client, callback, IsolationLevel.ReadCommitted);
 
       // Assert
       expect(client.query).toHaveBeenCalledWith(
@@ -111,12 +104,7 @@ describe('Utils Unit Tests', () => {
       const client = await pool.connect();
 
       // Act
-      await executeTransaction(
-        pool,
-        callback,
-        IsolationLevel.RepeatableRead,
-        logger,
-      );
+      await executeTransaction(client, callback, IsolationLevel.RepeatableRead);
 
       // Assert
       expect(client.query).toHaveBeenCalledWith(
@@ -130,12 +118,7 @@ describe('Utils Unit Tests', () => {
       const client = await pool.connect();
 
       // Act
-      await executeTransaction(
-        pool,
-        callback,
-        IsolationLevel.Serializable,
-        logger,
-      );
+      await executeTransaction(client, callback, IsolationLevel.Serializable);
 
       // Assert
       expect(client.query).toHaveBeenCalledWith(
@@ -149,7 +132,7 @@ describe('Utils Unit Tests', () => {
       const client = await pool.connect();
 
       // Act
-      await executeTransaction(pool, callback);
+      await executeTransaction(client, callback);
 
       // Assert
       expect(client.query).toHaveBeenCalledWith('BEGIN');
@@ -162,7 +145,7 @@ describe('Utils Unit Tests', () => {
 
       // Act
       await executeTransaction(
-        pool,
+        client,
         callback,
         'DROP TABLE outbox; --' as IsolationLevel,
       );
@@ -173,12 +156,14 @@ describe('Utils Unit Tests', () => {
     });
 
     it('should return the result of the callback', async () => {
+      // Arrange
+      const client = await pool.connect();
+
       // Act
       const result = await executeTransaction(
-        pool,
+        client,
         callback,
         IsolationLevel.Serializable,
-        logger,
       );
 
       // Assert
@@ -190,12 +175,7 @@ describe('Utils Unit Tests', () => {
       const client = await pool.connect();
 
       // Act
-      await executeTransaction(
-        pool,
-        callback,
-        IsolationLevel.Serializable,
-        logger,
-      );
+      await executeTransaction(client, callback, IsolationLevel.Serializable);
 
       // Assert
       expect(client.query).toHaveBeenCalledWith('COMMIT');
@@ -209,10 +189,33 @@ describe('Utils Unit Tests', () => {
 
       // Act + Assert
       await expect(
-        executeTransaction(pool, callback, IsolationLevel.Serializable, logger),
+        executeTransaction(client, callback, IsolationLevel.Serializable),
       ).rejects.toThrow();
       expect(client.query).toHaveBeenCalledWith('ROLLBACK');
       expect(client.release).toHaveBeenCalled();
+    });
+  });
+
+  describe('getClient', () => {
+    it('should return a client from the pool', async () => {
+      let errorCallback: undefined | ((err: Error) => void);
+      const client = {
+        listeners: () => ({ length: 0 }),
+        on: (_event: 'error', callback: (err: Error) => void) => {
+          errorCallback = callback;
+        },
+      };
+      const pool = {
+        connect: jest.fn(() => client),
+      } as unknown as Pool;
+      const [logger, logs] = getInMemoryLogger('test');
+      const returnedClient = await getClient(pool, logger);
+      expect(returnedClient).toBeDefined();
+      expect(errorCallback).toBeDefined();
+      const error = new Error('test...');
+      errorCallback?.(error);
+      expect(logs[0].args[0]).toBe(error);
+      expect(logs[0].args[1]).toBe('PostgreSQL client error');
     });
   });
 });

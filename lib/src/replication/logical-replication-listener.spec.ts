@@ -4,7 +4,7 @@ import EventEmitter from 'events';
 import inspector from 'inspector';
 import { Client, Connection } from 'pg';
 import { Pgoutput } from 'pg-logical-replication';
-import { getDisabledLogger } from '../common/logger';
+import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { OutboxMessage } from '../common/message';
 import { sleep } from '../common/utils';
 import { defaultConcurrencyStrategy } from '../strategies/concurrency-strategy';
@@ -678,6 +678,115 @@ describe('Local replication service unit tests', () => {
       expect(client.connect).toHaveBeenCalledTimes(1);
       await cleanup();
       expect(client.end).toHaveBeenCalledTimes(1);
+    });
+
+    it('should log that an unknown message appeared when an invalid chunk was sent', async () => {
+      // Arrange
+      const config = {
+        pgReplicationConfig: {},
+        settings,
+      };
+      const [logger, logs] = getInMemoryLogger('test');
+      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+        config,
+        messageHandler,
+        errorHandler,
+        logger,
+        getStrategies(),
+        'inbox',
+      );
+      await continueEventLoop();
+      const chunks = getReplicationChunk(0);
+      chunks[0] = 3;
+
+      // Act
+      sendReplicationChunk(chunks);
+      await continueEventLoop();
+
+      // Assert
+      expect(messageHandler).not.toHaveBeenCalled();
+      expect(errorHandler).not.toHaveBeenCalled();
+      expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
+      expect(client.connect).toHaveBeenCalledTimes(1);
+      expect(logs[1].args[1]).toBe('Unknown message');
+      await cleanup();
+      expect(client.end).toHaveBeenCalledTimes(1);
+    });
+
+    it('logs an error if the error caught in the listener was not of type MessageError (= did not come from a message handler)', async () => {
+      // Arrange
+      client.connect = jest.fn().mockImplementation(() => {
+        throw new Error('something something');
+      });
+      const config = {
+        pgReplicationConfig: {},
+        settings,
+      };
+      const [logger, logs] = getInMemoryLogger('test');
+      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+        config,
+        messageHandler,
+        errorHandler,
+        logger,
+        getStrategies(),
+        'inbox',
+      );
+      await continueEventLoop();
+
+      // Act
+      sendReplicationChunk(getReplicationChunk(0));
+      await continueEventLoop();
+
+      // Assert
+      expect(messageHandler).not.toHaveBeenCalled();
+      expect(errorHandler).not.toHaveBeenCalled();
+      expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
+      expect(client.connect).toHaveBeenCalledTimes(1);
+      expect(logs[1].args[1]).toBe('Transactional inbox listener error');
+      await cleanup();
+      expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
+    });
+
+    it('logs a trace message if the listener caught error was about replication slot in use', async () => {
+      // Arrange
+      const error = new Error('something something') as unknown as Error & {
+        routine: string;
+        code: string;
+      };
+      error.routine = 'ReplicationSlotAcquire';
+      error.code = '55006';
+      client.connect = jest.fn().mockImplementation(() => {
+        throw error;
+      });
+      const config = {
+        pgReplicationConfig: {},
+        settings,
+      };
+      const [logger, logs] = getInMemoryLogger('test');
+      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+        config,
+        messageHandler,
+        errorHandler,
+        logger,
+        getStrategies(),
+        'inbox',
+      );
+      await continueEventLoop();
+
+      // Act
+      sendReplicationChunk(getReplicationChunk(0));
+      await continueEventLoop();
+
+      // Assert
+      expect(messageHandler).not.toHaveBeenCalled();
+      expect(errorHandler).not.toHaveBeenCalled();
+      expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
+      expect(client.connect).toHaveBeenCalledTimes(1);
+      expect(logs[1].args[1]).toBe(
+        'The replication slot for the inbox listener is currently in use.',
+      );
+      await cleanup();
+      expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
     });
   });
 });

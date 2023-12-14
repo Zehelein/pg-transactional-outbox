@@ -4,7 +4,7 @@ import inspector from 'inspector';
 import { Client, Connection } from 'pg';
 import { Pgoutput } from 'pg-logical-replication';
 import { EventEmitter } from 'stream';
-import { getDisabledLogger } from '../../dist';
+import { getDisabledLogger } from '../common/logger';
 import { sleep } from '../common/utils';
 import { TransactionalStrategies } from '../replication/logical-replication-listener';
 import { OutboxConfig, initializeOutboxListener } from './outbox-listener';

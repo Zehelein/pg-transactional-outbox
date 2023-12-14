@@ -1,4 +1,4 @@
-import { Pool, PoolClient } from 'pg';
+import { ClientBase, Pool } from 'pg';
 import { MessageError, ensureError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { InboxMessage, OutboxMessage } from '../common/message';
@@ -32,12 +32,11 @@ export const initializeInboxMessageStorage = (
     async (message: OutboxMessage): Promise<void> => {
       try {
         await executeTransaction(
-          pool,
+          await pool.connect(),
           async (client) => {
             await insertInbox(message, client, config, logger);
           },
           IsolationLevel.ReadCommitted,
-          logger,
         );
       } catch (err) {
         logger.error({ ...message, err }, 'Could not store the inbox message');
@@ -76,7 +75,7 @@ export const initializeInboxMessageStorage = (
  */
 export const poisonousMessageUpdate = async (
   { id }: InboxMessage,
-  client: PoolClient,
+  client: ClientBase,
   { settings }: Pick<InboxConfig, 'settings'>,
 ): Promise<PoisonousCheck | undefined> => {
   const inboxResult = await client.query(
@@ -114,7 +113,7 @@ export interface PoisonousCheck {
  */
 export const verifyInbox = async (
   message: InboxMessage,
-  client: PoolClient,
+  client: ClientBase,
   { settings }: Pick<InboxConfig, 'settings'>,
 ): Promise<true | 'INBOX_MESSAGE_NOT_FOUND' | 'ALREADY_PROCESSED'> => {
   // Get the inbox data and lock it for updates. Use NOWAIT to immediately fail if another process is locking it.
@@ -145,7 +144,7 @@ export const verifyInbox = async (
  */
 export const ackInbox = async (
   { id }: InboxMessage,
-  client: PoolClient,
+  client: ClientBase,
   { settings }: Pick<InboxConfig, 'settings'>,
 ): Promise<void> => {
   await client.query(
@@ -162,7 +161,7 @@ export const ackInbox = async (
  */
 export const nackInbox = async (
   { id }: InboxMessage,
-  client: PoolClient,
+  client: ClientBase,
   { settings }: Pick<InboxConfig, 'settings'>,
 ): Promise<void> => {
   await client.query(
@@ -174,7 +173,7 @@ export const nackInbox = async (
 
 const insertInbox = async (
   message: OutboxMessage,
-  dbClient: PoolClient,
+  dbClient: ClientBase,
   { settings }: Pick<InboxConfig, 'settings'>,
   logger: TransactionalLogger,
 ) => {

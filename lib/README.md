@@ -789,12 +789,39 @@ pre-build ones but you can also write your own (e.g. using a semaphore):
   controller. You can define which of the above controllers should be used for
   different kinds of messages.
 
+## Message processing client strategy
+
+Inbox messages are processed in a database transaction that verifies from the
+inbox table if the message was not processed already and loads the
+retry-specific data. It handles also the business-logic related database work.
+
+Some message handlers may require a database login with elevated permissions
+while others can use more restricted users. With this strategy, you can return a
+database client from your desired Pool in the `getClient` function. When the
+inbox listener is shut down it will call the `shutdown` function where you can
+close your used database pools and run other cleanup logic.
+
+## Message processing timeout strategy
+
+The `messageProcessingTimeoutStrategy` allows you to define a message-based
+timeout on how long the message is allowed to be processed (in milliseconds).
+This allows you to give more time to process "expensive" messages while still
+processing others on a short timeout. By default, it uses the configured
+`messageProcessingTimeout` or falls back to a 15-second timeout.
+
+## Message processing Transaction level strategy
+
+The inbox listener lets you define the `messageProcessingTransactionLevel` per
+message. Some message processing may have higher isolation level requirements
+than others. If no custom strategy is provided it uses the default database
+transaction level via `BEGIN`.
+
 ## Message retry strategy
 
 When processing an inbox message an error can be thrown. The inbox listener
-catches that errors and needs to decide if the message should be processed
+catches that error and needs to decide if the message should be processed
 again - or not. The `messageRetryStrategy` offers the possibility to customize
-the decision if a message should be retried or not. By default the
+the decision if a message should be retried or not. By default, the
 `defaultMessageRetryStrategy` is used. It will retry the message up the
 configured value in the `maxAttempts` setting or as a fallback five times
 (including the initial attempt).
@@ -818,21 +845,6 @@ You can customize the behavior of the service by changing the following options:
   The default function is (started, finished) => started - finished >= 3, but
   you can implement your own logic and pass it as an argument to the service
   constructor.
-
-## Message processing timeouts strategy
-
-The `messageProcessingTimeoutStrategy` allows you to define a message-based
-timeout on how long the message is allowed to be processed (in milliseconds).
-This allows you to give more time to process "expensive" messages while still
-processing others on a short timeout. By default, it uses the configured
-`messageProcessingTimeout` or falls back to a 15-second timeout.
-
-## Message processing Transaction level strategy
-
-The inbox listener lets you define the `messageProcessingTransactionLevel` per
-message. Some message processing may have higher isolation level requirements
-than others. If no custom strategy is provided it uses the default database
-transaction level via `BEGIN`.
 
 # Testing
 

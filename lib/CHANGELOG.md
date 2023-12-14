@@ -44,11 +44,10 @@ this file.
   - `createMultiConcurrencyController` - this is a combined concurrency
     controller. You can define for every message which from the above
     controllers the message should use.
-- Messages can fail when they are processed. The `messageRetryStrategy` allows
-  you to define how often a message can be retried. And in case a message is
-  (likely) a poisonous message that crashes the service you can use the
-  `poisonousMessageRetryStrategy` to customize if and how often such a message
-  can be retried.
+- Messages are processed via message handlers as part of a database transaction.
+  Some handlers may require a different database login user. In this case, you
+  can use the `messageProcessingClientStrategy` to return a database client from
+  the desired database pool.
 - The `messageProcessingTimeoutStrategy` allows you to define a message-based
   timeout on how long the message is allowed to be processed in milliseconds.
   This allows you to allow some more expensive messages to take longer while
@@ -59,6 +58,11 @@ this file.
   processing logic may have higher isolation level requirements than for
   processing other messages. If no custom strategy is provided it uses the
   default database transaction level via `BEGIN`.
+- Messages can fail when they are processed. The `messageRetryStrategy` allows
+  you to define how often a message can be retried. And in case a message is
+  (likely) a poisonous message that crashes the service you can use the
+  `poisonousMessageRetryStrategy` to customize if and how often such a message
+  can be retried.
 
 ## [0.3.0] - 2023-10-23
 

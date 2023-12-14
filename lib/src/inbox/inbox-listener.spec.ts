@@ -5,9 +5,10 @@
 // eslint-disable-next-line prettier/prettier
 import EventEmitter from 'events';
 import inspector from 'inspector';
-import { Client, Connection, Pool, PoolClient } from 'pg';
+import { Client, Connection, PoolClient } from 'pg';
 import { Pgoutput } from 'pg-logical-replication';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
+import { InboxMessage } from '../common/message';
 import { IsolationLevel, sleep } from '../common/utils';
 import {
   InboxConfig,
@@ -110,10 +111,9 @@ jest.mock('../common/utils', () => {
     ...jest.requireActual('../common/utils'),
     executeTransaction: jest.fn(
       async (
-        pool: Pool,
+        client: PoolClient,
         callback: (client: PoolClient) => Promise<unknown>,
       ) => {
-        const client = await pool.connect();
         const response = await callback(client);
         client.release();
         return response;
@@ -529,7 +529,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
   it('should not call the messageHandler on a poisonous message that already has exceeded the maximum poisonous retries', async () => {
     // Arrange
     const messageHandler = jest.fn(() => Promise.resolve());
-    const message = {
+    const message: InboxMessage = {
       id: 'poisonous_message_exceeded',
       aggregateType: aggregate_type,
       messageType: message_type,
@@ -537,8 +537,9 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
-      // The following fields are only mapped when the message should be (re)tried:
-      // startedAttempts, finishedAttempts, and processedAt
+      startedAttempts: 4,
+      finishedAttempts: 1,
+      processedAt: null,
     };
     const [cleanup] = initializeInboxListener(
       config,
@@ -771,6 +772,10 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         }),
         cancel: jest.fn(),
       },
+      messageProcessingClientStrategy: {
+        getClient: jest.fn().mockReturnValue(new Client()),
+        shutdown: jest.fn(),
+      },
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(2_000),
       messageProcessingTransactionLevelStrategy: jest
         .fn()
@@ -799,6 +804,12 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(messageHandler).toHaveBeenCalledWith(message, expect.any(Object));
     expect(strategies.concurrencyStrategy.acquire).toHaveBeenCalled();
     expect(strategies.concurrencyStrategy.cancel).not.toHaveBeenCalled();
+    expect(
+      strategies.messageProcessingClientStrategy.getClient,
+    ).toHaveBeenCalled();
+    expect(
+      strategies.messageProcessingClientStrategy.shutdown,
+    ).not.toHaveBeenCalled();
     expect(strategies.messageProcessingTimeoutStrategy).toHaveBeenCalled();
     expect(
       strategies.messageProcessingTransactionLevelStrategy,
