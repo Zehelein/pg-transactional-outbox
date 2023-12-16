@@ -22,10 +22,7 @@ export {
   InboxStrategies,
   initializeInboxListener,
 } from './inbox/inbox-listener';
-export {
-  PoisonousCheck,
-  initializeInboxMessageStorage,
-} from './inbox/inbox-message-storage';
+export { initializeInboxMessageStorage } from './inbox/inbox-message-storage';
 export {
   OutboxConfig,
   initializeOutboxListener,

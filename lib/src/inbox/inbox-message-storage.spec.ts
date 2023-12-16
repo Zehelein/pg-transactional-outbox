@@ -5,12 +5,10 @@ import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { InboxMessage, OutboxMessage } from '../common/message';
 import { InboxConfig } from './inbox-listener';
 import {
-  PoisonousCheck,
-  ackInbox,
+  increaseInboxMessageFinishedAttempts,
   initializeInboxMessageStorage,
-  nackInbox,
-  poisonousMessageUpdate,
-  verifyInbox,
+  initiateInboxMessageProcessing,
+  markInboxMessageCompleted,
 } from './inbox-message-storage';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
@@ -214,86 +212,7 @@ describe('Inbox unit tests', () => {
     });
   });
 
-  describe('poisonousMessageUpdate', () => {
-    it('should update the started attempts and return the poisonous check', async () => {
-      // Arrange
-      const id = '1';
-      const startedAttempts = 1;
-      const finishedAttempts = 0;
-      const inboxResult = {
-        rowCount: 1,
-        rows: [
-          {
-            started_attempts: startedAttempts + 1,
-            finished_attempts: finishedAttempts,
-          },
-        ],
-      };
-      const pool = new Pool();
-      const client = await pool.connect();
-      client.query = jest.fn().mockResolvedValue(inboxResult);
-      const settings = {
-        dbSchema: 'test_schema',
-        dbTable: 'test_table',
-      };
-      const expected: PoisonousCheck = {
-        startedAttempts: startedAttempts + 1,
-        finishedAttempts: finishedAttempts,
-      };
-
-      // Act
-      const result = await poisonousMessageUpdate(
-        { id } as InboxMessage,
-        client,
-        { settings } as InboxConfig,
-      );
-
-      // Assert
-      expect(client.query).toHaveBeenCalledTimes(1);
-      expect(client.query).toHaveBeenCalledWith(
-        expect.stringContaining(
-          `UPDATE ${settings.dbSchema}.${settings.dbTable}`,
-        ),
-        [id],
-      );
-      expect(result).toEqual(expected);
-    });
-
-    it('should return undefined if the inbox message does not exist', async () => {
-      // Arrange
-      const id = '1';
-      const inboxResult = {
-        rowCount: 0,
-        rows: [],
-      };
-      const pool = new Pool();
-      const client = await pool.connect();
-      client.query = jest.fn().mockResolvedValue(inboxResult);
-      const settings = {
-        dbSchema: 'test_schema',
-        dbTable: 'test_table',
-      };
-
-      // Act
-      const result = await poisonousMessageUpdate(
-        { id } as InboxMessage,
-        client,
-        { settings } as InboxConfig,
-      );
-
-      // Assert
-      expect(client.query).toHaveBeenCalledTimes(1);
-      expect(client.query).toHaveBeenCalledWith(
-        expect.stringContaining(
-          `UPDATE ${settings.dbSchema}.${settings.dbTable}`,
-        ),
-        [id],
-      );
-      expect(result).toBeUndefined();
-    });
-  });
-
-  describe('verifyInbox', () => {
+  describe('initiateInboxMessageProcessing', () => {
     test('it verifies the inbox message', async () => {
       // Arrange
       const pool = new Pool();
@@ -304,7 +223,11 @@ describe('Inbox unit tests', () => {
       client.query = jest.fn().mockResolvedValue({
         rowCount: 0,
       });
-      let result = await verifyInbox(inboxMessage, client, config);
+      let result = await initiateInboxMessageProcessing(
+        inboxMessage,
+        client,
+        config,
+      );
       expect(result).toBe('INBOX_MESSAGE_NOT_FOUND');
 
       // Test for ALREADY_PROCESSED (one row found but has a processed date)
@@ -312,7 +235,11 @@ describe('Inbox unit tests', () => {
         rowCount: 1,
         rows: [{ processed_at: new Date() }],
       });
-      result = await verifyInbox(inboxMessage, client, config);
+      result = await initiateInboxMessageProcessing(
+        inboxMessage,
+        client,
+        config,
+      );
       expect(result).toBe('ALREADY_PROCESSED');
 
       // Test for success (one row found that was not processed yet)
@@ -320,7 +247,11 @@ describe('Inbox unit tests', () => {
         rowCount: 1,
         rows: [{ processed_at: null, finished_attempts: 0 }],
       });
-      result = await verifyInbox(inboxMessage, client, config);
+      result = await initiateInboxMessageProcessing(
+        inboxMessage,
+        client,
+        config,
+      );
       expect(result).toBe(true);
     });
 
@@ -342,7 +273,11 @@ describe('Inbox unit tests', () => {
         });
 
         // Act
-        const result = await verifyInbox(inboxMessage, client, config);
+        const result = await initiateInboxMessageProcessing(
+          inboxMessage,
+          client,
+          config,
+        );
 
         // Assert
         expect(result).toBe(true);
@@ -353,7 +288,7 @@ describe('Inbox unit tests', () => {
     );
   });
 
-  describe('ackInbox', () => {
+  describe('markInboxMessageCompleted', () => {
     it('should call query with the correct parameters', async () => {
       // Arrange
       const pool = new Pool();
@@ -363,7 +298,7 @@ describe('Inbox unit tests', () => {
       });
 
       // Act
-      await ackInbox(inboxMessage, client, config);
+      await markInboxMessageCompleted(inboxMessage, client, config);
 
       // Assert
       expect(client.query).toHaveBeenCalledWith(
@@ -384,7 +319,11 @@ describe('Inbox unit tests', () => {
       });
 
       // Act
-      await nackInbox({ ...inboxMessage }, client, config);
+      await increaseInboxMessageFinishedAttempts(
+        { ...inboxMessage },
+        client,
+        config,
+      );
 
       // Assert
       expect(client.query).toHaveBeenCalledWith(

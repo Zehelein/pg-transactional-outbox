@@ -15,7 +15,7 @@ import {
   InboxStrategies,
   initializeInboxListener,
 } from './inbox-listener';
-import * as inboxSpy from './inbox-message-storage';
+import * as inboxStorageSpy from './inbox-message-storage';
 
 type MessageIdType =
   | 'not_processed_id'
@@ -103,8 +103,14 @@ const sendReplicationChunk = (id: MessageIdType) => {
   });
 };
 
-const ackInboxSpy = jest.spyOn(inboxSpy, 'ackInbox');
-const nackInboxSpy = jest.spyOn(inboxSpy, 'nackInbox');
+const markInboxMessageCompletedSpy = jest.spyOn(
+  inboxStorageSpy,
+  'markInboxMessageCompleted',
+);
+const increaseInboxMessageFinishedAttemptsSpy = jest.spyOn(
+  inboxStorageSpy,
+  'increaseInboxMessageFinishedAttempts',
+);
 
 jest.mock('../common/utils', () => {
   return {
@@ -256,7 +262,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       query: jest.fn((sql: string, params: [any]) => {
         if (
           sql.includes(
-            'SELECT started_attempts, finished_attempts, processed_at FROM test_schema.test_table WHERE id = $1 FOR UPDATE NOWAIT',
+            'SELECT finished_attempts, processed_at FROM test_schema.test_table WHERE id = $1 FOR UPDATE NOWAIT;',
           )
         ) {
           const dbMessage = inboxDbMessageById(params[0] as MessageIdType);
@@ -266,7 +272,6 @@ describe('Inbox service unit tests - initializeInboxService', () => {
               ? [
                   {
                     processed_at: dbMessage.processed_at,
-                    started_attempts: dbMessage.started_attempts,
                     finished_attempts: dbMessage.finished_attempts,
                   },
                 ]
@@ -284,7 +289,6 @@ describe('Inbox service unit tests - initializeInboxService', () => {
               ? [
                   {
                     started_attempts: dbMessage.started_attempts + 1,
-                    finished_attempts: dbMessage.finished_attempts,
                   },
                 ]
               : [],
@@ -301,8 +305,8 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       release: jest.fn(),
     } as unknown as ReplicationClient;
 
-    ackInboxSpy.mockReset();
-    nackInboxSpy.mockReset();
+    markInboxMessageCompletedSpy.mockReset();
+    increaseInboxMessageFinishedAttemptsSpy.mockReset();
   });
 
   it('should call the correct messageHandler and acknowledge the WAL message when no errors are thrown', async () => {
@@ -343,15 +347,22 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     await continueEventLoop();
 
     // Assert
-    expect(messageHandler).toHaveBeenCalledWith(message, expect.any(Object));
+    const expectedMessage = {
+      ...message,
+      startedAttempts: message.startedAttempts + 1,
+    };
+    expect(messageHandler).toHaveBeenCalledWith(
+      expectedMessage,
+      expect.any(Object),
+    );
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
-    expect(ackInboxSpy).toHaveBeenCalledWith(
-      message,
+    expect(markInboxMessageCompletedSpy).toHaveBeenCalledWith(
+      expectedMessage,
       expect.any(Object),
       expect.any(Object),
     );
-    expect(nackInboxSpy).not.toHaveBeenCalled();
+    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(1);
@@ -415,8 +426,8 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
     // As the inbox DB message was already processed --> no ack/nack needed
-    expect(ackInboxSpy).not.toHaveBeenCalled();
-    expect(nackInboxSpy).not.toHaveBeenCalled();
+    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(1);
@@ -452,8 +463,8 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
     // As the inbox DB message was not found --> no ack/nack needed
-    expect(ackInboxSpy).not.toHaveBeenCalled();
-    expect(nackInboxSpy).not.toHaveBeenCalled();
+    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(1);
@@ -504,13 +515,14 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     // Assert
     const expectedMessage = {
       ...message,
+      startedAttempts: message.startedAttempts + 1,
       finishedAttempts: message.finishedAttempts + 1,
     };
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(unusedErrorHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
-    expect(ackInboxSpy).not.toHaveBeenCalled();
-    expect(nackInboxSpy).toHaveBeenCalledWith(
+    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseInboxMessageFinishedAttemptsSpy).toHaveBeenCalledWith(
       expectedMessage,
       expect.any(Object),
       expect.any(Object),
@@ -560,12 +572,8 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     // Assert
     expect(messageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
-    expect(ackInboxSpy).toHaveBeenCalledWith(
-      message,
-      expect.any(Object),
-      expect.any(Object),
-    );
-    expect(nackInboxSpy).not.toHaveBeenCalled();
+    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(1);
@@ -612,9 +620,13 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     // Assert
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
-    expect(ackInboxSpy).not.toHaveBeenCalled();
-    expect(nackInboxSpy).toHaveBeenCalledWith(
-      { ...message, finishedAttempts: message.finishedAttempts + 1 },
+    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseInboxMessageFinishedAttemptsSpy).toHaveBeenCalledWith(
+      {
+        ...message,
+        finishedAttempts: message.finishedAttempts + 1,
+        startedAttempts: message.startedAttempts + 1,
+      },
       expect.any(Object),
       expect.any(Object),
     );
@@ -663,11 +675,12 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     // Assert
     const expectedMessage = {
       ...message,
+      startedAttempts: message.startedAttempts + 1,
       finishedAttempts: message.finishedAttempts + 1,
     };
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
-    expect(ackInboxSpy).not.toHaveBeenCalled();
-    expect(nackInboxSpy).toHaveBeenCalledWith(
+    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseInboxMessageFinishedAttemptsSpy).toHaveBeenCalledWith(
       expectedMessage,
       expect.any(Object),
       expect.any(Object),
@@ -723,14 +736,18 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     await continueEventLoop();
 
     // Assert
+    const expectedMessage = {
+      ...message,
+      startedAttempts: message.startedAttempts + 1,
+    };
     expect(messageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
-    expect(ackInboxSpy).toHaveBeenCalledWith(
-      message,
+    expect(markInboxMessageCompletedSpy).toHaveBeenCalledWith(
+      expectedMessage,
       expect.any(Object),
       expect.any(Object),
     );
-    expect(nackInboxSpy).not.toHaveBeenCalled();
+    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     const log = logs.filter(
       (log) =>
         log.args[0] ===
@@ -802,7 +819,14 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     await continueEventLoop();
 
     // Assert
-    expect(messageHandler).toHaveBeenCalledWith(message, expect.any(Object));
+    const expectedMessage = {
+      ...message,
+      startedAttempts: message.startedAttempts + 1,
+    };
+    expect(messageHandler).toHaveBeenCalledWith(
+      expectedMessage,
+      expect.any(Object),
+    );
     expect(strategies.concurrencyStrategy.acquire).toHaveBeenCalled();
     expect(strategies.concurrencyStrategy.cancel).not.toHaveBeenCalled();
     expect(
@@ -819,12 +843,12 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(strategies.poisonousMessageRetryStrategy).not.toHaveBeenCalled();
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
-    expect(ackInboxSpy).toHaveBeenCalledWith(
-      message,
+    expect(markInboxMessageCompletedSpy).toHaveBeenCalledWith(
+      expectedMessage,
       expect.any(Object),
       expect.any(Object),
     );
-    expect(nackInboxSpy).not.toHaveBeenCalled();
+    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(1);

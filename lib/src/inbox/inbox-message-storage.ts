@@ -59,6 +59,12 @@ export const initializeInboxMessageStorage = (
 };
 
 /**
+ * This function makes sure the inbox item was not and is not currently being
+ * worked on. As the inbox listener does not run in the same transaction as
+ * the message handler code there is a small chance that the handler code
+ * succeeds but the WAL inbox message was not acknowledged. This takes care of
+ * such cases by ensuring that the message was not yet processed.
+ *
  * This function increases the "started_attempts" for the inbox message by one
  * in the inbox table. This number can then be compared to the
  * "finished_attempts" number which is only increased when a message processing
@@ -68,81 +74,56 @@ export const initializeInboxMessageStorage = (
  * (success case) or catching an error (error case). If the "started_attempts"
  * and the "finished_attempts" field differ by more than one, the chances are
  * high that this message is causing a service crash.
- * @param message The inbox message for which to check/increase the "started_attempts".
- * @param client The database client. Must be part of the transaction where the message handling changes are done.
- * @param config The configuration settings that defines inbox database schema and poisonous settings.
- * @returns The "started_attempts" (one or higher) and the "finished_attempts" (zero or higher). Or undefined if the message was not found.
- */
-export const poisonousMessageUpdate = async (
-  { id }: InboxMessage,
-  client: ClientBase,
-  { settings }: Pick<InboxConfig, 'settings'>,
-): Promise<PoisonousCheck | undefined> => {
-  const inboxResult = await client.query(
-    /* sql*/ `
-      UPDATE ${settings.dbSchema}.${settings.dbTable} SET started_attempts = started_attempts + 1 WHERE id = $1
-        RETURNING started_attempts, finished_attempts;`,
-    [id],
-  );
-  if (inboxResult.rowCount === 0) {
-    return undefined;
-  }
-  const dbItem = inboxResult.rows[0];
-  return {
-    startedAttempts: dbItem.started_attempts,
-    finishedAttempts: dbItem.finished_attempts,
-  };
-};
-
-export interface PoisonousCheck {
-  startedAttempts: number;
-  finishedAttempts: number;
-}
-
-/**
- * Make sure the inbox item was not and is not currently being worked on. And
- * set the started_attempts, finished_attempts and processed_at values for the
- * WAL message. As the inbox listener does not run in the same transaction as
- * the message handler code there is a small chance that the handler code
- * succeeds but the WAL inbox message was not acknowledged. This takes care of
- * such cases by ensuring that the message was not yet processed.
- * @param message The inbox message to check and later process.
- * @param client The database client. Must be part of the transaction where the message handling changes are done.
+ *
+ * Finally it sets the started_attempts, finished_attempts and processed_at
+ * values on the inbox message.
+ * @param message The inbox message for which to acquire a lock and fill the started_attempts, finished_attempts and processed_at values
+ * @param client The database client. Must be part of the transaction where the message handling changes are later done.
  * @param config The configuration settings that defines inbox database schema.
  * @returns 'INBOX_MESSAGE_NOT_FOUND' if the message was not found, 'ALREADY_PROCESSED' if it was processed, and otherwise assigns the properties to the message and returns true.
  */
-export const verifyInbox = async (
+export const initiateInboxMessageProcessing = async (
   message: InboxMessage,
   client: ClientBase,
   { settings }: Pick<InboxConfig, 'settings'>,
 ): Promise<true | 'INBOX_MESSAGE_NOT_FOUND' | 'ALREADY_PROCESSED'> => {
-  // Get the inbox data and lock it for updates. Use NOWAIT to immediately fail if another process is locking it.
-  const inboxResult = await client.query(
-    /* sql*/ `SELECT started_attempts, finished_attempts, processed_at FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT`,
+  // Use a NOWAIT select to immediately fail if another process is locking that inbox row
+  const selectResult = await client.query(
+    /* sql*/ `
+    SELECT finished_attempts, processed_at FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT;`,
     [message.id],
   );
-  if (inboxResult.rowCount === 0) {
+  if (selectResult.rowCount === 0) {
     return 'INBOX_MESSAGE_NOT_FOUND';
   }
-  const dbItem = inboxResult.rows[0];
+  const dbItem = selectResult.rows[0];
   if (dbItem.processed_at) {
     return 'ALREADY_PROCESSED';
   }
 
-  // assign the started_attempts, finished_attempts, and processed_at to the WAL message
-  message.startedAttempts = dbItem.started_attempts;
-  message.finishedAttempts = dbItem.finished_attempts;
-  message.processedAt = dbItem.processed_at;
+  // assign the finished_attempts and processed_at to the WAL message
+  const selectRow = selectResult.rows[0];
+  message.finishedAttempts = selectRow.finished_attempts;
+  message.processedAt = selectRow.processed_at;
+
+  const updateResult = await client.query(
+    /* sql*/ `
+      UPDATE ${settings.dbSchema}.${settings.dbTable} SET started_attempts = started_attempts + 1 WHERE id = $1
+        RETURNING started_attempts;`,
+    [message.id],
+  );
+  message.startedAttempts = updateResult.rows[0].started_attempts;
   return true;
 };
 
 /**
- * Acknowledge that the inbox message was handled.
+ * Marks the inbox message as handled by setting the processed_at date to the current date and time.
+ * It also increases the finished_attempts count by one.
  * @param message The inbox message to acknowledge.
  * @param client The database client. Must be part of the transaction where the message handling changes are done.
  * @param config The configuration settings that defines inbox database schema.
  */
-export const ackInbox = async (
+export const markInboxMessageCompleted = async (
   { id }: InboxMessage,
   client: ClientBase,
   { settings }: Pick<InboxConfig, 'settings'>,
@@ -154,12 +135,12 @@ export const ackInbox = async (
 };
 
 /**
- * Not acknowledging the inbox message means increasing the finished_attempts counter by one
+ * Does increase the finished_attempts count by one.
  * @param message The inbox message to NOT acknowledge.
  * @param client The database client. Must be part of the transaction where the message handling changes are done.
  * @param config The configuration settings that defines inbox database schema.
  */
-export const nackInbox = async (
+export const increaseInboxMessageFinishedAttempts = async (
   { id }: InboxMessage,
   client: ClientBase,
   { settings }: Pick<InboxConfig, 'settings'>,

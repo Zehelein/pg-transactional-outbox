@@ -1,6 +1,5 @@
 import { InboxMessage } from '../common/message';
 import { InboxConfig } from '../inbox/inbox-listener';
-import { PoisonousCheck } from '../inbox/inbox-message-storage';
 
 /**
  * Decide based on the message, the poisonous attempts counter (which is
@@ -11,7 +10,7 @@ import { PoisonousCheck } from '../inbox/inbox-message-storage';
  * @returns true if it should be retried - otherwise false
  */
 export interface PoisonousMessageRetryStrategy {
-  (message: InboxMessage, poisonousCheck: PoisonousCheck): boolean;
+  (message: InboxMessage): boolean;
 }
 
 /**
@@ -23,7 +22,7 @@ export interface PoisonousMessageRetryStrategy {
  */
 export const defaultPoisonousMessageRetryStrategy =
   (config: InboxConfig): PoisonousMessageRetryStrategy =>
-  (_message: InboxMessage, check: PoisonousCheck): boolean => {
-    const diff = check.startedAttempts - check.finishedAttempts;
+  (message: InboxMessage): boolean => {
+    const diff = message.startedAttempts - message.finishedAttempts;
     return diff <= (config.settings.maxPoisonousAttempts ?? 3);
   };

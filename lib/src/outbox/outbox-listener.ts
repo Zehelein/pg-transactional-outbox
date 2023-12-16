@@ -23,7 +23,7 @@ export const initializeOutboxListener = (
   config: OutboxConfig,
   sendMessage: (message: OutboxMessage) => Promise<void>,
   logger: TransactionalLogger,
-  strategies?: TransactionalStrategies,
+  strategies?: Partial<TransactionalStrategies>,
 ): [shutdown: { (): Promise<void> }] => {
   const logErrors = async (
     _m: OutboxMessage,
@@ -43,7 +43,7 @@ export const initializeOutboxListener = (
 };
 
 const applyDefaultStrategies = (
-  strategies: TransactionalStrategies | undefined,
+  strategies: Partial<TransactionalStrategies> | undefined,
   config: OutboxConfig,
 ): Required<TransactionalStrategies> => ({
   concurrencyStrategy:

@@ -27,10 +27,9 @@ import {
   defaultPoisonousMessageRetryStrategy,
 } from '../strategies/poisonous-message-retry-strategy';
 import {
-  ackInbox,
-  nackInbox,
-  poisonousMessageUpdate,
-  verifyInbox,
+  increaseInboxMessageFinishedAttempts,
+  initiateInboxMessageProcessing,
+  markInboxMessageCompleted,
 } from './inbox-message-storage';
 
 /** The inbox listener configuration */
@@ -50,7 +49,8 @@ export type InboxConfig = TransactionalOutboxInboxConfig & {
     /**
      * Defines the maximum number of times a message is going to be processed
      * when it is (likely) a poisonous message which is causing a server crash.
-     * Defaults to three.
+     * This is used in the default poisonous message retry strategy.
+     * It defaults to three.
      */
     maxPoisonousAttempts?: number;
   };
@@ -185,7 +185,11 @@ const createMessageHandler = (
       await strategies.messageProcessingClientStrategy.getClient(message),
       async (client) => {
         // Check that the inbox message was not yet processed and fill the inbox specific properties
-        const result = await verifyInbox(message, client, config);
+        const result = await initiateInboxMessageProcessing(
+          message,
+          client,
+          config,
+        );
         if (result !== true) {
           logger.warn(
             message,
@@ -193,14 +197,19 @@ const createMessageHandler = (
           );
           return false;
         }
-        // increase the "started_attempts" and check if the message is (probably) not a poisonous message
-        return poisonousMessageCheck(
-          message,
-          strategies,
-          client,
-          config,
-          logger,
-        );
+        // The startedAttempts was increase further up so the difference is always at least one
+        const diff = message.startedAttempts - message.finishedAttempts;
+        if (diff >= 2) {
+          const retry = strategies.poisonousMessageRetryStrategy(message);
+          if (!retry) {
+            logger.error(
+              message,
+              `Stopped processing the message with ID ${message.id} as it is likely a poisonous message.`,
+            );
+            return false;
+          }
+        }
+        return true;
       },
       transactionLevel,
     );
@@ -220,45 +229,11 @@ const createMessageHandler = (
             `No message handler found for aggregate type "${message.aggregateType}" and message tye "${message.messageType}"`,
           );
         }
-        await ackInbox(message, client, config);
+        await markInboxMessageCompleted(message, client, config);
       },
       transactionLevel,
     );
   };
-};
-
-/**
- * Increases the "started_attempts" counter and checks if it is now more than
- * one higher than the "finished_attempts". It calls the
- * "poisonousMessageRetryStrategy" if it is provided or checks based on the
- * configured maxPoisonousAttempts (default: 3) if another retry should be done.
- * @returns true if the message should be attempted or false if not
- */
-const poisonousMessageCheck = async (
-  message: InboxMessage,
-  strategies: InboxStrategies,
-  client: ClientBase,
-  config: InboxConfig,
-  logger: TransactionalLogger,
-) => {
-  const result = await poisonousMessageUpdate(message, client, config);
-  if (!result) {
-    return false; // message not found
-  }
-
-  const diff = result.startedAttempts - result.finishedAttempts;
-  if (diff > 1) {
-    const retry = strategies.poisonousMessageRetryStrategy(message, result);
-    if (!retry) {
-      logger.error(
-        message,
-        `Stopped processing the message with ID ${message.id} as it is likely a poisonous message.`,
-      );
-      await ackInbox(message, client, config);
-      return false;
-    }
-  }
-  return true;
 };
 
 const getMessageHandlerKey = (
@@ -327,7 +302,7 @@ const createErrorResolver = (
               `Giving up processing the message with id ${message.id}.`,
             );
           }
-          await nackInbox(message, client, config);
+          await increaseInboxMessageFinishedAttempts(message, client, config);
           return shouldRetry;
         },
         transactionLevel,
@@ -344,7 +319,7 @@ const createErrorResolver = (
         await executeTransaction(
           await strategies.messageProcessingClientStrategy.getClient(message),
           async (client) => {
-            await nackInbox(message, client, config);
+            await increaseInboxMessageFinishedAttempts(message, client, config);
           },
           transactionLevel,
         );
