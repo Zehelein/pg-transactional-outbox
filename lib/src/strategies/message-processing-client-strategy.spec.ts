@@ -1,12 +1,20 @@
+import { Pool } from 'pg';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { InboxMessage } from '../common/message';
 import { InboxConfig } from '../inbox/inbox-listener';
 import { defaultMessageProcessingClientStrategy } from './message-processing-client-strategy';
 
 let errorHandler: (err: Error) => void;
+let pool: Pool;
 jest.mock('pg', () => {
   return {
-    Pool: jest.fn().mockImplementation(() => ({
+    Pool: jest.fn().mockImplementation(() => pool),
+  };
+});
+
+describe('defaultMessageProcessingClientStrategy', () => {
+  beforeEach(() => {
+    pool = {
       on: jest.fn((event: 'error', callback: (err: Error) => void) => {
         errorHandler = callback;
       }),
@@ -17,11 +25,11 @@ jest.mock('pg', () => {
         listeners: jest.fn().mockReturnValue([]),
         escapeLiteral: (p: string) => p,
       }),
-    })),
-  };
-});
+      removeAllListeners: jest.fn(),
+      end: jest.fn(),
+    } as unknown as Pool;
+  });
 
-describe('defaultMessageProcessingClientStrategy', () => {
   it('should return a DB client', async () => {
     const strategy = defaultMessageProcessingClientStrategy(
       {} as InboxConfig,
@@ -47,5 +55,36 @@ describe('defaultMessageProcessingClientStrategy', () => {
     expect(errorHandler).toBeDefined();
     errorHandler(error);
     expect(logs[0].args[0]).toBe(error);
+  });
+
+  it('should remove all listeners and end the pool on shutdown', async () => {
+    const strategy = defaultMessageProcessingClientStrategy(
+      {} as InboxConfig,
+      getDisabledLogger(),
+    );
+    await strategy.shutdown();
+
+    expect(pool.removeAllListeners).toHaveBeenCalled();
+    expect(pool.end).toHaveBeenCalled();
+  });
+
+  it('should log an error when pool shutdown encounters an error', async () => {
+    // Arrange
+    const error = new Error('Test error');
+    pool.end = jest.fn().mockRejectedValue(error);
+    const [logger, logs] = getInMemoryLogger('test');
+    const strategy = defaultMessageProcessingClientStrategy(
+      {} as InboxConfig,
+      logger,
+    );
+
+    // Act
+    await strategy.shutdown();
+
+    // Assert
+    const log = logs.filter(
+      (log) => log.args[1] === 'Message processing pool shutdown error',
+    );
+    expect(log).toBeDefined();
   });
 });

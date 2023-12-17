@@ -30,6 +30,7 @@ import {
   increaseInboxMessageFinishedAttempts,
   initiateInboxMessageProcessing,
   markInboxMessageCompleted,
+  startedAttemptsIncrement,
 } from './inbox-message-storage';
 
 /** The inbox listener configuration */
@@ -184,17 +185,14 @@ const createMessageHandler = (
     const attempt = await executeTransaction(
       await strategies.messageProcessingClientStrategy.getClient(message),
       async (client) => {
-        // Check that the inbox message was not yet processed and fill the inbox specific properties
-        const result = await initiateInboxMessageProcessing(
-          message,
-          client,
-          config,
-        );
+        // Increment the started_attempts
+        const result = await startedAttemptsIncrement(message, client, config);
         if (result !== true) {
           logger.warn(
             message,
-            `Received inbox message cannot be processed: ${result}`,
+            `Received inbox message cannot have the started attempts incremented: ${result}`,
           );
+          await client.query('ROLLBACK'); // don't increment the start attempts again on a processed message
           return false;
         }
         // The startedAttempts was increase further up so the difference is always at least one
@@ -217,10 +215,24 @@ const createMessageHandler = (
       return;
     }
 
-    // Execute the message handler
     await executeTransaction(
       await strategies.messageProcessingClientStrategy.getClient(message),
       async (client) => {
+        // lock the inbox message from further processing
+        const result = await initiateInboxMessageProcessing(
+          message,
+          client,
+          config,
+        );
+        if (result !== true) {
+          logger.warn(
+            message,
+            `Received inbox message cannot be processed: ${result}`,
+          );
+          return;
+        }
+
+        // Execute the message handler
         const handler = messageHandlers[getMessageHandlerKey(message)];
         if (handler) {
           await handler.handle(message, client);

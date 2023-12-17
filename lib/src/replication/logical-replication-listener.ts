@@ -314,6 +314,9 @@ const handleIncomingData = <T extends OutboxMessage>(
     logger,
   );
   let stopped = false;
+
+  // This function handles the message processing and message error handler.
+  // It is inlined to stop processing when "stopped" is true.
   const handleOutboxInboxMessage = async <T extends OutboxMessage>(
     messageHandler: (message: T) => Promise<void>,
     errorHandler: (message: T, err: Error) => Promise<boolean>,

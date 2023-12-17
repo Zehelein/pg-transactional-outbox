@@ -10,6 +10,7 @@ import { Pgoutput } from 'pg-logical-replication';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { InboxMessage } from '../common/message';
 import { IsolationLevel, sleep } from '../common/utils';
+import { defaultMessageProcessingClientStrategy } from '../strategies/message-processing-client-strategy';
 import {
   InboxConfig,
   InboxStrategies,
@@ -262,26 +263,10 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       query: jest.fn((sql: string, params: [any]) => {
         if (
           sql.includes(
-            'SELECT finished_attempts, processed_at FROM test_schema.test_table WHERE id = $1 FOR UPDATE NOWAIT;',
+            'UPDATE test_schema.test_table SET started_attempts = started_attempts + 1 WHERE id IN',
           )
         ) {
-          const dbMessage = inboxDbMessageById(params[0] as MessageIdType);
-          return {
-            rowCount: dbMessage ? 1 : 0,
-            rows: dbMessage
-              ? [
-                  {
-                    processed_at: dbMessage.processed_at,
-                    finished_attempts: dbMessage.finished_attempts,
-                  },
-                ]
-              : [],
-          };
-        } else if (
-          sql.includes(
-            'UPDATE test_schema.test_table SET started_attempts = started_attempts + 1 WHERE id = $1',
-          )
-        ) {
+          // startedAttemptsIncrement
           const dbMessage = inboxDbMessageById(params[0] as MessageIdType);
           return {
             rowCount: dbMessage ? 1 : 0,
@@ -289,10 +274,31 @@ describe('Inbox service unit tests - initializeInboxService', () => {
               ? [
                   {
                     started_attempts: dbMessage.started_attempts + 1,
+                    finished_attempts: dbMessage.finished_attempts,
+                    processed_at: dbMessage.processed_at,
                   },
                 ]
               : [],
           };
+        } else if (
+          sql.includes(
+            'SELECT id FROM test_schema.test_table WHERE id = $1 FOR UPDATE NOWAIT;',
+          )
+        ) {
+          // initiateInboxMessageProcessing
+          const dbMessage = inboxDbMessageById(params[0] as MessageIdType);
+          return {
+            rowCount: dbMessage ? 1 : 0,
+            rows: dbMessage
+              ? [
+                  {
+                    id: dbMessage.id,
+                  },
+                ]
+              : [],
+          };
+        } else if (sql === 'ROLLBACK') {
+          return { rowCount: 0 };
         } else {
           throw new Error(`Found an SQL query that was not mocked: ${sql}`);
         }
@@ -424,6 +430,60 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     // Assert
     expect(messageHandler).not.toHaveBeenCalled();
     expect(unusedMessageHandler).not.toHaveBeenCalled();
+    expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
+    // As the inbox DB message was already processed --> no ack/nack needed
+    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
+    expect(client.connect).toHaveBeenCalledTimes(1);
+    await cleanup();
+    expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
+  it('should not call a messageHandler but acknowledge the WAL message when the inbox DB message was somehow process by another process after the started attempts increment.', async () => {
+    // Arrange
+    client.query = jest
+      .fn()
+      // the call in startedAttemptsIncrement
+      .mockReturnValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            started_attempts: 1,
+            finished_attempts: 0,
+            processed_at: null,
+          },
+        ],
+      })
+      // the call in initiateInboxMessageProcessing
+      .mockReturnValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            started_attempts: 1,
+            finished_attempts: 0,
+            processed_at: new Date().toISOString(),
+          },
+        ],
+      });
+    const messageHandler = jest.fn(() => Promise.resolve());
+    const [cleanup] = initializeInboxListener(
+      config,
+      [
+        {
+          aggregateType: aggregate_type,
+          messageType: message_type,
+          handle: messageHandler,
+        },
+      ],
+      getDisabledLogger(),
+    );
+
+    // Act
+    sendReplicationChunk('processed_id');
+    await continueEventLoop();
+
+    // Assert
+    expect(messageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
     // As the inbox DB message was already processed --> no ack/nack needed
     expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
@@ -701,6 +761,88 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(log).toBeDefined();
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
+  });
+
+  it('a messageHandler throws an error and the error handler throws an error and the best effort increment fails also then do not retry the message', async () => {
+    // Arrange
+    const handleError = jest.fn().mockImplementationOnce(() => {
+      throw new Error('Error handling error');
+    });
+    const clientStrategy = defaultMessageProcessingClientStrategy(
+      config,
+      getDisabledLogger(),
+    );
+    const message = {
+      id: 'not_processed_id',
+      aggregateType: aggregate_type,
+      aggregateId: 'test_aggregate_id',
+      messageType: message_type,
+      payload: { result: 'success' },
+      metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
+      createdAt: '2023-01-18T21:02:27.000Z',
+      startedAttempts: 2,
+      finishedAttempts: 2,
+      processedAt: null,
+    };
+    const [logger, logs] = getInMemoryLogger('unit test');
+    const [cleanup] = initializeInboxListener(
+      config,
+      [
+        {
+          aggregateType: message.aggregateType,
+          messageType: message.messageType,
+          handle: () => {
+            throw new Error('Unit Test');
+          },
+          handleError,
+        },
+      ],
+      logger,
+      {
+        messageProcessingClientStrategy: {
+          getClient: jest
+            .fn()
+            .mockReturnValueOnce(clientStrategy.getClient(message)) // startedAttemptsIncrement
+            .mockReturnValueOnce(clientStrategy.getClient(message)) // initiateInboxMessageProcessing
+            .mockReturnValueOnce(clientStrategy.getClient(message)) // handleError
+            .mockReturnValueOnce(null), // best effort increment - which should fail
+          shutdown: clientStrategy.shutdown,
+        },
+      },
+    );
+
+    // Act
+    sendReplicationChunk('not_processed_id');
+    await continueEventLoop();
+
+    // Assert
+    const expectedMessage = {
+      ...message,
+      startedAttempts: message.startedAttempts + 1,
+      finishedAttempts: message.finishedAttempts + 1,
+    };
+    expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
+    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseInboxMessageFinishedAttemptsSpy).toHaveBeenCalledTimes(1);
+    expect(increaseInboxMessageFinishedAttemptsSpy).toHaveBeenCalledWith(
+      expectedMessage,
+      null,
+      expect.any(Object),
+    );
+    expect(handleError).toHaveBeenCalledWith(
+      expect.any(Object),
+      expectedMessage,
+      expect.any(Object),
+      true,
+    );
+    expect(client.connect).toHaveBeenCalledTimes(1);
+    const log = logs.filter(
+      (log) =>
+        log.args[1] ===
+        'The error handling of the message failed. Please make sure that your error handling code does not throw an error!',
+    );
+    expect(log).toBeDefined();
+    await cleanup();
   });
 
   it('should log a debug message when no messageHandler was found for a message', async () => {

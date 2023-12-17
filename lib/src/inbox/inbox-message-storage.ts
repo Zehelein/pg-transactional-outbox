@@ -59,12 +59,6 @@ export const initializeInboxMessageStorage = (
 };
 
 /**
- * This function makes sure the inbox item was not and is not currently being
- * worked on. As the inbox listener does not run in the same transaction as
- * the message handler code there is a small chance that the handler code
- * succeeds but the WAL inbox message was not acknowledged. This takes care of
- * such cases by ensuring that the message was not yet processed.
- *
  * This function increases the "started_attempts" for the inbox message by one
  * in the inbox table. This number can then be compared to the
  * "finished_attempts" number which is only increased when a message processing
@@ -74,9 +68,49 @@ export const initializeInboxMessageStorage = (
  * (success case) or catching an error (error case). If the "started_attempts"
  * and the "finished_attempts" field differ by more than one, the chances are
  * high that this message is causing a service crash.
- *
- * Finally it sets the started_attempts, finished_attempts and processed_at
+ * It sets the started_attempts, finished_attempts and processed_at
  * values on the inbox message.
+ * For additional safety it makes sure, that the inbox item was not and is not
+ * currently being worked on.
+ * @param message The inbox message for which to acquire a lock and increment the started_attempts
+ * @param client The database client. Must be part of a transaction that runs before the message handling transaction.
+ * @param config The configuration settings that defines inbox database schema.
+ * @returns 'INBOX_MESSAGE_NOT_FOUND' if the message was not found, 'ALREADY_PROCESSED' if it was processed, and otherwise assigns the properties to the message and returns true.
+ */
+export const startedAttemptsIncrement = async (
+  message: InboxMessage,
+  client: ClientBase,
+  { settings }: Pick<InboxConfig, 'settings'>,
+): Promise<true | 'INBOX_MESSAGE_NOT_FOUND' | 'ALREADY_PROCESSED'> => {
+  // Use a NOWAIT select to fully lock and immediately fail if another process is locking that inbox row
+  const updateResult = await client.query(
+    /* sql*/ `
+      UPDATE ${settings.dbSchema}.${settings.dbTable} SET started_attempts = started_attempts + 1 WHERE id IN
+        (SELECT id FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT)
+        RETURNING started_attempts, finished_attempts, processed_at;`,
+    [message.id],
+  );
+  if (updateResult.rowCount === 0) {
+    return 'INBOX_MESSAGE_NOT_FOUND';
+  }
+  const { started_attempts, finished_attempts, processed_at } =
+    updateResult.rows[0];
+  if (processed_at) {
+    return 'ALREADY_PROCESSED';
+  }
+  message.startedAttempts = started_attempts;
+  message.finishedAttempts = finished_attempts;
+  message.processedAt = processed_at;
+  return true;
+};
+
+/**
+ * This function makes sure the inbox item was not and is not currently being
+ * worked on and acquires a lock to prevent other processes to work with this
+ * inbox message. As the inbox listener does not run in the same transaction as
+ * the message handler code there is a small chance that the handler code
+ * succeeds but the WAL inbox message was not acknowledged. This takes care of
+ * such cases by ensuring that the message was not yet processed.
  * @param message The inbox message for which to acquire a lock and fill the started_attempts, finished_attempts and processed_at values
  * @param client The database client. Must be part of the transaction where the message handling changes are later done.
  * @param config The configuration settings that defines inbox database schema.
@@ -90,7 +124,7 @@ export const initiateInboxMessageProcessing = async (
   // Use a NOWAIT select to immediately fail if another process is locking that inbox row
   const selectResult = await client.query(
     /* sql*/ `
-    SELECT finished_attempts, processed_at FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT;`,
+    SELECT processed_at FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT;`,
     [message.id],
   );
   if (selectResult.rowCount === 0) {
@@ -100,19 +134,6 @@ export const initiateInboxMessageProcessing = async (
   if (dbItem.processed_at) {
     return 'ALREADY_PROCESSED';
   }
-
-  // assign the finished_attempts and processed_at to the WAL message
-  const selectRow = selectResult.rows[0];
-  message.finishedAttempts = selectRow.finished_attempts;
-  message.processedAt = selectRow.processed_at;
-
-  const updateResult = await client.query(
-    /* sql*/ `
-      UPDATE ${settings.dbSchema}.${settings.dbTable} SET started_attempts = started_attempts + 1 WHERE id = $1
-        RETURNING started_attempts;`,
-    [message.id],
-  );
-  message.startedAttempts = updateResult.rows[0].started_attempts;
   return true;
 };
 
