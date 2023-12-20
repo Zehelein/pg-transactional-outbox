@@ -42,7 +42,7 @@ describe('createDiscriminatingMutexConcurrencyController', () => {
     const orderB: number[] = [];
     const firstTask =
       (orderArray: number[]) => async (message: OrderMessage) => {
-        await sleep(30);
+        await sleep(50);
         orderArray.push(message.id);
       };
     const secondTask =
@@ -80,8 +80,8 @@ describe('createDiscriminatingMutexConcurrencyController', () => {
     const diff = new Date().getTime() - start;
     expect(orderA).toEqual([1, 2]);
     expect(orderB).toEqual([1, 2]);
-    expect(diff).toBeGreaterThanOrEqual(40);
-    expect(diff).toBeLessThan(80);
+    expect(diff).toBeGreaterThanOrEqual(60);
+    expect(diff).toBeLessThan(120);
   });
 
   it('Cancels all mutexes', async () => {

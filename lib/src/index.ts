@@ -16,6 +16,7 @@ export {
   createMultiConcurrencyController,
 } from './concurrency-controller/create-multi-concurrency-controller';
 export { createMutexConcurrencyController } from './concurrency-controller/create-mutex-concurrency-controller';
+export { createSemaphoreConcurrencyController } from './concurrency-controller/create-semaphore-concurrency-controller';
 export {
   InboxConfig,
   InboxMessageHandler,

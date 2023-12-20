@@ -774,12 +774,14 @@ The outbox and inbox listeners process messages that are stored in their
 corresponding tables. When they process the messages, you can influence the
 level of concurrency of the listeners. The default concurrency controller will
 use a mutex to guarantee sequential message processing. There are the following
-pre-build ones but you can also write your own (e.g. using a semaphore):
+pre-build ones but you can also write your own:
 
 - `createFullConcurrencyController` - this controller allows the parallel
   processing of messages without guarantees on the processing order.
 - `createMutexConcurrencyController` - this controller guarantees sequential
   message processing across all messages.
+- `createSemaphoreConcurrencyController` - this controller allows the processing
+  of messages in parallel up to a configurable number.
 - `createDiscriminatingMutexConcurrencyController` - this controller enables
   sequential message processing based on a specified discriminator. This could
   be the message type or some other (calculated) value. The controller still

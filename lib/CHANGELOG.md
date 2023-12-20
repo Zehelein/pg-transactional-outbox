@@ -33,11 +33,13 @@ this file.
   concurrency manager can now be provided as part of the strategies for the
   outbox and inbox listener. The default will use a mutex to guarantee
   sequential message processing. There are the following pre-build ones but you
-  can also write your own (e.g. using a semaphore):
+  can also write your own:
   - `createMutexConcurrencyController` - this controller guarantees sequential
     message processing.
   - `createFullConcurrencyController` - this controller allows the parallel
     processing of messages without guarantees on the processing order.
+  - `createSemaphoreConcurrencyController` - this controller allows the
+    processing of messages in parallel up to a configurable number.
   - `createDiscriminatingMutexConcurrencyController` - this controller enables
     sequential message processing based on a specified discriminator. This could
     be the message type or some other (calculated) value.
