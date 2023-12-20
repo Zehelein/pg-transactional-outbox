@@ -1,3 +1,4 @@
+import { MessageError } from '../common/error';
 import { OutboxMessage } from '../common/message';
 import { ConcurrencyController } from './concurrency-controller';
 import { createDiscriminatingMutexConcurrencyController } from './create-discriminating-mutex-concurrency-controller';
@@ -48,8 +49,9 @@ export const createMultiConcurrencyController = (
           return semaphore.acquire(message);
         case 'discriminating-mutex':
           if (!discriminatingMutexController) {
-            throw new Error(
+            throw new MessageError(
               'A discriminating mutex controller was not configured.',
+              message,
             );
           }
           return discriminatingMutexController.acquire(message);
