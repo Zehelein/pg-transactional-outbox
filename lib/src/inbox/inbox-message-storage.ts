@@ -98,6 +98,7 @@ export const startedAttemptsIncrement = async (
   if (processed_at) {
     return 'ALREADY_PROCESSED';
   }
+  // set the values for the poisonous message strategy
   message.startedAttempts = started_attempts;
   message.finishedAttempts = finished_attempts;
   message.processedAt = processed_at;
@@ -111,6 +112,8 @@ export const startedAttemptsIncrement = async (
  * the message handler code there is a small chance that the handler code
  * succeeds but the WAL inbox message was not acknowledged. This takes care of
  * such cases by ensuring that the message was not yet processed.
+ * It sets the started_attempts, finished_attempts and processed_at
+ * values (again) on the inbox message to be sure no other process altered them.
  * @param message The inbox message for which to acquire a lock and fill the started_attempts, finished_attempts and processed_at values
  * @param client The database client. Must be part of the transaction where the message handling changes are later done.
  * @param config The configuration settings that defines inbox database schema.
@@ -124,14 +127,20 @@ export const initiateInboxMessageProcessing = async (
   // Use a NOWAIT select to immediately fail if another process is locking that inbox row
   const selectResult = await client.query(
     /* sql*/ `
-    SELECT processed_at FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT;`,
+    SELECT started_attempts, finished_attempts, processed_at FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT;`,
     [message.id],
   );
   if (selectResult.rowCount === 0) {
     return 'INBOX_MESSAGE_NOT_FOUND';
   }
-  const dbItem = selectResult.rows[0];
-  if (dbItem.processed_at) {
+  const { started_attempts, finished_attempts, processed_at } =
+    selectResult.rows[0];
+  // ensures latest values (e.g. if the `startedAttemptsIncrement` was not called or another
+  // process changed them between the `startedAttemptsIncrement` and this call.
+  message.startedAttempts = started_attempts;
+  message.finishedAttempts = finished_attempts;
+  message.processedAt = processed_at;
+  if (processed_at) {
     return 'ALREADY_PROCESSED';
   }
   return true;

@@ -54,6 +54,12 @@ export type InboxConfig = TransactionalOutboxInboxConfig & {
      * It defaults to three.
      */
     maxPoisonousAttempts?: number;
+    /**
+     * Poisonous message protection is enabled by default or if you set this to
+     * true. Enabling it will take a little bit more time but will prevent an
+     * infinite service crash loop if there is a poisonous message.
+     */
+    enablePoisonousMessageProtection?: boolean;
   };
 };
 
@@ -182,37 +188,43 @@ const createMessageHandler = (
     const transactionLevel =
       strategies.messageProcessingTransactionLevelStrategy(message);
 
-    const attempt = await executeTransaction(
-      await strategies.messageProcessingClientStrategy.getClient(message),
-      async (client) => {
-        // Increment the started_attempts
-        const result = await startedAttemptsIncrement(message, client, config);
-        if (result !== true) {
-          logger.warn(
+    if (config.settings.enablePoisonousMessageProtection !== false) {
+      const attempt = await executeTransaction(
+        await strategies.messageProcessingClientStrategy.getClient(message),
+        async (client) => {
+          // Increment the started_attempts
+          const result = await startedAttemptsIncrement(
             message,
-            `Received inbox message cannot have the started attempts incremented: ${result}`,
+            client,
+            config,
           );
-          await client.query('ROLLBACK'); // don't increment the start attempts again on a processed message
-          return false;
-        }
-        // The startedAttempts was increase further up so the difference is always at least one
-        const diff = message.startedAttempts - message.finishedAttempts;
-        if (diff >= 2) {
-          const retry = strategies.poisonousMessageRetryStrategy(message);
-          if (!retry) {
-            logger.error(
+          if (result !== true) {
+            logger.warn(
               message,
-              `Stopped processing the message with ID ${message.id} as it is likely a poisonous message.`,
+              `Received inbox message cannot have the started attempts incremented: ${result}`,
             );
+            await client.query('ROLLBACK'); // don't increment the start attempts again on a processed message
             return false;
           }
-        }
-        return true;
-      },
-      transactionLevel,
-    );
-    if (!attempt) {
-      return;
+          // The startedAttempts was increase in `startedAttemptsIncrement` so the difference is always at least one
+          const diff = message.startedAttempts - message.finishedAttempts;
+          if (diff >= 2) {
+            const retry = strategies.poisonousMessageRetryStrategy(message);
+            if (!retry) {
+              logger.error(
+                message,
+                `Stopped processing the message with ID ${message.id} as it is likely a poisonous message.`,
+              );
+              return false;
+            }
+          }
+          return true;
+        },
+        transactionLevel,
+      );
+      if (!attempt) {
+        return;
+      }
     }
 
     await executeTransaction(

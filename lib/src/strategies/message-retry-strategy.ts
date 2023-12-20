@@ -7,7 +7,7 @@ import { InboxConfig } from '../inbox/inbox-listener';
  */
 export interface MessageRetryStrategy {
   /**
-   * Checks if the message should be retried after an error occured. The number
+   * Checks if the message should be retried after an error occurred. The number
    * of processing attempts (including the current) is available in the message
    * object.
    * @param message The inbox message

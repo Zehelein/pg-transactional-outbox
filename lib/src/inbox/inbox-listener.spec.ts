@@ -282,7 +282,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
           };
         } else if (
           sql.includes(
-            'SELECT id FROM test_schema.test_table WHERE id = $1 FOR UPDATE NOWAIT;',
+            'SELECT started_attempts, finished_attempts, processed_at FROM test_schema.test_table WHERE id = $1 FOR UPDATE NOWAIT;',
           )
         ) {
           // initiateInboxMessageProcessing
@@ -292,7 +292,9 @@ describe('Inbox service unit tests - initializeInboxService', () => {
             rows: dbMessage
               ? [
                   {
-                    id: dbMessage.id,
+                    started_attempts: dbMessage.started_attempts + 1,
+                    finished_attempts: dbMessage.finished_attempts,
+                    processed_at: dbMessage.processed_at,
                   },
                 ]
               : [],
@@ -596,6 +598,83 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
+  });
+
+  it('should call the messageHandler and acknowledge the WAL message even if the started attempts are much higher than the finished when poisonous message protection is disabled', async () => {
+    // Arrange
+    const messageHandler = jest.fn(() => Promise.resolve());
+    const message = {
+      id: 'poisonous_message_exceeded',
+      aggregateType: aggregate_type,
+      aggregateId: 'test_aggregate_id',
+      messageType: message_type,
+      payload: { result: 'success' },
+      metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
+      createdAt: '2023-01-18T21:02:27.000Z',
+      startedAttempts: 99, // would be a poisonous message
+      finishedAttempts: 0,
+      processedAt: null,
+    };
+    const cfg = {
+      pgConfig: {
+        ...config.pgConfig,
+      },
+      pgReplicationConfig: {
+        ...config.pgReplicationConfig,
+      },
+      settings: { ...config.settings, enablePoisonousMessageProtection: false },
+    };
+    client.query = jest.fn().mockReturnValueOnce({
+      rowCount: 1,
+      rows: [
+        {
+          started_attempts: 99,
+          finished_attempts: 1,
+          processed_at: null,
+        },
+      ],
+    });
+    const strategies: Partial<InboxStrategies> = {
+      poisonousMessageRetryStrategy: jest.fn().mockReturnValue(false), // always treat it as poisonous
+    };
+    const [cleanup] = initializeInboxListener(
+      cfg,
+      [
+        {
+          aggregateType: message.aggregateType,
+          messageType: message.messageType,
+          handle: messageHandler,
+        },
+      ],
+      getDisabledLogger(),
+      strategies,
+    );
+
+    // Act
+    sendReplicationChunk('poisonous_message_exceeded');
+    await continueEventLoop();
+
+    // Assert
+    const expectedMessage = {
+      ...message,
+      startedAttempts: message.startedAttempts, // not incremented
+      finishedAttempts: message.finishedAttempts + 1, // incremented
+    };
+    expect(messageHandler).toHaveBeenCalledWith(
+      expectedMessage,
+      expect.any(Object),
+    );
+    expect(strategies.poisonousMessageRetryStrategy).not.toHaveBeenCalled();
+    expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
+    expect(markInboxMessageCompletedSpy).toHaveBeenCalledWith(
+      expectedMessage,
+      expect.any(Object),
+      expect.any(Object),
+    );
+    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
+    expect(client.connect).toHaveBeenCalledTimes(1);
+    await cleanup();
+    expect(client.end).toHaveBeenCalledTimes(1);
   });
 
   it('should not call the messageHandler on a poisonous message that already has exceeded the maximum poisonous retries', async () => {

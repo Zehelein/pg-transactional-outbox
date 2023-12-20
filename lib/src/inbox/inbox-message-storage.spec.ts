@@ -153,7 +153,7 @@ describe('Inbox message storage unit tests', () => {
         getDisabledLogger(),
       );
       // Let the `await pool.end();` throw an error
-      (Pool as any).mock.results[0].value.end = () => {
+      jest.mocked(Pool).mock.results[0].value.end = () => {
         throw new Error('test');
       };
 
@@ -179,8 +179,8 @@ describe('Inbox message storage unit tests', () => {
 
       // Assert
       // Let the `await pool.end();` throw an error
-      const testPoolIndex = (Pool as any).mock.results.length;
-      (Pool as any).mock.results[testPoolIndex - 1].value.end = () => {
+      const testPoolIndex = jest.mocked(Pool).mock.results.length;
+      jest.mocked(Pool).mock.results[testPoolIndex - 1].value.end = () => {
         throw error;
       };
       await shutdown();
@@ -333,7 +333,7 @@ describe('Inbox message storage unit tests', () => {
         rowCount: 0,
       });
       let result = await initiateInboxMessageProcessing(
-        inboxMessage,
+        { ...inboxMessage },
         client,
         config,
       );
@@ -345,7 +345,7 @@ describe('Inbox message storage unit tests', () => {
         rows: [{ processed_at: new Date() }],
       });
       result = await initiateInboxMessageProcessing(
-        inboxMessage,
+        { ...inboxMessage },
         client,
         config,
       );
@@ -357,11 +357,77 @@ describe('Inbox message storage unit tests', () => {
         rows: [{ processed_at: null, finished_attempts: 0 }],
       });
       result = await initiateInboxMessageProcessing(
-        inboxMessage,
+        { ...inboxMessage },
         client,
         config,
       );
       expect(result).toBe(true);
+    });
+
+    test('it verifies that it updates the inbox message properties when it was processed', async () => {
+      // Arrange
+      const pool = new Pool();
+      const client = await pool.connect();
+      client.query = jest.fn().mockResolvedValue({
+        rowCount: 1,
+        rows: [
+          {
+            started_attempts: 4,
+            finished_attempts: 3,
+            processed_at: '2023-01-18T21:02:27.000Z',
+          },
+        ],
+      });
+      const msg = { ...inboxMessage };
+
+      // Act
+      const result = await initiateInboxMessageProcessing(msg, client, config);
+
+      // Assert
+      expect(result).toBe('ALREADY_PROCESSED');
+      expect(msg).toMatchObject<
+        Pick<
+          InboxMessage,
+          'startedAttempts' | 'finishedAttempts' | 'processedAt'
+        >
+      >({
+        startedAttempts: 4,
+        finishedAttempts: 3,
+        processedAt: '2023-01-18T21:02:27.000Z',
+      });
+    });
+
+    test('it verifies that it updates the inbox message properties when it was not processed', async () => {
+      // Arrange
+      const pool = new Pool();
+      const client = await pool.connect();
+      client.query = jest.fn().mockResolvedValue({
+        rowCount: 1,
+        rows: [
+          {
+            started_attempts: 4,
+            finished_attempts: 3,
+            processed_at: null,
+          },
+        ],
+      });
+      const msg = { ...inboxMessage };
+
+      // Act
+      const result = await initiateInboxMessageProcessing(msg, client, config);
+
+      // Assert
+      expect(result).toBe(true);
+      expect(msg).toMatchObject<
+        Pick<
+          InboxMessage,
+          'startedAttempts' | 'finishedAttempts' | 'processedAt'
+        >
+      >({
+        startedAttempts: 4,
+        finishedAttempts: 3,
+        processedAt: null,
+      });
     });
   });
 
