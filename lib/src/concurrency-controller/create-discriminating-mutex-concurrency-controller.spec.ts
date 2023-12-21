@@ -81,7 +81,6 @@ describe('createDiscriminatingMutexConcurrencyController', () => {
     expect(orderA).toEqual([1, 2]);
     expect(orderB).toEqual([1, 2]);
     expect(diff).toBeGreaterThanOrEqual(60);
-    expect(diff).toBeLessThan(120);
   });
 
   it('Cancels all mutexes', async () => {

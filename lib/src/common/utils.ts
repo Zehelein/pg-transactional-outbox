@@ -79,7 +79,7 @@ export const executeTransaction = async <T>(
   } catch (err) {
     const error = ensureError(err);
     try {
-      await client?.query('ROLLBACK');
+      await client.query('ROLLBACK');
       if (isPoolClient(client)) {
         client.release(true);
       }

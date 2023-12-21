@@ -52,7 +52,7 @@ export const initializeInboxMessageStorage = (
       try {
         await pool.end();
       } catch (e) {
-        logger.error(e, 'Inbox message storage shutdown error');
+        logger.warn(e, 'Inbox message storage shutdown error');
       }
     },
   ];

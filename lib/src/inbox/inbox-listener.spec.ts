@@ -10,7 +10,7 @@ import { Pgoutput } from 'pg-logical-replication';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { InboxMessage } from '../common/message';
 import { IsolationLevel, sleep } from '../common/utils';
-import { defaultMessageProcessingClientStrategy } from '../strategies/message-processing-client-strategy';
+import { defaultMessageProcessingDbClientStrategy } from '../strategies/message-processing-db-client-strategy';
 import {
   InboxConfig,
   InboxStrategies,
@@ -847,7 +847,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     const handleError = jest.fn().mockImplementationOnce(() => {
       throw new Error('Error handling error');
     });
-    const clientStrategy = defaultMessageProcessingClientStrategy(
+    const dbClientStrategy = defaultMessageProcessingDbClientStrategy(
       config,
       getDisabledLogger(),
     );
@@ -878,14 +878,14 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       ],
       logger,
       {
-        messageProcessingClientStrategy: {
+        messageProcessingDbClientStrategy: {
           getClient: jest
             .fn()
-            .mockReturnValueOnce(clientStrategy.getClient(message)) // startedAttemptsIncrement
-            .mockReturnValueOnce(clientStrategy.getClient(message)) // initiateInboxMessageProcessing
-            .mockReturnValueOnce(clientStrategy.getClient(message)) // handleError
+            .mockReturnValueOnce(dbClientStrategy.getClient(message)) // startedAttemptsIncrement
+            .mockReturnValueOnce(dbClientStrategy.getClient(message)) // initiateInboxMessageProcessing
+            .mockReturnValueOnce(dbClientStrategy.getClient(message)) // handleError
             .mockReturnValueOnce(null), // best effort increment - which should fail
-          shutdown: clientStrategy.shutdown,
+          shutdown: dbClientStrategy.shutdown,
         },
       },
     );
@@ -1010,7 +1010,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         }),
         cancel: jest.fn(),
       },
-      messageProcessingClientStrategy: {
+      messageProcessingDbClientStrategy: {
         getClient: jest.fn().mockReturnValue(new Client()),
         shutdown: jest.fn(),
       },
@@ -1020,7 +1020,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         .mockReturnValue(IsolationLevel.Serializable),
       messageRetryStrategy: jest.fn().mockReturnValue(true),
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(true),
-      listenerRestartTimeStrategy: jest.fn().mockReturnValue(123),
+      listenerRestartStrategy: jest.fn().mockReturnValue(123),
     };
     const [cleanup] = initializeInboxListener(
       config,
@@ -1051,10 +1051,10 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(strategies.concurrencyStrategy.acquire).toHaveBeenCalled();
     expect(strategies.concurrencyStrategy.cancel).not.toHaveBeenCalled();
     expect(
-      strategies.messageProcessingClientStrategy.getClient,
+      strategies.messageProcessingDbClientStrategy.getClient,
     ).toHaveBeenCalled();
     expect(
-      strategies.messageProcessingClientStrategy.shutdown,
+      strategies.messageProcessingDbClientStrategy.shutdown,
     ).not.toHaveBeenCalled();
     expect(strategies.messageProcessingTimeoutStrategy).toHaveBeenCalled();
     expect(

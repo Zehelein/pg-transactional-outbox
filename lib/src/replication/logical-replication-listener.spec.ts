@@ -8,7 +8,7 @@ import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { OutboxMessage } from '../common/message';
 import { sleep } from '../common/utils';
 import { defaultConcurrencyStrategy } from '../strategies/concurrency-strategy';
-import { defaultListenerRestartTimeStrategy } from '../strategies/listener-restart-time-strategy';
+import { defaultListenerRestartStrategy } from '../strategies/listener-restart-strategy';
 import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
 import { TransactionalOutboxInboxConfig } from './config';
 import {
@@ -185,7 +185,7 @@ const getStrategies = (
     concurrencyStrategy: defaultConcurrencyStrategy(),
     messageProcessingTimeoutStrategy:
       defaultMessageProcessingTimeoutStrategy(cfg),
-    listenerRestartTimeStrategy: defaultListenerRestartTimeStrategy(cfg),
+    listenerRestartStrategy: defaultListenerRestartStrategy(cfg),
   };
 };
 
@@ -635,8 +635,7 @@ describe('Local replication service unit tests', () => {
         {
           concurrencyStrategy: defaultConcurrencyStrategy(),
           messageProcessingTimeoutStrategy: () => 100,
-          listenerRestartTimeStrategy:
-            defaultListenerRestartTimeStrategy(config),
+          listenerRestartStrategy: defaultListenerRestartStrategy(config),
         },
         'inbox',
       );
@@ -667,8 +666,7 @@ describe('Local replication service unit tests', () => {
         {
           concurrencyStrategy: defaultConcurrencyStrategy(),
           messageProcessingTimeoutStrategy: () => 200,
-          listenerRestartTimeStrategy:
-            defaultListenerRestartTimeStrategy(config),
+          listenerRestartStrategy: defaultListenerRestartStrategy(config),
         },
         'inbox',
       );

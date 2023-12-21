@@ -8,11 +8,11 @@ import {
   createLogicalReplicationListener,
 } from '../replication/logical-replication-listener';
 import { defaultConcurrencyStrategy } from '../strategies/concurrency-strategy';
-import { defaultListenerRestartTimeStrategy } from '../strategies/listener-restart-time-strategy';
+import { defaultListenerRestartStrategy } from '../strategies/listener-restart-strategy';
 import {
-  MessageProcessingClientStrategy,
-  defaultMessageProcessingClientStrategy,
-} from '../strategies/message-processing-client-strategy';
+  MessageProcessingDbClientStrategy,
+  defaultMessageProcessingDbClientStrategy,
+} from '../strategies/message-processing-db-client-strategy';
 import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
 import {
   MessageProcessingTransactionLevelStrategy,
@@ -112,7 +112,7 @@ export interface InboxStrategies extends TransactionalStrategies {
    * Decides from what pool to take a database client. This can be helpful if some
    * message handlers have to run in higher trust roles than others.
    */
-  messageProcessingClientStrategy: MessageProcessingClientStrategy;
+  messageProcessingDbClientStrategy: MessageProcessingDbClientStrategy;
 
   /**
    * Decides if a message should be retried or not based on the current amount
@@ -167,7 +167,7 @@ export const initializeInboxListener = (
   return [
     async () => {
       await Promise.all([
-        allStrategies.messageProcessingClientStrategy?.shutdown(),
+        allStrategies.messageProcessingDbClientStrategy?.shutdown(),
         shutdown(),
       ]);
     },
@@ -190,7 +190,7 @@ const createMessageHandler = (
 
     if (config.settings.enablePoisonousMessageProtection !== false) {
       const attempt = await executeTransaction(
-        await strategies.messageProcessingClientStrategy.getClient(message),
+        await strategies.messageProcessingDbClientStrategy.getClient(message),
         async (client) => {
           // Increment the started_attempts
           const result = await startedAttemptsIncrement(
@@ -228,7 +228,7 @@ const createMessageHandler = (
     }
 
     await executeTransaction(
-      await strategies.messageProcessingClientStrategy.getClient(message),
+      await strategies.messageProcessingDbClientStrategy.getClient(message),
       async (client) => {
         // lock the inbox message from further processing
         const result = await initiateInboxMessageProcessing(
@@ -308,7 +308,7 @@ const createErrorResolver = (
       strategies.messageProcessingTransactionLevelStrategy(message);
     try {
       return await executeTransaction(
-        await strategies.messageProcessingClientStrategy.getClient(message),
+        await strategies.messageProcessingDbClientStrategy.getClient(message),
         async (client) => {
           message.finishedAttempts++;
           const shouldRetry = strategies.messageRetryStrategy(message);
@@ -341,7 +341,7 @@ const createErrorResolver = (
       // In case the error handling logic failed do a best effort to increase the "finished_attempts" counter
       try {
         await executeTransaction(
-          await strategies.messageProcessingClientStrategy.getClient(message),
+          await strategies.messageProcessingDbClientStrategy.getClient(message),
           async (client) => {
             await increaseInboxMessageFinishedAttempts(message, client, config);
           },
@@ -362,9 +362,9 @@ const applyDefaultStrategies = (
 ): InboxStrategies => ({
   concurrencyStrategy:
     strategies?.concurrencyStrategy ?? defaultConcurrencyStrategy(),
-  messageProcessingClientStrategy:
-    strategies?.messageProcessingClientStrategy ??
-    defaultMessageProcessingClientStrategy(config, logger),
+  messageProcessingDbClientStrategy:
+    strategies?.messageProcessingDbClientStrategy ??
+    defaultMessageProcessingDbClientStrategy(config, logger),
   messageProcessingTimeoutStrategy:
     strategies?.messageProcessingTimeoutStrategy ??
     defaultMessageProcessingTimeoutStrategy(config),
@@ -376,7 +376,7 @@ const applyDefaultStrategies = (
   poisonousMessageRetryStrategy:
     strategies?.poisonousMessageRetryStrategy ??
     defaultPoisonousMessageRetryStrategy(config),
-  listenerRestartTimeStrategy:
-    strategies?.listenerRestartTimeStrategy ??
-    defaultListenerRestartTimeStrategy(config),
+  listenerRestartStrategy:
+    strategies?.listenerRestartStrategy ??
+    defaultListenerRestartStrategy(config),
 });

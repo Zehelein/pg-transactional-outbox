@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { InboxMessage } from '../common/message';
 import { InboxConfig } from '../inbox/inbox-listener';
-import { defaultMessageProcessingClientStrategy } from './message-processing-client-strategy';
+import { defaultMessageProcessingDbClientStrategy } from './message-processing-db-client-strategy';
 
 let errorHandler: (err: Error) => void;
 let pool: Pool;
@@ -12,7 +12,7 @@ jest.mock('pg', () => {
   };
 });
 
-describe('defaultMessageProcessingClientStrategy', () => {
+describe('defaultMessageProcessingDbClientStrategy', () => {
   beforeEach(() => {
     pool = {
       on: jest.fn((event: 'error', callback: (err: Error) => void) => {
@@ -31,7 +31,7 @@ describe('defaultMessageProcessingClientStrategy', () => {
   });
 
   it('should return a DB client', async () => {
-    const strategy = defaultMessageProcessingClientStrategy(
+    const strategy = defaultMessageProcessingDbClientStrategy(
       {} as InboxConfig,
       getDisabledLogger(),
     );
@@ -42,7 +42,7 @@ describe('defaultMessageProcessingClientStrategy', () => {
   it('should log an error when the client encounters an error', async () => {
     // Arrange
     const [logger, logs] = getInMemoryLogger('test');
-    const strategy = defaultMessageProcessingClientStrategy(
+    const strategy = defaultMessageProcessingDbClientStrategy(
       {} as InboxConfig,
       logger,
     );
@@ -58,7 +58,7 @@ describe('defaultMessageProcessingClientStrategy', () => {
   });
 
   it('should remove all listeners and end the pool on shutdown', async () => {
-    const strategy = defaultMessageProcessingClientStrategy(
+    const strategy = defaultMessageProcessingDbClientStrategy(
       {} as InboxConfig,
       getDisabledLogger(),
     );
@@ -73,7 +73,7 @@ describe('defaultMessageProcessingClientStrategy', () => {
     const error = new Error('Test error');
     pool.end = jest.fn().mockRejectedValue(error);
     const [logger, logs] = getInMemoryLogger('test');
-    const strategy = defaultMessageProcessingClientStrategy(
+    const strategy = defaultMessageProcessingDbClientStrategy(
       {} as InboxConfig,
       logger,
     );

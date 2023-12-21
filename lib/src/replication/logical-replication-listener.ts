@@ -6,7 +6,7 @@ import { TransactionalLogger } from '../common/logger';
 import { OutboxMessage } from '../common/message';
 import { awaitWithTimeout } from '../common/utils';
 import { ConcurrencyController } from '../concurrency-controller/concurrency-controller';
-import { ListenerRestartTimeStrategy } from '../strategies/listener-restart-time-strategy';
+import { ListenerRestartStrategy } from '../strategies/listener-restart-strategy';
 import { MessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
 import { createAcknowledgeManager } from './acknowledge-manager';
 import {
@@ -18,6 +18,8 @@ import {
 type ReplicationClient = Client & {
   connection: Connection & { sendCopyFromChunk: (buffer: Buffer) => void };
 };
+
+export type ListenerType = 'inbox' | 'outbox';
 
 /** Optional strategies to provide custom logic for handling specific scenarios */
 export interface TransactionalStrategies {
@@ -35,9 +37,10 @@ export interface TransactionalStrategies {
 
   /**
    * Returns the time in milliseconds after an error was caught until the
-   * listener should try to restart itself.
+   * listener should try to restart itself. Offers an integration point to
+   * act on the error and/or log it.
    */
-  listenerRestartTimeStrategy: ListenerRestartTimeStrategy;
+  listenerRestartStrategy: ListenerRestartStrategy;
 }
 
 /**
@@ -55,7 +58,7 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
   errorHandler: (message: T, err: Error) => Promise<boolean>,
   logger: TransactionalLogger,
   strategies: TransactionalStrategies,
-  listenerType: 'inbox' | 'outbox',
+  listenerType: ListenerType,
 ): [shutdown: { (): Promise<void> }] => {
   const plugin = new PgoutputPlugin({
     protoVersion: 1,
@@ -77,38 +80,23 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
       replication: 'database',
       stop: false,
     } as ClientConfig) as ReplicationClient;
-    // On errors stop the DB client and reconnect from a clean state
     const applyRestart = (promise: Promise<unknown>) => {
-      void promise
-        .catch((e) => {
-          const err = ensureError(e);
-          if (
-            'routine' in err &&
-            err.routine === 'ReplicationSlotAcquire' &&
-            'code' in err &&
-            err.code === '55006'
-          ) {
-            logger.trace(
-              err,
-              `The replication slot for the ${listenerType} listener is currently in use.`,
-            );
-          } else if (!(err instanceof MessageError)) {
-            logger.error(err, `Transactional ${listenerType} listener error`);
-          }
-          return err;
-        })
-        .then(async (err) => {
-          await stopClient(client, logger);
-          return err;
-        })
-        .then((err) => {
-          if (!stopped && !restartTimeout) {
-            restartTimeout = setTimeout(
-              start,
-              strategies.listenerRestartTimeStrategy(err),
-            );
-          }
-        });
+      void promise.catch(async (e) => {
+        const err = ensureError(e);
+        const timeout = await strategies.listenerRestartStrategy(
+          err,
+          logger,
+          listenerType,
+        );
+        // On errors stop the DB client and reconnect from a clean state
+        await stopClient(client, logger);
+        if (!stopped && !restartTimeout) {
+          restartTimeout = setTimeout(
+            start,
+            typeof timeout === 'number' ? timeout : 250,
+          );
+        }
+      });
     };
 
     // Start background functions to connect the DB client and handle replication data
@@ -190,7 +178,7 @@ const subscribe = async (
   plugin: AbstractPlugin,
   slotName: string,
   logger: TransactionalLogger,
-  listenerType: 'inbox' | 'outbox',
+  listenerType: ListenerType,
   uptoLsn?: string,
 ) => {
   const lastLsn = uptoLsn || '0/00000000';

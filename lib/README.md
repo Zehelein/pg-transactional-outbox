@@ -851,13 +851,22 @@ You can customize the behavior of the service by changing the following options:
 ## Listener restart time strategy
 
 When the inbox or outbox listener fails due to an error it is restarted. The
-`listenerRestartTimeStrategy` is used to define how long it should wait before
-it attempts to start again based on the caught error.
+`listenerRestartStrategy` is used to define how long it should wait before it
+attempts to start again. It allows you to decide (based on the error) to log or
+track the caught error.
 
-The `defaultListenerRestartTimeStrategy` checks if the error message is a
-PostgreSQL error telling that the replication slot is in use. If this is the
-case it will wait for the configured `restartDelaySlotInUse` (default: 10sec)
-time and otherwise for the configured `restartDelay` (default: 250ms) one.
+The `defaultListenerRestartStrategy` checks if the error message is a PostgreSQL
+error. If the PostgreSQL error is about the replication slot being in use, it
+logs a trace entry and waits for the configured `restartDelaySlotInUse`
+(default: 10sec) time. Otherwise, it logs an error entry and waits for the
+configured `restartDelay` (default: 250ms).
+
+The `defaultListenerAndSlotRestartStrategy` uses the same logic as the
+`defaultListenerRestartStrategy`. In addition, it checks if a PostgreSQL error
+is about the replication slot not existing (e.g. after a DB failover). Then it
+tries to create the replication slot with the connection details of the
+replication user slot and waits for the configured `restartDelay` (default:
+250ms) to restart the listener.
 
 # Testing
 

@@ -48,8 +48,8 @@ this file.
     controllers the message should use.
 - Messages are processed via message handlers as part of a database transaction.
   Some handlers may require a different database login user. In this case, you
-  can use the `messageProcessingClientStrategy` to return a database client from
-  the desired database pool.
+  can use the `messageProcessingDbClientStrategy` to return a database client
+  from the desired database pool.
 - The `messageProcessingTimeoutStrategy` allows you to define a message-based
   timeout on how long the message is allowed to be processed in milliseconds.
   This allows you to allow some more expensive messages to take longer while
@@ -66,8 +66,9 @@ this file.
   `poisonousMessageRetryStrategy` to customize if and how often such a message
   can be retried.
 - When the inbox or outbox listener fails due to an error it is restarted. The
-  `listenerRestartTimeStrategy` is used to define how long it should wait before
-  it attempts to start again.
+  `listenerRestartStrategy` is used to define how long it should wait before it
+  attempts to start again. It allows you to decide (based on the error) to log
+  or track the caught error or try to resolve the underlying issue.
 
 ## [0.3.0] - 2023-10-23
 

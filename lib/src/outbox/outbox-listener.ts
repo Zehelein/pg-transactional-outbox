@@ -6,7 +6,7 @@ import {
   createLogicalReplicationListener,
 } from '../replication/logical-replication-listener';
 import { defaultConcurrencyStrategy } from '../strategies/concurrency-strategy';
-import { defaultListenerRestartTimeStrategy } from '../strategies/listener-restart-time-strategy';
+import { defaultListenerRestartStrategy } from '../strategies/listener-restart-strategy';
 import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
 
 export type OutboxConfig = TransactionalOutboxInboxConfig;
@@ -51,7 +51,7 @@ const applyDefaultStrategies = (
   messageProcessingTimeoutStrategy:
     strategies?.messageProcessingTimeoutStrategy ??
     defaultMessageProcessingTimeoutStrategy(config),
-  listenerRestartTimeStrategy:
-    strategies?.listenerRestartTimeStrategy ??
-    defaultListenerRestartTimeStrategy(config),
+  listenerRestartStrategy:
+    strategies?.listenerRestartStrategy ??
+    defaultListenerRestartStrategy(config),
 });

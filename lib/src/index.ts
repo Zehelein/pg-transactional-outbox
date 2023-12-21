@@ -36,8 +36,29 @@ export {
   ReplicationListenerConfig,
   TransactionalOutboxInboxConfig,
 } from './replication/config';
-export { TransactionalStrategies } from './replication/logical-replication-listener';
-export { MessageProcessingTimeoutStrategy } from './strategies/message-processing-timeout-strategy';
-export { MessageProcessingTransactionLevelStrategy } from './strategies/message-processing-transaction-level-strategy';
-export { MessageRetryStrategy } from './strategies/message-retry-strategy';
-export { PoisonousMessageRetryStrategy } from './strategies/poisonous-message-retry-strategy';
+export {
+  ListenerType,
+  TransactionalStrategies,
+} from './replication/logical-replication-listener';
+export { defaultConcurrencyStrategy } from './strategies/concurrency-strategy';
+export {
+  ListenerRestartStrategy,
+  defaultListenerAndSlotRestartStrategy,
+  defaultListenerRestartStrategy,
+} from './strategies/listener-restart-strategy';
+export {
+  MessageProcessingTimeoutStrategy,
+  defaultMessageProcessingTimeoutStrategy,
+} from './strategies/message-processing-timeout-strategy';
+export {
+  MessageProcessingTransactionLevelStrategy,
+  defaultMessageProcessingTransactionLevelStrategy,
+} from './strategies/message-processing-transaction-level-strategy';
+export {
+  MessageRetryStrategy,
+  defaultMessageRetryStrategy,
+} from './strategies/message-retry-strategy';
+export {
+  PoisonousMessageRetryStrategy,
+  defaultPoisonousMessageRetryStrategy,
+} from './strategies/poisonous-message-retry-strategy';
