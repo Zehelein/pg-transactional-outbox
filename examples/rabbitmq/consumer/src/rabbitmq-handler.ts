@@ -1,5 +1,5 @@
 import { Mutex } from 'async-mutex';
-import { ensureError, TransactionalLogger } from 'pg-transactional-outbox';
+import { TransactionalLogger } from 'pg-transactional-outbox';
 import { BrokerAsPromised } from 'rascal';
 import { Config } from './config';
 import { getMessagingConfig } from './rabbitmq-config';
@@ -57,7 +57,8 @@ export const initializeRabbitMqHandler = async (
             ackOrNack();
             logger.trace(content, 'Added the incoming message to the inbox');
           } catch (error) {
-            const err = ensureError(error);
+            const err =
+              error instanceof Error ? error : new Error(String(error));
             ackOrNack(err);
             logger.error(
               {

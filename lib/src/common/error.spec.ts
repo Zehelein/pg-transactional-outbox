@@ -1,6 +1,26 @@
-import { MessageError, ensureError } from './error';
+import {
+  MessageError,
+  TransactionalOutboxInboxError,
+  ensureExtendedError,
+} from './error';
 
 describe('Error Unit Tests', () => {
+  describe('TransactionalOutboxInboxError', () => {
+    it('should create an instance of TransactionalOutboxInboxError', () => {
+      const message = 'This is a test message';
+      const innerError = new Error('This is an inner error');
+      const messageError = new TransactionalOutboxInboxError(
+        message,
+        'NO_MESSAGE_HANDLER_REGISTERED',
+        innerError,
+      );
+
+      expect(messageError).toBeInstanceOf(TransactionalOutboxInboxError);
+      expect(messageError.message).toBe(message);
+      expect(messageError.innerError).toBe(innerError);
+      expect(messageError.errorCode).toBe('NO_MESSAGE_HANDLER_REGISTERED');
+    });
+  });
   describe('MessageError', () => {
     it('should create an instance of MessageError', () => {
       const message = 'This is a test message';
@@ -14,35 +34,63 @@ describe('Error Unit Tests', () => {
         createdAt: '2023-01-18T21:02:27.000Z',
       };
       const innerError = new Error('This is an inner error');
-      const messageError = new MessageError(message, messageObject, innerError);
+      const messageError = new MessageError(
+        message,
+        'MESSAGE_HANDLING_FAILED',
+        messageObject,
+        innerError,
+      );
 
       expect(messageError).toBeInstanceOf(MessageError);
       expect(messageError.message).toBe(message);
       expect(messageError.messageObject).toBe(messageObject);
       expect(messageError.innerError).toBe(innerError);
+      expect(messageError.errorCode).toBe('MESSAGE_HANDLING_FAILED');
     });
   });
-  describe('ensureError', () => {
-    it('should return the input error if it is an instance of Error', () => {
+
+  describe('ensureExtendedError', () => {
+    it('should return the input error if it is an instance of TransactionalOutboxInboxError', () => {
       // Arrange
-      const inputError = new Error('This is an error');
+      const inputError = new TransactionalOutboxInboxError(
+        'This is an error',
+        'DB_ERROR',
+      );
 
       // Act
-      const error = ensureError(inputError);
+      const error = ensureExtendedError(inputError, 'DB_ERROR');
 
       // Assert
       expect(error).toBe(inputError);
     });
 
-    it('should return a new Error if the input is not an instance of Error', () => {
+    it('should return the error containing now the fallback error code if the input is an instance of Error', () => {
       // Arrange
-      const input = 'This is not an error';
+      const input = new Error('This is an error');
 
       // Act
-      const error = ensureError(input);
+      const error = ensureExtendedError(input, 'DB_ERROR');
 
       // Assert
-      expect(error).toEqual(new Error(input));
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(TransactionalOutboxInboxError);
+      expect(error.message).toBe(input.message);
+      expect(error.errorCode).toBe('DB_ERROR');
+      expect(error.innerError).toBeUndefined();
+    });
+
+    it('should return a new error containing the fallback error code if the input is not an instance of Error', () => {
+      // Arrange
+      const input = 'This is not an error object';
+
+      // Act
+      const error = ensureExtendedError(input, 'DB_ERROR');
+
+      // Assert
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(TransactionalOutboxInboxError);
+      expect(error.message).toBe(input);
+      expect(error.innerError).toBeUndefined();
     });
   });
 });

@@ -116,6 +116,7 @@ const storeOutboxMessage = async (
   if (!outboxResult.rowCount || outboxResult.rowCount < 1) {
     throw new MessageError(
       'Could not insert the message into the outbox!',
+      'OUTBOX_ERROR_STORAGE_FAILED',
       attemptedMessage,
     );
   }

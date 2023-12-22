@@ -1,6 +1,7 @@
-import { Pool } from 'pg';
+import { DatabaseError, Pool } from 'pg';
 import { BaseLogger } from 'pino';
 import { MessageError, OutboxMessage } from '../../dist';
+import { ErrorCode, ExtendedError } from '../common/error';
 import { TransactionalOutboxInboxConfig } from '../replication/config';
 import {
   defaultListenerAndSlotRestartStrategy,
@@ -17,6 +18,20 @@ jest.mock('pg', () => {
     })),
   };
 });
+
+const createPgError = (
+  code: string,
+): DatabaseError & {
+  errorCode: ErrorCode;
+} => {
+  const error = new Error('PostgreSQL error') as DatabaseError & {
+    errorCode: ErrorCode;
+  };
+  error.code = code;
+  error.errorCode = 'DB_ERROR';
+  error.routine = 'ReplicationSlotAcquire';
+  return error;
+};
 
 describe.each([
   defaultListenerRestartStrategy,
@@ -40,10 +55,7 @@ describe.each([
 
   it('should return restartDelaySlotInUse for PostgreSQL replication slot in use error', async () => {
     // Arrange
-    const error = {
-      code: '55006',
-      routine: 'ReplicationSlotAcquire',
-    } as unknown as Error;
+    const error = createPgError('55006');
     const strategy = strategyFunction(config);
 
     // Act
@@ -65,6 +77,7 @@ describe.each([
     // Arrange
     const error = new MessageError(
       'some_other_code',
+      'MESSAGE_HANDLING_FAILED',
       {} as OutboxMessage,
       new Error('test'),
     );
@@ -93,43 +106,37 @@ describe.each([
     const strategy = strategyFunction(config);
 
     // Act + Assert
-    let error = {
-      code: '55006',
-      routine: 'ReplicationSlotAcquire',
-    } as unknown as Error;
-    let result = await strategy(error, logger, 'outbox');
+    let pgError = createPgError('55006');
+    let result = await strategy(pgError, logger, 'outbox');
     expect(result).toBe(10_000);
 
-    error = {
-      code: '42704',
-      routine: 'ReplicationSlotAcquire',
-    } as unknown as Error;
-    result = await strategy(error, logger, 'outbox');
+    pgError = createPgError('42704');
+    result = await strategy(pgError, logger, 'outbox');
     expect(result).toBe(250);
 
-    error = {
-      code: '12345',
-      routine: 'ReplicationSlotAcquire',
-    } as unknown as Error;
-    result = await strategy(error, logger, 'outbox');
+    pgError = createPgError('12345');
+    result = await strategy(pgError, logger, 'outbox');
     expect(result).toBe(250);
 
-    error = new MessageError(
+    const messageError = new MessageError(
       'some_other_code',
+      'MESSAGE_HANDLING_FAILED',
       {} as OutboxMessage,
       new Error('test'),
     );
-    result = await strategy(error, logger, 'outbox');
+    result = await strategy(messageError, logger, 'outbox');
     expect(result).toBe(250);
 
-    error = new Error('other error');
+    const error = new Error('other error') as ExtendedError;
+    error.errorCode = 'INBOX_ERROR_STORAGE_FAILED';
     result = await strategy(error, logger, 'outbox');
     expect(result).toBe(250);
   });
 
   it('should return restartDelay for other errors', async () => {
     // Arrange
-    const error = new Error('some_other_code');
+    const error = new Error('some_other_code') as ExtendedError;
+    error.errorCode = 'LISTENER_STOPPED';
     const strategy = strategyFunction(config);
 
     // Act
@@ -149,10 +156,7 @@ describe.each([
 
   it('should create a new replication slot if not found', async () => {
     // Arrange
-    const error = {
-      code: '42704',
-      routine: 'ReplicationSlotAcquire',
-    } as unknown as Error;
+    const error = createPgError('42704');
     const strategy = strategyFunction(config);
 
     // Act
@@ -175,10 +179,7 @@ describe.each([
 
   it('should trace the error when creating a new replication slot fails', async () => {
     // Arrange
-    const error = {
-      code: '42704',
-      routine: 'ReplicationSlotAcquire',
-    } as unknown as Error;
+    const error = createPgError('42704');
     const strategy = strategyFunction(config);
     query.mockRejectedValueOnce(new Error('Query error'));
 

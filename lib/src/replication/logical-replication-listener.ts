@@ -1,7 +1,12 @@
 import { Client, ClientConfig, Connection } from 'pg';
 import { Pgoutput, PgoutputPlugin } from 'pg-logical-replication';
 import { AbstractPlugin } from 'pg-logical-replication/dist/output-plugins/abstract.plugin';
-import { MessageError, ensureError } from '../common/error';
+import {
+  ExtendedError,
+  MessageError,
+  TransactionalOutboxInboxError,
+  ensureExtendedError,
+} from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { OutboxMessage } from '../common/message';
 import { awaitWithTimeout } from '../common/utils';
@@ -55,7 +60,7 @@ export interface TransactionalStrategies {
 export const createLogicalReplicationListener = <T extends OutboxMessage>(
   { pgReplicationConfig, settings }: TransactionalOutboxInboxConfig,
   messageHandler: (message: T) => Promise<void>,
-  errorHandler: (message: T, err: Error) => Promise<boolean>,
+  errorHandler: (message: T, err: ExtendedError) => Promise<boolean>,
   logger: TransactionalLogger,
   strategies: TransactionalStrategies,
   listenerType: ListenerType,
@@ -82,7 +87,7 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
     } as ClientConfig) as ReplicationClient;
     const applyRestart = (promise: Promise<unknown>) => {
       void promise.catch(async (e) => {
-        const err = ensureError(e);
+        const err = ensureExtendedError(e, 'LISTENER_STOPPED');
         const timeout = await strategies.listenerRestartStrategy(
           err,
           logger,
@@ -185,11 +190,14 @@ const subscribe = async (
 
   await client.connect();
   client.on('error', (e) => {
-    logger.error(e, `Transactional ${listenerType} listener DB client error`);
+    logger.error(
+      ensureExtendedError(e, 'DB_ERROR'),
+      `Transactional ${listenerType} listener DB client error`,
+    );
   });
   client.connection.on('error', (e) => {
     logger.error(
-      e,
+      ensureExtendedError(e, 'DB_ERROR'),
       `Transactional ${listenerType} listener DB connection error`,
     );
   });
@@ -216,7 +224,10 @@ const stopClient = async (
       `The PostgreSQL client could not be stopped within a reasonable time frame.`,
     );
   } catch (e) {
-    logger.warn(e, `Stopping the PostgreSQL client gave an error.`);
+    logger.warn(
+      ensureExtendedError(e, 'DB_ERROR'),
+      `Stopping the PostgreSQL client gave an error.`,
+    );
   }
 };
 
@@ -286,13 +297,16 @@ const handleIncomingData = <T extends OutboxMessage>(
   plugin: AbstractPlugin,
   config: ReplicationListenerConfig,
   messageHandler: (message: T) => Promise<void>,
-  errorHandler: (message: T, err: Error) => Promise<boolean>,
+  errorHandler: (message: T, err: ExtendedError) => Promise<boolean>,
   concurrencyStrategy: ConcurrencyController,
   messageProcessingTimeoutStrategy: MessageProcessingTimeoutStrategy,
   logger: TransactionalLogger,
 ): Promise<void> => {
   if (!client.connection) {
-    throw new Error('Client not connected.');
+    throw new TransactionalOutboxInboxError(
+      'Client not connected.',
+      'DB_ERROR',
+    );
   }
   const ack = (lsn: string): void => {
     acknowledge(client, lsn, logger);
@@ -307,7 +321,7 @@ const handleIncomingData = <T extends OutboxMessage>(
   // It is inlined to stop processing when "stopped" is true.
   const handleOutboxInboxMessage = async <T extends OutboxMessage>(
     messageHandler: (message: T) => Promise<void>,
-    errorHandler: (message: T, err: Error) => Promise<boolean>,
+    errorHandler: (message: T, err: ExtendedError) => Promise<boolean>,
     message: T,
     lsn: string,
     finishProcessingLSN: (lsn: string) => void,
@@ -339,7 +353,7 @@ const handleIncomingData = <T extends OutboxMessage>(
         `Finished processing LSN ${lsn} with message id ${message.id} and type ${message.messageType}.`,
       );
     } catch (e) {
-      const err = ensureError(e);
+      const err = ensureExtendedError(e, 'MESSAGE_HANDLING_FAILED');
       const shouldRetry = await errorHandler(message, err);
       if (!shouldRetry) {
         finishProcessingLSN(lsn);
@@ -347,6 +361,7 @@ const handleIncomingData = <T extends OutboxMessage>(
       }
       throw new MessageError(
         `An error ocurred while handling the message with ID ${message.id} and LSN ${lsn}`,
+        'MESSAGE_HANDLING_FAILED',
         message,
         err,
       );

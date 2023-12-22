@@ -1,5 +1,9 @@
 import { ClientConfig, Pool } from 'pg';
-import { MessageError } from '../common/error';
+import {
+  ExtendedError,
+  MessageError,
+  ensureExtendedError,
+} from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { TransactionalOutboxInboxConfig } from '../replication/config';
 import { ListenerType } from '../replication/logical-replication-listener';
@@ -19,7 +23,7 @@ export interface ListenerRestartStrategy {
    * @returns The time in milliseconds how long the listener should wait before restarting
    */
   (
-    error: Error,
+    error: ExtendedError,
     logger: TransactionalLogger,
     listenerType: ListenerType,
   ): Promise<number>;
@@ -60,7 +64,7 @@ const handleError = (
   replicationSlotNotFoundCallback?: typeof createReplicationSlot,
 ): ListenerRestartStrategy => {
   return async (
-    error: Error,
+    error: ExtendedError,
     logger: TransactionalLogger,
     listenerType: ListenerType,
   ): Promise<number> => {
@@ -86,7 +90,7 @@ const handleError = (
 
     if (
       !(error instanceof MessageError) &&
-      error.constructor.name !== MessageError.name // jest instanceof issue...
+      error.constructor.name !== MessageError.name // needed for jest which has an "instanceof" bug
     ) {
       // Message based errors are already logged
       logger.error(error, `Transactional ${listenerType} listener error`);
@@ -108,7 +112,7 @@ const createReplicationSlot = async (
     );
   } catch (err) {
     logger.trace(
-      err,
+      ensureExtendedError(err, 'DB_ERROR'),
       `Failed to create the replication slot for the ${listenerType} which does not exist.`,
     );
   } finally {

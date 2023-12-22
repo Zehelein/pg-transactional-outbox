@@ -27,7 +27,6 @@
     "@typescript-eslint/ban-ts-comment": "error",
     "@typescript-eslint/no-use-before-define": "off",
     "@typescript-eslint/array-type": ["error", { "default": "array" }],
-    "no-return-await": "warn",
     "no-trailing-spaces": [
       "error",
       {

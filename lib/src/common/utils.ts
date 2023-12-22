@@ -1,5 +1,5 @@
 import { ClientBase, Pool, PoolClient } from 'pg';
-import { ensureError } from './error';
+import { TransactionalOutboxInboxError, ensureExtendedError } from './error';
 import { TransactionalLogger } from './logger';
 
 /**
@@ -25,7 +25,13 @@ export const awaitWithTimeout = <T>(
   let timeoutHandle: NodeJS.Timeout;
   const timeoutPromise = new Promise<never>((_resolve, reject) => {
     timeoutHandle = setTimeout(
-      () => reject(new Error(failureMessage)),
+      () =>
+        reject(
+          new TransactionalOutboxInboxError(
+            failureMessage ?? 'Timeout',
+            'TIMEOUT',
+          ),
+        ),
       timeoutMs,
     );
   });
@@ -77,7 +83,7 @@ export const executeTransaction = async <T>(
     }
     return result;
   } catch (err) {
-    const error = ensureError(err);
+    const error = ensureExtendedError(err, 'DB_ERROR');
     try {
       await client.query('ROLLBACK');
       if (isPoolClient(client)) {
@@ -104,7 +110,10 @@ export const getClient = async (
   // The pool can return a new or an old client - we must register the event listener but should do so only once
   if (!client.listeners('error').length && logger) {
     client.on('error', (err) => {
-      logger.error(err, 'PostgreSQL client error');
+      logger.error(
+        ensureExtendedError(err, 'DB_ERROR'),
+        'PostgreSQL client error',
+      );
     });
   }
   return client;

@@ -50,6 +50,14 @@ describe('Utils Unit Tests', () => {
         awaitWithTimeout(slowPromise, 200, failureMessage),
       ).rejects.toThrow(failureMessage);
     });
+
+    it('should reject with a timeout error when the promise takes too long and show the default message', async () => {
+      const slowPromise = async () => sleep(400);
+
+      await expect(awaitWithTimeout(slowPromise, 200)).rejects.toThrow(
+        'Timeout',
+      );
+    });
   });
 
   describe('executeTransaction', () => {
@@ -214,7 +222,7 @@ describe('Utils Unit Tests', () => {
       expect(errorCallback).toBeDefined();
       const error = new Error('test...');
       errorCallback?.(error);
-      expect(logs[0].args[0]).toBe(error);
+      expect(logs[0].args[0]).toBeInstanceOf(Error);
       expect(logs[0].args[1]).toBe('PostgreSQL client error');
     });
   });

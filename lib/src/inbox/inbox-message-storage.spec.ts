@@ -208,7 +208,7 @@ describe('Inbox message storage unit tests', () => {
         (log) =>
           log.args[1] === 'The message with id already-existed already existed',
       );
-      expect(log).toBeDefined();
+      expect(log).toHaveLength(1);
       await shutdown();
     });
   });

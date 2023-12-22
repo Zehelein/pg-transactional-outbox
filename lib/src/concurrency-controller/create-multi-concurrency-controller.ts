@@ -51,6 +51,7 @@ export const createMultiConcurrencyController = (
           if (!discriminatingMutexController) {
             throw new MessageError(
               'A discriminating mutex controller was not configured.',
+              'DISCRIMINATING_MUTEX_NOT_CONFIGURED',
               message,
             );
           }

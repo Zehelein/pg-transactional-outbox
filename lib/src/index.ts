@@ -1,4 +1,9 @@
-export { ErrorType, MessageError, ensureError } from './common/error';
+export {
+  ErrorCode,
+  ErrorType,
+  MessageError,
+  TransactionalOutboxInboxError,
+} from './common/error';
 export {
   InMemoryLogEntry,
   TransactionalLogger,

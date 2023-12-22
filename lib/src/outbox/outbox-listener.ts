@@ -1,3 +1,4 @@
+import { ExtendedError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { OutboxMessage } from '../common/message';
 import { TransactionalOutboxInboxConfig } from '../replication/config';
@@ -27,7 +28,7 @@ export const initializeOutboxListener = (
 ): [shutdown: { (): Promise<void> }] => {
   const logErrors = async (
     _m: OutboxMessage,
-    error: Error,
+    error: ExtendedError,
   ): Promise<boolean> => {
     logger.error(error, 'An error ocurred while handling an outbox message.');
     return true;

@@ -1,4 +1,10 @@
 import { ClientBase, ClientConfig } from 'pg';
+import {
+  ExtendedError,
+  MessageError,
+  TransactionalOutboxInboxError,
+  ensureExtendedError,
+} from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { InboxMessage } from '../common/message';
 import { executeTransaction } from '../common/utils';
@@ -93,7 +99,7 @@ export interface InboxMessageHandler {
    * @returns A flag that defines if the message should be retried ('transient_error') or not ('permanent_error')
    */
   handleError?: (
-    error: Error,
+    error: ExtendedError,
     message: InboxMessage,
     client: ClientBase,
     retry: boolean,
@@ -211,9 +217,10 @@ const createMessageHandler = (
           if (diff >= 2) {
             const retry = strategies.poisonousMessageRetryStrategy(message);
             if (!retry) {
+              const msg = `Stopped processing the message with ID ${message.id} as it is likely a poisonous message.`;
               logger.error(
-                message,
-                `Stopped processing the message with ID ${message.id} as it is likely a poisonous message.`,
+                new TransactionalOutboxInboxError(msg, 'POISONOUS_MESSAGE'),
+                msg,
               );
               return false;
             }
@@ -271,15 +278,19 @@ const getMessageHandlerDict = (
   for (const handler of messageHandlers) {
     const key = getMessageHandlerKey(handler);
     if (key in handlers) {
-      throw new Error(
+      throw new TransactionalOutboxInboxError(
         `Only one message handler can handle one aggregate and message type. Multiple message handlers try to handle the aggregate type "${handler.aggregateType}" with the message type "${handler.messageType}".`,
+        'CONFLICTING_MESSAGE_HANDLERS',
       );
     }
     handlers[key] = handler;
   }
 
   if (Object.keys(handlers).length === 0) {
-    throw new Error('At least one message handler must be provided.');
+    throw new TransactionalOutboxInboxError(
+      'At least one message handler must be provided.',
+      'NO_MESSAGE_HANDLER_REGISTERED',
+    );
   }
 
   return handlers;
@@ -302,7 +313,10 @@ const createErrorResolver = (
    * @param message: the InboxMessage that failed to be processed
    * @param error: the error that was thrown while processing the message
    */
-  return async (message: InboxMessage, error: Error): Promise<boolean> => {
+  return async (
+    message: InboxMessage,
+    error: ExtendedError,
+  ): Promise<boolean> => {
     const handler = messageHandlers[getMessageHandlerKey(message)];
     const transactionLevel =
       strategies.messageProcessingTransactionLevelStrategy(message);
@@ -322,7 +336,7 @@ const createErrorResolver = (
             );
           } else {
             logger.error(
-              error,
+              ensureExtendedError(error, 'GIVING_UP_MESSAGE_HANDLING'),
               `Giving up processing the message with id ${message.id}.`,
             );
           }
@@ -332,11 +346,12 @@ const createErrorResolver = (
         transactionLevel,
       );
     } catch (error) {
+      const msg = handler
+        ? 'The error handling of the message failed. Please make sure that your error handling code does not throw an error!'
+        : 'The error handling of the message failed.';
       logger.error(
-        { ...message, err: error },
-        handler
-          ? 'The error handling of the message failed. Please make sure that your error handling code does not throw an error!'
-          : 'The error handling of the message failed.',
+        new MessageError(msg, 'MESSAGE_HANDLING_FAILED', message, error),
+        msg,
       );
       // In case the error handling logic failed do a best effort to increase the "finished_attempts" counter
       try {

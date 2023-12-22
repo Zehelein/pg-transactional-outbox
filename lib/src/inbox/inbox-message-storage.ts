@@ -1,5 +1,5 @@
 import { ClientBase, Pool } from 'pg';
-import { MessageError, ensureError } from '../common/error';
+import { MessageError, ensureExtendedError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { InboxMessage, OutboxMessage } from '../common/message';
 import { IsolationLevel, executeTransaction } from '../common/utils';
@@ -20,7 +20,7 @@ export const initializeInboxMessageStorage = (
 ] => {
   const pool = new Pool(config.pgConfig);
   pool.on('error', (err) => {
-    logger.error(err, 'PostgreSQL pool error');
+    logger.error(ensureExtendedError(err, 'DB_ERROR'), 'PostgreSQL pool error');
   });
 
   /**
@@ -39,12 +39,14 @@ export const initializeInboxMessageStorage = (
           IsolationLevel.ReadCommitted,
         );
       } catch (err) {
-        logger.error({ ...message, err }, 'Could not store the inbox message');
-        throw new MessageError(
+        const messageError = new MessageError(
           `Could not store the inbox message with id ${message.id}`,
+          'INBOX_ERROR_STORAGE_FAILED',
           message,
-          ensureError(err),
+          err,
         );
+        logger.error(messageError, 'Could not store the inbox message');
+        throw messageError;
       }
     },
     async () => {
@@ -52,7 +54,10 @@ export const initializeInboxMessageStorage = (
       try {
         await pool.end();
       } catch (e) {
-        logger.warn(e, 'Inbox message storage shutdown error');
+        logger.warn(
+          ensureExtendedError(e, 'DB_ERROR'),
+          'Inbox message storage shutdown error',
+        );
       }
     },
   ];

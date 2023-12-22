@@ -1,3 +1,4 @@
+import { TransactionalOutboxInboxError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 
 export interface AcknowledgeManager {
@@ -68,7 +69,10 @@ export const createAcknowledgeManager = (
 
   const startProcessingLSN = (lsn: string): void => {
     if (processingMap.has(lsn)) {
-      throw new Error(`LSN ${lsn} is already being processed.`);
+      throw new TransactionalOutboxInboxError(
+        `LSN ${lsn} is already being processed.`,
+        'LSN_ALREADY_PROCESSED',
+      );
     }
     processingMap.set(lsn, lsnToBigInt(lsn));
   };
@@ -76,7 +80,10 @@ export const createAcknowledgeManager = (
   const finishProcessingLSN = (lsn: string): void => {
     const lsnNumber = processingMap.get(lsn);
     if (lsnNumber === undefined) {
-      throw new Error(`LSN ${lsn} was not registered as processing.`);
+      throw new TransactionalOutboxInboxError(
+        `LSN ${lsn} was not registered as processing.`,
+        'LSN_NOT_PROCESSING',
+      );
     }
     logger.trace(`Finished LSN ${lsn} - waiting for acknowledgement.`);
     checkForAcknowledgeableLSN(lsn, lsnNumber);

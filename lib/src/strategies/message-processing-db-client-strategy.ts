@@ -1,4 +1,5 @@
 import { ClientBase, Pool } from 'pg';
+import { ensureExtendedError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { InboxMessage } from '../common/message';
 import { InboxConfig } from '../inbox/inbox-listener';
@@ -29,8 +30,11 @@ export const defaultMessageProcessingDbClientStrategy = (
   logger: TransactionalLogger,
 ): MessageProcessingDbClientStrategy => {
   const pool = new Pool(config.pgConfig);
-  pool.on('error', (err) => {
-    logger.error(err, 'PostgreSQL pool error');
+  pool.on('error', (error) => {
+    logger.error(
+      ensureExtendedError(error, 'DB_ERROR'),
+      'PostgreSQL pool error',
+    );
   });
   return {
     getClient: async (_message: InboxMessage): Promise<ClientBase> =>
@@ -39,8 +43,11 @@ export const defaultMessageProcessingDbClientStrategy = (
       pool.removeAllListeners();
       try {
         await pool.end();
-      } catch (e) {
-        logger.error(e, 'Message processing pool shutdown error');
+      } catch (error) {
+        logger.error(
+          ensureExtendedError(error, 'DB_ERROR'),
+          'Message processing pool shutdown error',
+        );
       }
     },
   };

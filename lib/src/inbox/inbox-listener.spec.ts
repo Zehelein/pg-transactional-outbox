@@ -837,7 +837,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         log.args[1] ===
         'The error handling of the message failed. Please make sure that your error handling code does not throw an error!',
     );
-    expect(log).toBeDefined();
+    expect(log).toHaveLength(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
   });
@@ -920,7 +920,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         log.args[1] ===
         'The error handling of the message failed. Please make sure that your error handling code does not throw an error!',
     );
-    expect(log).toBeDefined();
+    expect(log).toHaveLength(1);
     await cleanup();
   });
 
@@ -974,7 +974,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         log.args[0] ===
         'No message handler found for aggregate type "test_type" and message tye "test_message_type"',
     );
-    expect(log).toBeDefined();
+    expect(log).toHaveLength(1);
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(1);

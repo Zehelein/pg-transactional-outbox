@@ -85,6 +85,6 @@ describe('defaultMessageProcessingDbClientStrategy', () => {
     const log = logs.filter(
       (log) => log.args[1] === 'Message processing pool shutdown error',
     );
-    expect(log).toBeDefined();
+    expect(log).toHaveLength(1);
   });
 });
