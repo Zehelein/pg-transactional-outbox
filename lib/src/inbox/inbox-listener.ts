@@ -207,12 +207,12 @@ const createMessageHandler = (
           if (result !== true) {
             logger.warn(
               message,
-              `Received inbox message cannot have the started attempts incremented: ${result}`,
+              `Could not increment the started attempts field of the received inbox message: ${result}`,
             );
             await client.query('ROLLBACK'); // don't increment the start attempts again on a processed message
             return false;
           }
-          // The startedAttempts was increase in `startedAttemptsIncrement` so the difference is always at least one
+          // The startedAttempts was incremented in `startedAttemptsIncrement` so the difference is always at least one
           const diff = message.startedAttempts - message.finishedAttempts;
           if (diff >= 2) {
             const retry = strategies.poisonousMessageRetryStrategy(message);
@@ -248,6 +248,13 @@ const createMessageHandler = (
             message,
             `Received inbox message cannot be processed: ${result}`,
           );
+          return;
+        }
+        if (
+          message.finishedAttempts > 0 &&
+          !strategies.messageRetryStrategy(message)
+        ) {
+          logger.warn(message, `Received inbox message should not be retried`);
           return;
         }
 

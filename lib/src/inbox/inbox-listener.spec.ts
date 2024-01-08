@@ -774,6 +774,36 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(client.end).toHaveBeenCalledTimes(1);
   });
 
+  it('should not process a message when the attempts are exceeded', async () => {
+    // Arrange
+    const messageHandler = jest.fn(() => Promise.resolve());
+    const cfg = { ...config, settings: { ...config.settings, maxAttempts: 4 } };
+    const [cleanup] = initializeInboxListener(
+      cfg,
+      [
+        {
+          aggregateType: aggregate_type,
+          messageType: message_type,
+          handle: messageHandler,
+        },
+      ],
+      getDisabledLogger(),
+    );
+
+    // Act
+    sendReplicationChunk('attempts_exceeded');
+    await continueEventLoop();
+
+    // Assert
+    expect(messageHandler).not.toHaveBeenCalled();
+    expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
+    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
+    expect(client.connect).toHaveBeenCalledTimes(1);
+    await cleanup();
+    expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
   it('a messageHandler throws an error and the error handler throws an error as well the message should still increase attempts', async () => {
     // Arrange
     const handleError = jest.fn().mockImplementationOnce(() => {
@@ -1060,7 +1090,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(
       strategies.messageProcessingTransactionLevelStrategy,
     ).toHaveBeenCalled();
-    expect(strategies.messageRetryStrategy).not.toHaveBeenCalled();
+    expect(strategies.messageRetryStrategy).toHaveBeenCalled();
     expect(strategies.poisonousMessageRetryStrategy).not.toHaveBeenCalled();
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
