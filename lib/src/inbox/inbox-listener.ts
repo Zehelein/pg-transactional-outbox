@@ -327,12 +327,13 @@ const createErrorResolver = (
     const handler = messageHandlers[getMessageHandlerKey(message)];
     const transactionLevel =
       strategies.messageProcessingTransactionLevelStrategy(message);
+    let shouldRetry = true;
     try {
       return await executeTransaction(
         await strategies.messageProcessingDbClientStrategy.getClient(message),
         async (client) => {
           message.finishedAttempts++;
-          const shouldRetry = strategies.messageRetryStrategy(message);
+          shouldRetry = strategies.messageRetryStrategy(message);
           if (handler?.handleError) {
             await handler.handleError(error, message, client, shouldRetry);
           }
@@ -357,7 +358,7 @@ const createErrorResolver = (
         ? 'The error handling of the message failed. Please make sure that your error handling code does not throw an error!'
         : 'The error handling of the message failed.';
       logger.error(
-        new MessageError(msg, 'MESSAGE_HANDLING_FAILED', message, error),
+        new MessageError(msg, 'MESSAGE_ERROR_HANDLING_FAILED', message, error),
         msg,
       );
       // In case the error handling logic failed do a best effort to increase the "finished_attempts" counter
@@ -369,8 +370,16 @@ const createErrorResolver = (
           },
           transactionLevel,
         );
-        return true;
-      } catch {
+        return shouldRetry;
+      } catch (bestEffortError) {
+        const e = new MessageError(
+          "The 'best-effort' logic to increase the finished attempts failed as well.",
+          'MESSAGE_ERROR_HANDLING_FAILED',
+          message,
+          bestEffortError,
+        );
+        logger.warn(e, e.message);
+        // If everything fails do not retry the message to allow continuing with other messages
         return false;
       }
     }

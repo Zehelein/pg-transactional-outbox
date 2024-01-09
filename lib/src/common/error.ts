@@ -5,6 +5,7 @@ export type ErrorType = 'transient_error' | 'permanent_error';
 export type ErrorCode =
   | 'DB_ERROR'
   | 'MESSAGE_HANDLING_FAILED'
+  | 'MESSAGE_ERROR_HANDLING_FAILED'
   | 'GIVING_UP_MESSAGE_HANDLING'
   | 'POISONOUS_MESSAGE'
   | 'CONFLICTING_MESSAGE_HANDLERS'

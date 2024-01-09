@@ -90,7 +90,7 @@ export const executeTransaction = async <T>(
         client.release(true);
       }
     } catch (rollbackError) {
-      // We report the initial error - this one is about DB connection issues
+      error.innerError = ensureExtendedError(rollbackError, 'DB_ERROR');
     }
     throw error;
   }

@@ -951,6 +951,12 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         'The error handling of the message failed. Please make sure that your error handling code does not throw an error!',
     );
     expect(log).toHaveLength(1);
+    const bestEffortLog = logs.filter(
+      (log) =>
+        log.args[1] ===
+        "The 'best-effort' logic to increase the finished attempts failed as well.",
+    );
+    expect(bestEffortLog).toHaveLength(1);
     await cleanup();
   });
 
