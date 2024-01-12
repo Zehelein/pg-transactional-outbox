@@ -1,4 +1,4 @@
-import { ClientBase, Pool, PoolClient } from 'pg';
+import { Pool, PoolClient } from 'pg';
 import { TransactionalOutboxInboxError, ensureExtendedError } from './error';
 import { TransactionalLogger } from './logger';
 
@@ -63,8 +63,8 @@ export enum IsolationLevel {
  * @throws Any error from the database or the callback.
  */
 export const executeTransaction = async <T>(
-  client: ClientBase | PoolClient,
-  callback: (client: ClientBase) => Promise<T>,
+  client: PoolClient,
+  callback: (client: PoolClient) => Promise<T>,
   isolationLevel?: IsolationLevel,
 ): Promise<T> => {
   const isolation = Object.values(IsolationLevel).includes(
@@ -78,17 +78,13 @@ export const executeTransaction = async <T>(
     );
     const result = await callback(client);
     await client.query('COMMIT');
-    if (isPoolClient(client)) {
-      client.release();
-    }
+    client.release();
     return result;
   } catch (err) {
     const error = ensureExtendedError(err, 'DB_ERROR');
     try {
       await client.query('ROLLBACK');
-      if (isPoolClient(client)) {
-        client.release(true);
-      }
+      client.release(error);
     } catch (rollbackError) {
       error.innerError = ensureExtendedError(rollbackError, 'DB_ERROR');
     }
@@ -118,7 +114,3 @@ export const getClient = async (
   }
   return client;
 };
-
-function isPoolClient(object: ClientBase): object is PoolClient {
-  return 'release' in object;
-}

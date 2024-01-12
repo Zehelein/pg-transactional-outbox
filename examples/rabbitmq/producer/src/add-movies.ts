@@ -1,4 +1,4 @@
-import { ClientBase, Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
 import {
   IsolationLevel,
   OutboxConfig,
@@ -62,7 +62,7 @@ export const addMovies = async (
 
 let index = 1;
 const insertMovie = async (
-  dbClient: ClientBase,
+  dbClient: PoolClient,
   logger: TransactionalLogger,
 ) => {
   const movieInsertedIdResult = await dbClient.query(/* sql*/ `

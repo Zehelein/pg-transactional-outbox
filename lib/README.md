@@ -527,7 +527,7 @@ handler queries/mutations, and finally mark the inbox message as processed in
 the database.
 
 ```TypeScript
-import { ClientBase } from 'pg';
+import { PoolClient } from 'pg';
 import {
   InboxConfig,
   InboxMessage,
@@ -611,7 +611,7 @@ import {
         messageType: 'movie_created',
         handle: async (
           message: InboxMessage,
-          client: ClientBase,
+          client: PoolClient,
         ): Promise<void> => {
           // Executes the message handler logic using the same database
           // transaction as the inbox message acknowledgement.
@@ -633,7 +633,7 @@ import {
         handleError: async (
           error: Error,
           message: InboxMessage,
-          _client: ClientBase,
+          _client: PoolClient,
           { current, max }: { current: number; max: number },
         ): Promise<'transient_error' | 'permanent_error'> => {
           // Lets you decide if a message should be retried (transient error) or

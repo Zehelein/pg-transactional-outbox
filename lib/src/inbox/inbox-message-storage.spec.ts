@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import inspector from 'inspector';
-import { Client, ClientBase, Pool, PoolClient } from 'pg';
+import { Client, Pool, PoolClient } from 'pg';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { InboxMessage, OutboxMessage } from '../common/message';
 import { InboxConfig } from './inbox-listener';
@@ -222,7 +222,7 @@ describe('Inbox message storage unit tests', () => {
           { started_attempts: 1, finished_attempts: 0, processed_at: null },
         ],
       }),
-    } as unknown as ClientBase;
+    } as unknown as PoolClient;
 
     beforeEach(() => {
       // Initialize your mock message, client, and config here

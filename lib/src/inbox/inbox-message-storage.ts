@@ -1,4 +1,4 @@
-import { ClientBase, Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
 import { MessageError, ensureExtendedError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { InboxMessage, OutboxMessage } from '../common/message';
@@ -84,7 +84,7 @@ export const initializeInboxMessageStorage = (
  */
 export const startedAttemptsIncrement = async (
   message: InboxMessage,
-  client: ClientBase,
+  client: PoolClient,
   { settings }: Pick<InboxConfig, 'settings'>,
 ): Promise<true | 'INBOX_MESSAGE_NOT_FOUND' | 'ALREADY_PROCESSED'> => {
   // Use a NOWAIT select to fully lock and immediately fail if another process is locking that inbox row
@@ -126,7 +126,7 @@ export const startedAttemptsIncrement = async (
  */
 export const initiateInboxMessageProcessing = async (
   message: InboxMessage,
-  client: ClientBase,
+  client: PoolClient,
   { settings }: Pick<InboxConfig, 'settings'>,
 ): Promise<true | 'INBOX_MESSAGE_NOT_FOUND' | 'ALREADY_PROCESSED'> => {
   // Use a NOWAIT select to immediately fail if another process is locking that inbox row
@@ -160,7 +160,7 @@ export const initiateInboxMessageProcessing = async (
  */
 export const markInboxMessageCompleted = async (
   { id }: InboxMessage,
-  client: ClientBase,
+  client: PoolClient,
   { settings }: Pick<InboxConfig, 'settings'>,
 ): Promise<void> => {
   await client.query(
@@ -177,7 +177,7 @@ export const markInboxMessageCompleted = async (
  */
 export const increaseInboxMessageFinishedAttempts = async (
   { id }: InboxMessage,
-  client: ClientBase,
+  client: PoolClient,
   { settings }: Pick<InboxConfig, 'settings'>,
 ): Promise<void> => {
   await client.query(
@@ -189,7 +189,7 @@ export const increaseInboxMessageFinishedAttempts = async (
 
 const insertInbox = async (
   message: OutboxMessage,
-  dbClient: ClientBase,
+  dbClient: PoolClient,
   { settings }: Pick<InboxConfig, 'settings'>,
   logger: TransactionalLogger,
 ) => {

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { resolve } from 'path';
-import { Client, ClientBase, Pool } from 'pg';
+import { Client, Pool, PoolClient } from 'pg';
 import {
   InMemoryLogEntry,
   InboxMessage,
@@ -218,7 +218,7 @@ describe('Integration tests', () => {
         messageType,
         handle: async (
           message: InboxMessage,
-          _client: ClientBase,
+          _client: PoolClient,
         ): Promise<void> => {
           inboxMessageReceived = message;
         },
@@ -261,7 +261,7 @@ describe('Integration tests', () => {
         messageType,
         handle: async (
           message: InboxMessage,
-          _client: ClientBase,
+          _client: PoolClient,
         ): Promise<void> => {
           receivedInboxMessages.push(message);
         },
@@ -319,7 +319,7 @@ describe('Integration tests', () => {
         messageType,
         handle: async (
           message: InboxMessage,
-          _client: ClientBase,
+          _client: PoolClient,
         ): Promise<void> => {
           inboxMessageReceived = message;
         },
@@ -375,7 +375,7 @@ describe('Integration tests', () => {
         messageType,
         handle: async (
           message: InboxMessage,
-          _client: ClientBase,
+          _client: PoolClient,
         ): Promise<void> => {
           if (Math.random() < 0.1 && maxErrors-- > 0) {
             inboxLogger.fatal(
@@ -435,7 +435,7 @@ describe('Integration tests', () => {
         messageType,
         handle: async (
           message: InboxMessage,
-          _client: ClientBase,
+          _client: PoolClient,
         ): Promise<void> => {
           if (message.aggregateId === uuid1) {
             await sleep(250);

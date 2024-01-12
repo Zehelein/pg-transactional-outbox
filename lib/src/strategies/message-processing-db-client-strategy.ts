@@ -1,4 +1,4 @@
-import { ClientBase, Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
 import { ensureExtendedError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { InboxMessage } from '../common/message';
@@ -16,7 +16,7 @@ export interface MessageProcessingDbClientStrategy {
    * @param message The inbox message
    * @returns The PostgreSQL client to use to process the message
    */
-  getClient: (message: InboxMessage) => Promise<ClientBase>;
+  getClient: (message: InboxMessage) => Promise<PoolClient>;
 
   shutdown: () => Promise<void>;
 }
@@ -37,7 +37,7 @@ export const defaultMessageProcessingDbClientStrategy = (
     );
   });
   return {
-    getClient: async (_message: InboxMessage): Promise<ClientBase> =>
+    getClient: async (_message: InboxMessage): Promise<PoolClient> =>
       await pool.connect(),
     shutdown: async () => {
       pool.removeAllListeners();

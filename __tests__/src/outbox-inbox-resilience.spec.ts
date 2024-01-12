@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { resolve } from 'path';
-import { Client, ClientBase, Pool, PoolClient } from 'pg';
+import { Client, Pool, PoolClient } from 'pg';
 import {
   InboxMessage,
   OutboxMessage,
@@ -232,7 +232,7 @@ describe('Outbox and inbox resilience integration tests', () => {
           messageType,
           handle: async (
             message: InboxMessage,
-            client: ClientBase,
+            client: PoolClient,
           ): Promise<void> => {
             await client.query('SELECT NOW() as now');
             processedMessages.push(message);

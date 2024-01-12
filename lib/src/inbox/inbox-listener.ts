@@ -1,4 +1,4 @@
-import { ClientBase, ClientConfig } from 'pg';
+import { ClientConfig, PoolClient } from 'pg';
 import {
   ExtendedError,
   MessageError,
@@ -86,7 +86,7 @@ export interface InboxMessageHandler {
    * @param client The database client that is part of a transaction to safely handle the inbox message.
    * @throws If something failed and the inbox message should NOT be acknowledged - throw an error.
    */
-  handle: (message: InboxMessage, client: ClientBase) => Promise<void>;
+  handle: (message: InboxMessage, client: PoolClient) => Promise<void>;
 
   /**
    * Custom (optional) business logic to handle an error that was caused by the
@@ -101,7 +101,7 @@ export interface InboxMessageHandler {
   handleError?: (
     error: ExtendedError,
     message: InboxMessage,
-    client: ClientBase,
+    client: PoolClient,
     retry: boolean,
   ) => Promise<void>;
 }
@@ -156,7 +156,7 @@ export const initializeInboxListener = (
     config,
     logger,
   );
-  const errorResolver = createErrorResolver(
+  const errorHandler = createErrorHandler(
     messageHandlerDict,
     allStrategies,
     config,
@@ -165,7 +165,7 @@ export const initializeInboxListener = (
   const [shutdown] = createLogicalReplicationListener(
     config,
     messageHandler,
-    errorResolver,
+    errorHandler,
     logger,
     allStrategies,
     'inbox',
@@ -306,17 +306,16 @@ const getMessageHandlerDict = (
 /**
  * Increase the "finished_attempts" counter of the message and (potentially) retry it later.
  */
-const createErrorResolver = (
+const createErrorHandler = (
   messageHandlers: Record<string, InboxMessageHandler>,
   strategies: InboxStrategies,
   config: InboxConfig,
   logger: TransactionalLogger,
 ) => {
   /**
-   * An error handler that will increase the "finished_attempts" counter on
-   * transient errors or sets the "finished_attempts" counter to max attempts
-   * for permanent errors. The message handler `handleError` is called to allow
-   * your code to decide if the error is a transient or a permanent one.
+   * An error handler that will increase the "finished_attempts" counter.
+   * The message handler `handleError` is called to allow your code to handle or
+   * resolve the error.
    * @param message: the InboxMessage that failed to be processed
    * @param error: the error that was thrown while processing the message
    */

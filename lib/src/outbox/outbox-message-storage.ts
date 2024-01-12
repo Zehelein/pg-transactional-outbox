@@ -1,4 +1,4 @@
-import { ClientBase } from 'pg';
+import { PoolClient } from 'pg';
 import { v4 as uuid } from 'uuid';
 import { MessageError } from '../common/error';
 import { OutboxMessage } from '../common/message';
@@ -29,7 +29,7 @@ export const initializeOutboxMessageStorage = (
   return async (
     aggregateId: string,
     payload: unknown,
-    dbClient: ClientBase,
+    dbClient: PoolClient,
     metadata?: Record<string, unknown>,
   ): Promise<OutboxMessage> =>
     storeOutboxMessage(
@@ -70,7 +70,7 @@ export const initializeGeneralOutboxMessageStorage = ({
     aggregateType: string,
     messageType: string,
     payload: unknown,
-    dbClient: ClientBase,
+    dbClient: PoolClient,
     metadata?: Record<string, unknown>,
   ): Promise<OutboxMessage> =>
     storeOutboxMessage(
@@ -92,7 +92,7 @@ const storeOutboxMessage = async (
   aggregateType: string,
   messageType: string,
   payload: unknown,
-  dbClient: ClientBase,
+  dbClient: PoolClient,
   metadata?: Record<string, unknown>,
 ): Promise<OutboxMessage> => {
   const outboxId = uuid();
