@@ -636,6 +636,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     await continueEventLoop();
 
     // Assert
+    await sleep(200);
     const expectedMessage = {
       ...message,
       startedAttempts: message.startedAttempts + 1,
