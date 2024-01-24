@@ -154,7 +154,10 @@ describe('Outbox listener unit tests - initializeOutboxListener', () => {
     await continueEventLoop();
 
     // Assert
-    expect(messageHandler).toHaveBeenCalledWith(outboxMessage);
+    expect(messageHandler).toHaveBeenCalledWith(
+      outboxMessage,
+      expect.any(EventEmitter),
+    );
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalledWith(
       expect.any(Buffer), // acknowledge
     );
@@ -180,7 +183,10 @@ describe('Outbox listener unit tests - initializeOutboxListener', () => {
     await continueEventLoop();
 
     // Assert
-    expect(messageHandler).toHaveBeenCalledWith(outboxMessage);
+    expect(messageHandler).toHaveBeenCalledWith(
+      outboxMessage,
+      expect.any(EventEmitter),
+    );
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
     await shutdown();
@@ -240,7 +246,10 @@ describe('Outbox listener unit tests - initializeOutboxListener', () => {
     await continueEventLoop();
 
     // Assert
-    expect(messageHandler).toHaveBeenCalledWith(outboxMessage);
+    expect(messageHandler).toHaveBeenCalledWith(
+      outboxMessage,
+      expect.any(EventEmitter),
+    );
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalledWith(
       expect.any(Buffer), // acknowledge
     );

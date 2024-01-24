@@ -600,6 +600,65 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
   });
 
+  it('on a message handler timeout the client should do a ROLLBACK and not commit', async () => {
+    // Arrange
+    const handleError = jest.fn();
+    const message = {
+      id: 'not_processed_id',
+      aggregateType: aggregate_type,
+      aggregateId: 'test_aggregate_id',
+      messageType: message_type,
+      payload: { result: 'success' },
+      metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
+      createdAt: '2023-01-18T21:02:27.000Z',
+      startedAttempts: 2,
+      finishedAttempts: 2,
+      processedAt: null,
+    };
+    const [cleanup] = initializeInboxListener(
+      config,
+      [
+        {
+          aggregateType: message.aggregateType,
+          messageType: message.messageType,
+          handle: () => sleep(500),
+          handleError,
+        },
+      ],
+      getDisabledLogger(),
+      {
+        messageProcessingTimeoutStrategy: () => 100,
+      },
+    );
+
+    // Act
+    sendReplicationChunk('not_processed_id');
+    await continueEventLoop();
+
+    // Assert
+    const expectedMessage = {
+      ...message,
+      startedAttempts: message.startedAttempts + 1,
+      finishedAttempts: message.finishedAttempts + 1,
+    };
+    expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
+    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseInboxMessageFinishedAttemptsSpy).toHaveBeenCalledWith(
+      expectedMessage,
+      expect.any(Object),
+      expect.any(Object),
+    );
+    expect(handleError).toHaveBeenCalledWith(
+      expect.any(Object),
+      expectedMessage,
+      expect.any(Object),
+      true,
+    );
+    expect(client.connect).toHaveBeenCalledTimes(1);
+    await cleanup();
+    expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
+  });
+
   it('should call the messageHandler and acknowledge the WAL message even if the started attempts are much higher than the finished when poisonous message protection is disabled', async () => {
     // Arrange
     const messageHandler = jest.fn(() => Promise.resolve());

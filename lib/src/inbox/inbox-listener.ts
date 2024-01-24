@@ -1,3 +1,4 @@
+import EventEmitter from 'events';
 import { ClientConfig, PoolClient } from 'pg';
 import {
   ExtendedError,
@@ -190,7 +191,7 @@ const createMessageHandler = (
   config: InboxConfig,
   logger: TransactionalLogger,
 ) => {
-  return async (message: InboxMessage) => {
+  return async (message: InboxMessage, cancellation: EventEmitter) => {
     const transactionLevel =
       strategies.messageProcessingTransactionLevelStrategy(message);
 
@@ -237,6 +238,11 @@ const createMessageHandler = (
     await executeTransaction(
       await strategies.messageProcessingDbClientStrategy.getClient(message),
       async (client) => {
+        cancellation.on('timeout', async () => {
+          await client.query('ROLLBACK');
+          client.release();
+        });
+
         // lock the inbox message from further processing
         const result = await initiateInboxMessageProcessing(
           message,

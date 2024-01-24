@@ -381,7 +381,10 @@ describe('Local replication service unit tests', () => {
       await continueEventLoop();
 
       // Assert
-      expect(messageHandler).toHaveBeenCalledWith(message);
+      expect(messageHandler).toHaveBeenCalledWith(
+        message,
+        expect.any(EventEmitter),
+      );
       expect(errorHandler).not.toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
       expect(client.connect).toHaveBeenCalledTimes(1);
@@ -677,7 +680,10 @@ describe('Local replication service unit tests', () => {
       await continueEventLoop();
 
       // Assert
-      expect(messageHandler).toHaveBeenCalledWith(message);
+      expect(messageHandler).toHaveBeenCalledWith(
+        message,
+        expect.any(EventEmitter),
+      );
       expect(errorHandler).not.toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
       expect(client.connect).toHaveBeenCalledTimes(1);

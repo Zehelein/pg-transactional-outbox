@@ -1,3 +1,4 @@
+import { EventEmitter } from 'events';
 import { Client, ClientConfig, Connection } from 'pg';
 import { Pgoutput, PgoutputPlugin } from 'pg-logical-replication';
 import { AbstractPlugin } from 'pg-logical-replication/dist/output-plugins/abstract.plugin';
@@ -59,7 +60,7 @@ export interface TransactionalStrategies {
  */
 export const createLogicalReplicationListener = <T extends OutboxMessage>(
   { pgReplicationConfig, settings }: TransactionalOutboxInboxConfig,
-  messageHandler: (message: T) => Promise<void>,
+  messageHandler: (message: T, cancellation: EventEmitter) => Promise<void>,
   errorHandler: (message: T, err: ExtendedError) => Promise<boolean>,
   logger: TransactionalLogger,
   strategies: TransactionalStrategies,
@@ -296,7 +297,7 @@ const handleIncomingData = <T extends OutboxMessage>(
   client: ReplicationClient,
   plugin: AbstractPlugin,
   config: ReplicationListenerConfig,
-  messageHandler: (message: T) => Promise<void>,
+  messageHandler: (message: T, cancellation: EventEmitter) => Promise<void>,
   errorHandler: (message: T, err: ExtendedError) => Promise<boolean>,
   concurrencyStrategy: ConcurrencyController,
   messageProcessingTimeoutStrategy: MessageProcessingTimeoutStrategy,
@@ -320,13 +321,14 @@ const handleIncomingData = <T extends OutboxMessage>(
   // This function handles the message processing and message error handler.
   // It is inlined to stop processing when "stopped" is true.
   const handleOutboxInboxMessage = async <T extends OutboxMessage>(
-    messageHandler: (message: T) => Promise<void>,
+    messageHandler: (message: T, cancellation: EventEmitter) => Promise<void>,
     errorHandler: (message: T, err: ExtendedError) => Promise<boolean>,
     message: T,
     lsn: string,
     finishProcessingLSN: (lsn: string) => void,
     logger: TransactionalLogger,
   ) => {
+    const cancellation = new EventEmitter();
     try {
       const messageProcessingTimeout =
         messageProcessingTimeoutStrategy(message);
@@ -342,7 +344,7 @@ const handleIncomingData = <T extends OutboxMessage>(
             message,
             `Executing the message handler for LSN ${lsn}.`,
           );
-          await messageHandler(message);
+          await messageHandler(message, cancellation);
           finishProcessingLSN(lsn);
         },
         messageProcessingTimeout,
@@ -354,6 +356,9 @@ const handleIncomingData = <T extends OutboxMessage>(
       );
     } catch (e) {
       const err = ensureExtendedError(e, 'MESSAGE_HANDLING_FAILED');
+      if (err.errorCode === 'TIMEOUT') {
+        cancellation.emit('timeout', err);
+      }
       const shouldRetry = await errorHandler(message, err);
       if (!shouldRetry) {
         finishProcessingLSN(lsn);
