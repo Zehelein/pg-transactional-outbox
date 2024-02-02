@@ -3,7 +3,7 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
-## [0.4.0] - 2023-12-10
+## [0.4.0] - 2024-02-02
 
 ### Changed
 
@@ -21,7 +21,6 @@ this file.
   ALTER TABLE app_public.inbox RENAME COLUMN attempts TO finished_attempts;
   ALTER TABLE app_public.inbox ADD COLUMN started_attempts smallint NOT NULL DEFAULT 0;
   GRANT UPDATE (started_attempts, finished_attempts, processed_at) ON app_public.inbox TO db_login_inbox;
-
   ```
 
 ### Added
