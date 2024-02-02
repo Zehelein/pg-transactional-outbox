@@ -1,5 +1,5 @@
 import { Client, ClientConfig } from 'pg';
-import { InboxConfig, OutboxConfig } from 'pg-transactional-outbox';
+import { ReplicationConfig } from 'pg-transactional-outbox';
 import { TestConfigs } from './configs';
 
 export const setupTestDb = async ({
@@ -24,8 +24,8 @@ export const resetReplication = async ({
 /** Setup on the PostgreSQL server level (and not within a DB) */
 const dbmsSetup = async (
   defaultLoginConnection: ClientConfig,
-  outSrvConfig: OutboxConfig,
-  inSrvConfig: InboxConfig,
+  outSrvConfig: ReplicationConfig,
+  inSrvConfig: ReplicationConfig,
 ): Promise<void> => {
   const { host, port, database, user, password } = defaultLoginConnection;
   const rootClient = new Client({
@@ -48,13 +48,13 @@ const dbmsSetup = async (
       CREATE DATABASE ${database};
     `);
   await rootClient.query(/* sql*/ `
-      DROP ROLE IF EXISTS ${outSrvConfig.pgReplicationConfig.user};
-      CREATE ROLE ${outSrvConfig.pgReplicationConfig.user} WITH REPLICATION LOGIN PASSWORD '${outSrvConfig.pgReplicationConfig.password}';
+      DROP ROLE IF EXISTS ${outSrvConfig.dbListenerConfig.user};
+      CREATE ROLE ${outSrvConfig.dbListenerConfig.user} WITH REPLICATION LOGIN PASSWORD '${outSrvConfig.dbListenerConfig.password}';
     `);
 
   await rootClient.query(/* sql*/ `
-      DROP ROLE IF EXISTS ${inSrvConfig.pgReplicationConfig.user};
-      CREATE ROLE ${inSrvConfig.pgReplicationConfig.user} WITH REPLICATION LOGIN PASSWORD '${inSrvConfig.pgReplicationConfig.password}';
+      DROP ROLE IF EXISTS ${inSrvConfig.dbListenerConfig.user};
+      CREATE ROLE ${inSrvConfig.dbListenerConfig.user} WITH REPLICATION LOGIN PASSWORD '${inSrvConfig.dbListenerConfig.password}';
     `);
   await rootClient.query(/* sql*/ `
       DROP ROLE IF EXISTS ${user};
@@ -66,7 +66,9 @@ const dbmsSetup = async (
 
 const outboxSetup = async (
   defaultLoginConnection: ClientConfig,
-  { settings: { dbSchema, dbTable, postgresPub, postgresSlot } }: OutboxConfig,
+  {
+    settings: { dbSchema, dbTable, postgresPub, postgresSlot },
+  }: ReplicationConfig,
 ): Promise<void> => {
   const { host, port, database, user } = defaultLoginConnection;
   const dbClient = new Client({
@@ -85,12 +87,15 @@ const outboxSetup = async (
       DROP TABLE IF EXISTS ${dbSchema}.${dbTable} CASCADE;
       CREATE TABLE ${dbSchema}.${dbTable} (
         id uuid PRIMARY KEY,
-        aggregate_type VARCHAR(255) NOT NULL,
-        aggregate_id VARCHAR(255) NOT NULL,
-        message_type VARCHAR(255) NOT NULL,
+        aggregate_type TEXT NOT NULL,
+        aggregate_id TEXT NOT NULL,
+        message_type TEXT NOT NULL,
         payload JSONB NOT NULL,
         metadata JSONB,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        processed_at TIMESTAMPTZ,
+        started_attempts smallint NOT NULL DEFAULT 0,
+        finished_attempts smallint NOT NULL DEFAULT 0
       );
       GRANT USAGE ON SCHEMA ${dbSchema} TO ${user} ;
       GRANT SELECT, INSERT, UPDATE, DELETE ON ${dbSchema}.${dbTable} TO ${user};
@@ -116,7 +121,9 @@ const outboxSetup = async (
 /** All the changes related to the inbox implementation in the database */
 const inboxSetup = async (
   defaultLoginConnection: ClientConfig,
-  { settings: { dbSchema, dbTable, postgresPub, postgresSlot } }: InboxConfig,
+  {
+    settings: { dbSchema, dbTable, postgresPub, postgresSlot },
+  }: ReplicationConfig,
 ): Promise<void> => {
   const { host, port, database, user } = defaultLoginConnection;
   const dbClient = new Client({
@@ -135,9 +142,9 @@ const inboxSetup = async (
       DROP TABLE IF EXISTS ${dbSchema}.${dbTable} CASCADE;
       CREATE TABLE ${dbSchema}.${dbTable} (
         id uuid PRIMARY KEY,
-        aggregate_type VARCHAR(255) NOT NULL,
-        aggregate_id VARCHAR(255) NOT NULL,
-        message_type VARCHAR(255) NOT NULL,
+        aggregate_type TEXT NOT NULL,
+        aggregate_id TEXT NOT NULL,
+        message_type TEXT NOT NULL,
         payload JSONB NOT NULL,
         metadata JSONB,
         created_at TIMESTAMPTZ NOT NULL,

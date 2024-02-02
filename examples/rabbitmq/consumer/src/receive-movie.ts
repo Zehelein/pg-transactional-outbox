@@ -1,5 +1,8 @@
 import { PoolClient } from 'pg';
-import { InboxMessage, TransactionalLogger } from 'pg-transactional-outbox';
+import {
+  TransactionalLogger,
+  TransactionalMessage,
+} from 'pg-transactional-outbox';
 
 export const MovieAggregateType = 'movie';
 export const MovieCreatedMessageType = 'movie_created';
@@ -17,7 +20,7 @@ export const getStorePublishedMovie =
    * @param client The database client
    * @throws Error if the message does not contain a valid movie.
    */
-  async (message: InboxMessage, client: PoolClient): Promise<void> => {
+  async (message: TransactionalMessage, client: PoolClient): Promise<void> => {
     const { payload } = message;
     assertPublishedMovie(payload);
     logger.trace(payload, 'Started to insert the published movie');

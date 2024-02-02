@@ -1,8 +1,11 @@
+export { ListenerConfig, ListenerSettings } from './common/base-config';
 export {
   ErrorCode,
   ErrorType,
+  ExtendedError,
   MessageError,
   TransactionalOutboxInboxError,
+  ensureExtendedError,
 } from './common/error';
 export {
   InMemoryLogEntry,
@@ -11,7 +14,6 @@ export {
   getDisabledLogger,
   getInMemoryLogger,
 } from './common/logger';
-export { InboxMessage, OutboxMessage } from './common/message';
 export { IsolationLevel, executeTransaction } from './common/utils';
 export { ConcurrencyController } from './concurrency-controller/concurrency-controller';
 export { createDiscriminatingMutexConcurrencyController } from './concurrency-controller/create-discriminating-mutex-concurrency-controller';
@@ -23,28 +25,19 @@ export {
 export { createMutexConcurrencyController } from './concurrency-controller/create-mutex-concurrency-controller';
 export { createSemaphoreConcurrencyController } from './concurrency-controller/create-semaphore-concurrency-controller';
 export {
-  InboxConfig,
-  InboxMessageHandler,
-  InboxStrategies,
-  initializeInboxListener,
-} from './inbox/inbox-listener';
-export { initializeInboxMessageStorage } from './inbox/inbox-message-storage';
+  StoredTransactionalMessage,
+  TransactionalMessage,
+} from './message/message';
+export { initializeMessageStorage } from './message/message-storage';
 export {
-  OutboxConfig,
-  initializeOutboxListener,
-} from './outbox/outbox-listener';
-export {
-  initializeGeneralOutboxMessageStorage,
-  initializeOutboxMessageStorage,
-} from './outbox/outbox-message-storage';
-export {
+  ReplicationConfig,
   ReplicationListenerConfig,
-  TransactionalOutboxInboxConfig,
 } from './replication/config';
 export {
-  ListenerType,
-  TransactionalStrategies,
-} from './replication/logical-replication-listener';
+  GeneralMessageHandler,
+  TransactionalMessageHandler,
+  initializeReplicationMessageListener,
+} from './replication/replication-message-listener';
 export { defaultConcurrencyStrategy } from './strategies/concurrency-strategy';
 export {
   ListenerRestartStrategy,

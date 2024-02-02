@@ -5,17 +5,17 @@ import inspector from 'inspector';
 import { Client, Connection } from 'pg';
 import { Pgoutput } from 'pg-logical-replication';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
-import { OutboxMessage } from '../common/message';
 import { sleep } from '../common/utils';
+import { TransactionalMessage } from '../message/message';
 import { defaultConcurrencyStrategy } from '../strategies/concurrency-strategy';
 import { defaultListenerRestartStrategy } from '../strategies/listener-restart-strategy';
 import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
-import { TransactionalOutboxInboxConfig } from './config';
+import { ReplicationConfig } from './config';
 import {
-  TransactionalStrategies,
   createLogicalReplicationListener,
   __only_for_unit_tests__ as tests,
 } from './logical-replication-listener';
+import { ReplicationStrategies } from './replication-strategies';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
@@ -173,14 +173,12 @@ const relation: Pgoutput.MessageRelation = {
   keyColumns: ['id'],
 };
 
-const getStrategies = (
-  config?: TransactionalOutboxInboxConfig,
-): TransactionalStrategies => {
+const getStrategies = (config?: ReplicationConfig): ReplicationStrategies => {
   const cfg =
     config ??
     ({
       settings: { ...settings, messageProcessingTimeout: 2_000 },
-    } as TransactionalOutboxInboxConfig);
+    } as ReplicationConfig);
   return {
     concurrencyStrategy: defaultConcurrencyStrategy(),
     messageProcessingTimeoutStrategy:
@@ -189,7 +187,7 @@ const getStrategies = (
   };
 };
 
-describe('Local replication service unit tests', () => {
+describe('Local replication listener unit tests', () => {
   describe('getRelevantMessage', () => {
     it('should return undefined if log tag is not "insert"', () => {
       // Arrange
@@ -339,7 +337,7 @@ describe('Local replication service unit tests', () => {
     });
   });
 
-  describe('createService', () => {
+  describe('createListener', () => {
     let messageHandler: jest.Mock;
     let errorHandler: jest.Mock;
 
@@ -362,17 +360,17 @@ describe('Local replication service unit tests', () => {
 
     it('should call the messageHandler and acknowledge the message when no errors are thrown', async () => {
       // Arrange
-      const config = {
-        pgReplicationConfig: {},
+      const config: ReplicationConfig = {
+        outboxOrInbox: 'inbox',
+        dbListenerConfig: {},
         settings,
       };
-      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
         config,
         messageHandler,
         errorHandler,
         getDisabledLogger(),
         getStrategies(),
-        'inbox',
       );
       await continueEventLoop();
 
@@ -394,13 +392,14 @@ describe('Local replication service unit tests', () => {
 
     it('should call the messageHandler but not acknowledge the message when a transient error is thrown', async () => {
       // Arrange
-      const config = {
-        pgReplicationConfig: {},
+      const config: ReplicationConfig = {
+        outboxOrInbox: 'inbox',
+        dbListenerConfig: {},
         settings,
       };
       const testError = new Error('Transient error');
       let errorHandlerCalled = false;
-      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
         config,
         async () => {
           throw testError;
@@ -413,7 +412,6 @@ describe('Local replication service unit tests', () => {
         },
         getDisabledLogger(),
         getStrategies(),
-        'inbox',
       );
       await continueEventLoop();
 
@@ -432,13 +430,14 @@ describe('Local replication service unit tests', () => {
 
     it('should call the messageHandler and acknowledge the message when a permanent error is thrown', async () => {
       // Arrange
-      const config = {
-        pgReplicationConfig: {},
+      const config: ReplicationConfig = {
+        outboxOrInbox: 'outbox',
+        dbListenerConfig: {},
         settings,
       };
       const testError = new Error('Unit test error');
       let errorHandlerCalled = false;
-      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
         config,
         async () => {
           throw testError;
@@ -451,7 +450,6 @@ describe('Local replication service unit tests', () => {
         },
         getDisabledLogger(),
         getStrategies(config),
-        'inbox',
       );
       await continueEventLoop();
 
@@ -468,19 +466,19 @@ describe('Local replication service unit tests', () => {
       expect(client.end).toHaveBeenCalledTimes(1);
     });
 
-    it('A keep alive to which the service should respond is acknowledged', async () => {
+    it('A keep alive to which the listener should respond is acknowledged', async () => {
       // Arrange
-      const config = {
-        pgReplicationConfig: {},
+      const config: ReplicationConfig = {
+        outboxOrInbox: 'outbox',
+        dbListenerConfig: {},
         settings,
       };
-      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
         config,
         messageHandler,
         errorHandler,
         getDisabledLogger(),
         getStrategies(config),
-        'inbox',
       );
       await continueEventLoop();
 
@@ -500,19 +498,19 @@ describe('Local replication service unit tests', () => {
       expect(client.end).toHaveBeenCalledTimes(1);
     });
 
-    it('A keep alive to which the service is not required to respond is not acknowledged', async () => {
+    it('A keep alive to which the listener is not required to respond is not acknowledged', async () => {
       // Arrange
-      const config = {
-        pgReplicationConfig: {},
+      const config: ReplicationConfig = {
+        outboxOrInbox: 'inbox',
+        dbListenerConfig: {},
         settings,
       };
-      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
         config,
         messageHandler,
         errorHandler,
         getDisabledLogger(),
         getStrategies(config),
-        'inbox',
       );
       await continueEventLoop();
 
@@ -535,8 +533,9 @@ describe('Local replication service unit tests', () => {
     it('Parallel messages wait to be executed sequentially', async () => {
       // Arrange
       const sleepTime = 50;
-      const config = {
-        pgReplicationConfig: {},
+      const config: ReplicationConfig = {
+        outboxOrInbox: 'inbox',
+        dbListenerConfig: {},
         settings,
       };
       let count = 0;
@@ -544,13 +543,12 @@ describe('Local replication service unit tests', () => {
         count++;
         await sleep(sleepTime);
       };
-      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
         config,
         delayedMessageHandler,
         errorHandler,
         getDisabledLogger(),
         getStrategies(config),
-        'inbox',
       );
       await continueEventLoop();
 
@@ -575,13 +573,14 @@ describe('Local replication service unit tests', () => {
 
     it('should call the messageHandler and then the errorHandler when the configured timeout is exceeded', async () => {
       // Arrange
-      const config = {
-        pgReplicationConfig: {},
+      const config: ReplicationConfig = {
+        outboxOrInbox: 'inbox',
+        dbListenerConfig: {},
         settings: { ...settings, messageProcessingTimeout: 100 },
       };
       let messageHandlerCalled = false;
       let errorHandlerCalled = false;
-      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
         config,
         async () => {
           messageHandlerCalled = true;
@@ -597,7 +596,6 @@ describe('Local replication service unit tests', () => {
         },
         getDisabledLogger(),
         getStrategies(config),
-        'inbox',
       );
       await continueEventLoop();
 
@@ -614,13 +612,14 @@ describe('Local replication service unit tests', () => {
 
     it('should call the messageHandler and then the errorHandler when the timeout strategy value is exceeded', async () => {
       // Arrange
-      const config = {
-        pgReplicationConfig: {},
+      const config: ReplicationConfig = {
+        outboxOrInbox: 'inbox',
+        dbListenerConfig: {},
         settings: { ...settings, messageProcessingTimeout: 2_000 },
       };
       let messageHandlerCalled = false;
       let errorHandlerCalled = false;
-      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
         config,
         async () => {
           messageHandlerCalled = true;
@@ -640,7 +639,6 @@ describe('Local replication service unit tests', () => {
           messageProcessingTimeoutStrategy: () => 100,
           listenerRestartStrategy: defaultListenerRestartStrategy(config),
         },
-        'inbox',
       );
       await continueEventLoop();
 
@@ -657,11 +655,12 @@ describe('Local replication service unit tests', () => {
 
     it('should call the messageHandler and acknowledge the message when the message does not run into a timeout', async () => {
       // Arrange
-      const config = {
-        pgReplicationConfig: {},
+      const config: ReplicationConfig = {
+        outboxOrInbox: 'inbox',
+        dbListenerConfig: {},
         settings: { ...settings, messageProcessingTimeout: 200 },
       };
-      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
         config,
         messageHandler,
         errorHandler,
@@ -671,7 +670,6 @@ describe('Local replication service unit tests', () => {
           messageProcessingTimeoutStrategy: () => 200,
           listenerRestartStrategy: defaultListenerRestartStrategy(config),
         },
-        'inbox',
       );
       await continueEventLoop();
 
@@ -693,18 +691,18 @@ describe('Local replication service unit tests', () => {
 
     it('should log that an unknown message appeared when an invalid chunk was sent', async () => {
       // Arrange
-      const config = {
-        pgReplicationConfig: {},
+      const config: ReplicationConfig = {
+        outboxOrInbox: 'inbox',
+        dbListenerConfig: {},
         settings,
       };
       const [logger, logs] = getInMemoryLogger('test');
-      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
         config,
         messageHandler,
         errorHandler,
         logger,
         getStrategies(),
-        'inbox',
       );
       await continueEventLoop();
       const chunks = getReplicationChunk(0);
@@ -729,18 +727,18 @@ describe('Local replication service unit tests', () => {
       client.connect = jest.fn().mockImplementation(() => {
         throw new Error('something something');
       });
-      const config = {
-        pgReplicationConfig: {},
+      const config: ReplicationConfig = {
+        outboxOrInbox: 'inbox',
+        dbListenerConfig: {},
         settings,
       };
       const [logger, logs] = getInMemoryLogger('test');
-      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
         config,
         messageHandler,
         errorHandler,
         logger,
         getStrategies(),
-        'inbox',
       );
       await continueEventLoop();
 
@@ -769,18 +767,18 @@ describe('Local replication service unit tests', () => {
       client.connect = jest.fn().mockImplementation(() => {
         throw error;
       });
-      const config = {
-        pgReplicationConfig: {},
+      const config: ReplicationConfig = {
+        outboxOrInbox: 'inbox',
+        dbListenerConfig: {},
         settings,
       };
       const [logger, logs] = getInMemoryLogger('test');
-      const [cleanup] = createLogicalReplicationListener<OutboxMessage>(
+      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
         config,
         messageHandler,
         errorHandler,
         logger,
         getStrategies(),
-        'inbox',
       );
       await continueEventLoop();
 

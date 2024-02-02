@@ -77,7 +77,8 @@ const inboxSetup = async (config: Config): Promise<void> => {
   try {
     logger.debug('Make sure the inbox database schema exists');
     await dbClient.query(/* sql*/ `
-      CREATE SCHEMA IF NOT EXISTS ${config.postgresInboxSchema}
+      CREATE SCHEMA IF NOT EXISTS ${config.postgresInboxSchema};
+      GRANT USAGE ON SCHEMA ${config.postgresInboxSchema} TO ${config.postgresLoginRole} ;
     `);
 
     logger.debug('Create the inbox table');
@@ -85,9 +86,9 @@ const inboxSetup = async (config: Config): Promise<void> => {
       DROP TABLE IF EXISTS ${config.postgresInboxSchema}.${config.postgresInboxTable} CASCADE;
       CREATE TABLE ${config.postgresInboxSchema}.${config.postgresInboxTable} (
         id uuid PRIMARY KEY,
-        aggregate_type VARCHAR(255) NOT NULL,
-        aggregate_id VARCHAR(255) NOT NULL, 
-        message_type VARCHAR(255) NOT NULL,
+        aggregate_type TEXT NOT NULL,
+        aggregate_id TEXT NOT NULL, 
+        message_type TEXT NOT NULL,
         payload JSONB NOT NULL,
         metadata JSONB,
         created_at TIMESTAMPTZ NOT NULL,
@@ -95,8 +96,8 @@ const inboxSetup = async (config: Config): Promise<void> => {
         started_attempts smallint NOT NULL DEFAULT 0,
         finished_attempts smallint NOT NULL DEFAULT 0
       );
-      GRANT USAGE ON SCHEMA ${config.postgresInboxSchema} TO ${config.postgresLoginRole} ;
-      GRANT SELECT, INSERT, UPDATE, DELETE ON ${config.postgresInboxSchema}.${config.postgresInboxTable} TO ${config.postgresLoginRole};
+      GRANT SELECT, INSERT, DELETE ON ${config.postgresInboxSchema}.${config.postgresInboxTable} TO ${config.postgresLoginRole};
+      GRANT UPDATE (processed_at, started_attempts, finished_attempts) ON ${config.postgresInboxSchema}.${config.postgresInboxTable} TO ${config.postgresLoginRole};
     `);
 
     logger.debug('Create the inbox publication');

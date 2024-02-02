@@ -1,4 +1,4 @@
-import { OutboxMessage } from './message';
+import { TransactionalMessage } from '../message/message';
 
 export type ErrorType = 'transient_error' | 'permanent_error';
 
@@ -15,8 +15,7 @@ export type ErrorCode =
   | 'LSN_NOT_PROCESSING'
   | 'LISTENER_STOPPED'
   | 'TIMEOUT'
-  | 'INBOX_ERROR_STORAGE_FAILED'
-  | 'OUTBOX_ERROR_STORAGE_FAILED';
+  | 'MESSAGE_STORAGE_FAILED';
 
 export interface ExtendedError extends Error {
   errorCode: ErrorCode;
@@ -42,7 +41,7 @@ export class TransactionalOutboxInboxError
 
 /** An error that was raised when handling an outbox/inbox message. */
 export class MessageError<
-  T extends OutboxMessage,
+  T extends TransactionalMessage,
 > extends TransactionalOutboxInboxError {
   constructor(
     message: string,

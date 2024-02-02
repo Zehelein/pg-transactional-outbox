@@ -1,8 +1,8 @@
 import { Pool, PoolClient } from 'pg';
 import { ensureExtendedError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
-import { InboxMessage } from '../common/message';
-import { InboxConfig } from '../inbox/inbox-listener';
+import { StoredTransactionalMessage } from '../message/message';
+import { ReplicationConfig } from '../replication/config';
 
 /**
  * Create a DB client instance from the pool. This can be helpful if some message
@@ -12,11 +12,11 @@ import { InboxConfig } from '../inbox/inbox-listener';
 export interface MessageProcessingDbClientStrategy {
   /**
    * Decide based on the message which database client should be used to process
-   * the message handler and the update to the message in the inbox table.
-   * @param message The inbox message
+   * the message handler and the update to the message in the outbox/inbox table.
+   * @param message The stored message
    * @returns The PostgreSQL client to use to process the message
    */
-  getClient: (message: InboxMessage) => Promise<PoolClient>;
+  getClient: (message: StoredTransactionalMessage) => Promise<PoolClient>;
 
   shutdown: () => Promise<void>;
 }
@@ -26,10 +26,10 @@ export interface MessageProcessingDbClientStrategy {
  * `pgConfig` settings.
  */
 export const defaultMessageProcessingDbClientStrategy = (
-  config: InboxConfig,
+  config: ReplicationConfig,
   logger: TransactionalLogger,
 ): MessageProcessingDbClientStrategy => {
-  const pool = new Pool(config.pgConfig);
+  const pool = new Pool(config.dbHandlerConfig ?? config.dbListenerConfig);
   pool.on('error', (error) => {
     logger.error(
       ensureExtendedError(error, 'DB_ERROR'),
@@ -37,8 +37,9 @@ export const defaultMessageProcessingDbClientStrategy = (
     );
   });
   return {
-    getClient: async (_message: InboxMessage): Promise<PoolClient> =>
-      await pool.connect(),
+    getClient: async (
+      _message: StoredTransactionalMessage,
+    ): Promise<PoolClient> => await pool.connect(),
     shutdown: async () => {
       pool.removeAllListeners();
       try {

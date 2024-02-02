@@ -1,4 +1,7 @@
-import { OutboxMessage, TransactionalLogger } from 'pg-transactional-outbox';
+import {
+  TransactionalLogger,
+  TransactionalMessage,
+} from 'pg-transactional-outbox';
 import { BrokerAsPromised } from 'rascal';
 import { Config } from './config';
 import { getMessagingConfig } from './rabbitmq-config';
@@ -14,7 +17,7 @@ export const initializeRabbitMqPublisher = async (
   logger: TransactionalLogger,
 ): Promise<
   [
-    rmqPublisher: (message: OutboxMessage) => Promise<void>,
+    rmqPublisher: (message: TransactionalMessage) => Promise<void>,
     shutdown: { (): Promise<void> },
   ]
 > => {
@@ -25,7 +28,7 @@ export const initializeRabbitMqPublisher = async (
   });
 
   return [
-    async (message: OutboxMessage): Promise<void> => {
+    async (message: TransactionalMessage): Promise<void> => {
       // Publish a message
       const publication = await broker.publish(
         message.messageType, // By convention we use the message type also as publish topic

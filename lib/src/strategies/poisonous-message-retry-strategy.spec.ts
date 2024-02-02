@@ -1,16 +1,16 @@
-import { InboxMessage } from '../common/message';
-import { InboxConfig } from '../inbox/inbox-listener';
+import { StoredTransactionalMessage } from '../message/message';
+import { ReplicationConfig } from '../replication/config';
 import { defaultPoisonousMessageRetryStrategy } from './poisonous-message-retry-strategy';
 
 describe('defaultPoisonousMessageRetryStrategy', () => {
   it('should use the default message retry strategy settings', () => {
     const config = {
       settings: {},
-    } as InboxConfig;
+    } as ReplicationConfig;
     const message = {
       startedAttempts: 1,
       finishedAttempts: 0,
-    } as InboxMessage;
+    } as StoredTransactionalMessage;
     const retryStrategy = defaultPoisonousMessageRetryStrategy(config);
 
     expect(retryStrategy(message)).toBe(true);
@@ -21,11 +21,11 @@ describe('defaultPoisonousMessageRetryStrategy', () => {
       settings: {
         maxPoisonousAttempts: 2,
       },
-    } as InboxConfig;
+    } as ReplicationConfig;
     const message = {
       startedAttempts: 2,
       finishedAttempts: 0,
-    } as InboxMessage;
+    } as StoredTransactionalMessage;
     const retryStrategy = defaultPoisonousMessageRetryStrategy(config);
 
     expect(retryStrategy(message)).toBe(true);
@@ -34,11 +34,11 @@ describe('defaultPoisonousMessageRetryStrategy', () => {
   it('should use the default message retry strategy settings and not retry for exceeded attempts', () => {
     const config = {
       settings: {},
-    } as InboxConfig;
+    } as ReplicationConfig;
     const message = {
       startedAttempts: 4,
       finishedAttempts: 0,
-    } as InboxMessage;
+    } as StoredTransactionalMessage;
 
     const retryStrategy = defaultPoisonousMessageRetryStrategy(config);
 
@@ -50,11 +50,11 @@ describe('defaultPoisonousMessageRetryStrategy', () => {
       settings: {
         maxPoisonousAttempts: 2,
       },
-    } as InboxConfig;
+    } as ReplicationConfig;
     const message = {
       startedAttempts: 4,
       finishedAttempts: 1,
-    } as InboxMessage;
+    } as StoredTransactionalMessage;
     const retryStrategy = defaultPoisonousMessageRetryStrategy(config);
 
     expect(retryStrategy(message)).toBe(false);

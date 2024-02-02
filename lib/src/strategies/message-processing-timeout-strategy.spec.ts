@@ -1,5 +1,5 @@
-import { OutboxMessage } from '../common/message';
-import { OutboxConfig } from '../outbox/outbox-listener';
+import { ListenerConfig } from '../common/base-config';
+import { TransactionalMessage } from '../message/message';
 import { defaultMessageProcessingTimeoutStrategy } from './message-processing-timeout-strategy';
 
 describe('defaultMessageProcessingTimeoutStrategy', () => {
@@ -8,9 +8,9 @@ describe('defaultMessageProcessingTimeoutStrategy', () => {
       settings: {
         messageProcessingTimeout: 123,
       },
-    } as OutboxConfig);
+    } as ListenerConfig);
 
-    expect(getTimeout({} as OutboxMessage)).toBe(123);
+    expect(getTimeout({} as TransactionalMessage)).toBe(123);
   });
 
   it('should return the default value when the config value is undefined', () => {
@@ -18,8 +18,8 @@ describe('defaultMessageProcessingTimeoutStrategy', () => {
       settings: {
         messageProcessingTimeout: undefined,
       },
-    } as OutboxConfig);
+    } as ListenerConfig);
 
-    expect(getTimeout({} as OutboxMessage)).toBe(2000);
+    expect(getTimeout({} as TransactionalMessage)).toBe(2000);
   });
 });

@@ -1,8 +1,8 @@
 import { DatabaseError, Pool } from 'pg';
 import { BaseLogger } from 'pino';
-import { MessageError, OutboxMessage } from '../../dist';
-import { ErrorCode, ExtendedError } from '../common/error';
-import { TransactionalOutboxInboxConfig } from '../replication/config';
+import { ErrorCode, ExtendedError, MessageError } from '../common/error';
+import { TransactionalMessage } from '../message/message';
+import { ReplicationConfig } from '../replication/config';
 import {
   defaultListenerAndSlotRestartStrategy,
   defaultListenerRestartStrategy,
@@ -42,7 +42,7 @@ describe.each([
       restartDelay: 123,
       restartDelaySlotInUse: 1234,
     },
-  } as TransactionalOutboxInboxConfig;
+  } as ReplicationConfig;
   let logger: BaseLogger;
 
   beforeEach(() => {
@@ -78,7 +78,7 @@ describe.each([
     const error = new MessageError(
       'some_other_code',
       'MESSAGE_HANDLING_FAILED',
-      {} as OutboxMessage,
+      {} as TransactionalMessage,
       new Error('test'),
     );
     const strategy = strategyFunction(config);
@@ -102,7 +102,7 @@ describe.each([
     // Arrange
     const config = {
       settings: {},
-    } as TransactionalOutboxInboxConfig;
+    } as ReplicationConfig;
     const strategy = strategyFunction(config);
 
     // Act + Assert
@@ -121,14 +121,14 @@ describe.each([
     const messageError = new MessageError(
       'some_other_code',
       'MESSAGE_HANDLING_FAILED',
-      {} as OutboxMessage,
+      {} as TransactionalMessage,
       new Error('test'),
     );
     result = await strategy(messageError, logger, 'outbox');
     expect(result).toBe(250);
 
     const error = new Error('other error') as ExtendedError;
-    error.errorCode = 'INBOX_ERROR_STORAGE_FAILED';
+    error.errorCode = 'MESSAGE_STORAGE_FAILED';
     result = await strategy(error, logger, 'outbox');
     expect(result).toBe(250);
   });
@@ -166,7 +166,7 @@ describe.each([
     expect(result).toBe(config.settings.restartDelay);
     if (strategyFunction.name === defaultListenerAndSlotRestartStrategy.name) {
       /* eslint-disable jest/no-conditional-expect */
-      expect(Pool).toHaveBeenCalledWith(config.pgReplicationConfig);
+      expect(Pool).toHaveBeenCalledWith(config.dbListenerConfig);
       expect(query).toHaveBeenCalled();
       expect(end).toHaveBeenCalled();
       expect(logger.trace).not.toHaveBeenCalledWith(
@@ -190,7 +190,7 @@ describe.each([
     expect(result).toBe(config.settings.restartDelay);
     if (strategyFunction.name === defaultListenerAndSlotRestartStrategy.name) {
       /* eslint-disable jest/no-conditional-expect */
-      expect(Pool).toHaveBeenCalledWith(config.pgReplicationConfig);
+      expect(Pool).toHaveBeenCalledWith(config.dbListenerConfig);
       expect(query).toHaveBeenCalled();
       expect(end).toHaveBeenCalled();
       expect(result).toBe(config.settings.restartDelay);

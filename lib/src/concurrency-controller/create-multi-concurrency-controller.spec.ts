@@ -1,12 +1,12 @@
-import { OutboxMessage } from '../common/message';
 import { sleep } from '../common/utils';
+import { TransactionalMessage } from '../message/message';
 import { ConcurrencyController } from './concurrency-controller';
 import { createMultiConcurrencyController } from './create-multi-concurrency-controller';
 
 const protectedAsyncFunction = async (
   controller: ConcurrencyController,
   task: (message: OrderMessage) => Promise<void>,
-  message: OutboxMessage,
+  message: TransactionalMessage,
 ) => {
   const release = await controller.acquire(message);
   try {
@@ -20,13 +20,13 @@ const createOutboxMessage = (
   id: number,
   messageType: string,
   aggregateType = 'task',
-): OutboxMessage => {
+): TransactionalMessage => {
   return {
     aggregateId: id.toString(),
     aggregateType,
     messageType,
     payload: { id },
-  } as OutboxMessage;
+  } as TransactionalMessage;
 };
 
 interface OrderMessage {

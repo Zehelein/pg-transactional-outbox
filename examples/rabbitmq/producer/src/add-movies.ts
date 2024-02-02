@@ -1,11 +1,13 @@
 import { Pool, PoolClient } from 'pg';
 import {
   IsolationLevel,
-  OutboxConfig,
+  ListenerConfig,
   TransactionalLogger,
+  TransactionalMessage,
   executeTransaction,
-  initializeOutboxMessageStorage,
+  initializeMessageStorage,
 } from 'pg-transactional-outbox';
+import { v4 as uuid } from 'uuid';
 import { Config } from './config';
 
 export const MovieAggregateType = 'movie';
@@ -17,12 +19,12 @@ export const MovieCreatedMessageType = 'movie_created';
  * It uses a small timeout to insert a movie and an outbox message every
  * second.
  * @param config The configuration object with details on how to connect to the database with the login role.
- * @param outboxConfig The outbox related configuration settings
+ * @param listenerConfig The outbox related configuration settings
  * @param logger A logger instance for logging trace up to error logs
  */
 export const addMovies = async (
   config: Config,
-  outboxConfig: OutboxConfig,
+  listenerConfig: ListenerConfig,
   logger: TransactionalLogger,
 ): Promise<NodeJS.Timeout> => {
   const pool = new Pool({
@@ -37,11 +39,7 @@ export const addMovies = async (
   });
 
   // Create the outbox storage function for the movie created event message
-  const storeOutboxMessage = initializeOutboxMessageStorage(
-    MovieAggregateType,
-    MovieCreatedMessageType,
-    outboxConfig,
-  );
+  const storeOutboxMessage = initializeMessageStorage(listenerConfig, logger);
 
   return setInterval(async () => {
     try {
@@ -49,7 +47,15 @@ export const addMovies = async (
         await pool.connect(),
         async (client) => {
           const payload = await insertMovie(client, logger);
-          await storeOutboxMessage(payload.id, payload, client);
+          const message: TransactionalMessage = {
+            id: uuid(),
+            aggregateId: payload.id,
+            aggregateType: MovieAggregateType,
+            messageType: MovieCreatedMessageType,
+            payload,
+            createdAt: new Date().toISOString(),
+          };
+          await storeOutboxMessage(message, client);
           return payload;
         },
         IsolationLevel.ReadCommitted,

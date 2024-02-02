@@ -5,8 +5,8 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 import {
   IsolationLevel,
   createMutexConcurrencyController,
-  initializeInboxListener,
-  initializeInboxMessageStorage,
+  initializeMessageStorage,
+  initializeReplicationMessageListener,
 } from 'pg-transactional-outbox';
 import { getConfig, getInboxConfig } from './config';
 import { getLogger } from './logger';
@@ -31,14 +31,12 @@ void (async () => {
   const inboxConfig = getInboxConfig(config);
 
   // Initialize the inbox message storage to store incoming messages in the inbox
-  const [storeInboxMessage, shutdownInStore] = initializeInboxMessageStorage(
-    inboxConfig,
-    logger,
-  );
+  const storeInboxMessage = initializeMessageStorage(inboxConfig, logger);
 
   // Initialize the RabbitMQ message handler to receive messages and store them in the inbox
   const [shutdownRmq] = await initializeRabbitMqHandler(
     config,
+    inboxConfig,
     storeInboxMessage,
     [MovieCreatedMessageType],
     logger,
@@ -46,7 +44,7 @@ void (async () => {
 
   // Initialize and start the inbox subscription
   const storePublishedMovie = getStorePublishedMovie(logger);
-  const [shutdownInSrv] = initializeInboxListener(
+  const [shutdownListener] = initializeReplicationMessageListener(
     inboxConfig,
     [
       {
@@ -66,11 +64,7 @@ void (async () => {
 
   // Close all connections
   const cleanup = async () => {
-    await Promise.allSettled([
-      shutdownInStore(),
-      shutdownRmq(),
-      shutdownInSrv(),
-    ]);
+    await Promise.allSettled([shutdownRmq(), shutdownListener()]);
   };
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);

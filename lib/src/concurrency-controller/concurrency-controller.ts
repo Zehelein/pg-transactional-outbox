@@ -1,4 +1,4 @@
-import { OutboxMessage } from '../common/message';
+import { TransactionalMessage } from '../message/message';
 
 /**
  * A concurrency controller that defines how concurrency must be handled when
@@ -6,7 +6,7 @@ import { OutboxMessage } from '../common/message';
  */
 export interface ConcurrencyController {
   /** Acquire a lock (if any) and return a function to release it. */
-  acquire(message: OutboxMessage): Promise<() => void>;
+  acquire(message: TransactionalMessage): Promise<() => void>;
 
   /** Cancel all pending locks. */
   cancel(): void;

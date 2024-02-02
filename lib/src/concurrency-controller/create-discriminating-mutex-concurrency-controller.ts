@@ -1,5 +1,5 @@
 import { Mutex } from 'async-mutex';
-import { OutboxMessage } from '../common/message';
+import { TransactionalMessage } from '../message/message';
 import { ConcurrencyController } from './concurrency-controller';
 
 const mutexMap = new Map<string, Mutex>();
@@ -10,11 +10,11 @@ const mutexMap = new Map<string, Mutex>();
  * @returns The controller to acquire and release the mutex for a specific discriminator
  */
 export const createDiscriminatingMutexConcurrencyController = (
-  discriminator: (message: OutboxMessage) => string,
+  discriminator: (message: TransactionalMessage) => string,
 ): ConcurrencyController => {
   return {
     /** Acquire a lock (if any) and return a function to release it. */
-    acquire: (message: OutboxMessage): Promise<() => void> => {
+    acquire: (message: TransactionalMessage): Promise<() => void> => {
       const d = discriminator(message);
       let mutex = mutexMap.get(d);
       if (mutex) {

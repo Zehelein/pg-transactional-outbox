@@ -1,5 +1,5 @@
 import { MessageError } from '../common/error';
-import { OutboxMessage } from '../common/message';
+import { TransactionalMessage } from '../message/message';
 import { ConcurrencyController } from './concurrency-controller';
 import { createDiscriminatingMutexConcurrencyController } from './create-discriminating-mutex-concurrency-controller';
 import { createFullConcurrencyController } from './create-full-concurrency-controller';
@@ -23,9 +23,9 @@ export type MultiConcurrencyType =
  * @returns The controller to acquire and release the mutex for a specific discriminator
  */
 export const createMultiConcurrencyController = (
-  getConcurrencyType: (message: OutboxMessage) => MultiConcurrencyType,
+  getConcurrencyType: (message: TransactionalMessage) => MultiConcurrencyType,
   settings?: {
-    discriminator?: (message: OutboxMessage) => string;
+    discriminator?: (message: TransactionalMessage) => string;
     maxSemaphoreParallelism?: number;
   },
 ): ConcurrencyController => {
@@ -39,7 +39,7 @@ export const createMultiConcurrencyController = (
   );
   return {
     /** Acquire a lock (if any) and return a function to release it. */
-    acquire: (message: OutboxMessage): Promise<() => void> => {
+    acquire: (message: TransactionalMessage): Promise<() => void> => {
       switch (getConcurrencyType(message)) {
         case 'full-concurrency':
           return fullConcurrencyController.acquire(message);

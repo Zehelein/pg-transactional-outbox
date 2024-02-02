@@ -4,7 +4,7 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 // eslint-disable-next-line prettier/prettier
 import {
   createMutexConcurrencyController,
-  initializeOutboxListener,
+  initializeReplicationMessageListener,
 } from 'pg-transactional-outbox';
 import { addMovies } from './add-movies';
 import { getConfig, getOutboxConfig } from './config';
@@ -30,9 +30,11 @@ process.on('unhandledRejection', (err, promise) => {
   );
 
   // Initialize and start the outbox subscription
-  const [shutdownOutListener] = initializeOutboxListener(
+  const [shutdownOutListener] = initializeReplicationMessageListener(
     outboxConfig,
-    rmqPublisher,
+    {
+      handle: rmqPublisher,
+    },
     logger,
     {
       concurrencyStrategy: createMutexConcurrencyController(),

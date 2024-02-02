@@ -3,20 +3,18 @@ import { resolve } from 'path';
 import { Client, Pool, PoolClient } from 'pg';
 import {
   InMemoryLogEntry,
-  InboxMessage,
-  InboxMessageHandler,
-  OutboxMessage,
+  ReplicationConfig,
+  StoredTransactionalMessage,
   TransactionalLogger,
-  TransactionalOutboxInboxConfig,
+  TransactionalMessage,
+  TransactionalMessageHandler,
   createDiscriminatingMutexConcurrencyController,
   createFullConcurrencyController,
   createMultiConcurrencyController,
   executeTransaction,
   getInMemoryLogger,
-  initializeInboxListener,
-  initializeInboxMessageStorage,
-  initializeOutboxListener,
-  initializeOutboxMessageStorage,
+  initializeMessageStorage,
+  initializeReplicationMessageListener,
 } from 'pg-transactional-outbox';
 import {
   DockerComposeEnvironment,
@@ -43,55 +41,58 @@ const messageType = 'source_entity_created';
 const metadata = { routingKey: 'test.route', exchange: 'test-exchange' };
 const setupProducerAndConsumer = (
   { inboxConfig, outboxConfig }: TestConfigs,
-  inboxMessageHandlers: InboxMessageHandler[],
+  inboxMessageHandlers: TransactionalMessageHandler[],
   inboxLogger: TransactionalLogger,
   outboxLogger: TransactionalLogger,
-  messagePublisherWrapper?: (message: OutboxMessage) => boolean,
+  messagePublisherWrapper?: (message: TransactionalMessage) => boolean,
 ): [
-  storeOutboxMessage: ReturnType<typeof initializeOutboxMessageStorage>,
+  storeOutboxMessage: ReturnType<typeof initializeMessageStorage>,
   shutdown: () => Promise<void>,
 ] => {
   // Inbox
-  const [inSrvShutdown] = initializeInboxListener(
+  const [inSrvShutdown] = initializeReplicationMessageListener(
     inboxConfig,
     inboxMessageHandlers,
     inboxLogger,
   );
-  const [storeInboxMessage, inStoreShutdown] = initializeInboxMessageStorage(
-    inboxConfig,
-    inboxLogger,
-  );
+  const storeInboxMessage = initializeMessageStorage(inboxConfig, inboxLogger);
 
   // A simple in-process message sender
-  const messageReceiver = async (message: OutboxMessage): Promise<void> => {
-    await storeInboxMessage(message);
+  const pool = new Pool(inboxConfig.dbHandlerConfig);
+  const messageReceiver = async (
+    message: TransactionalMessage,
+  ): Promise<void> => {
+    await executeTransaction(await pool.connect(), async (client) => {
+      await storeInboxMessage(message, client);
+    });
   };
-  const messagePublisher = async (message: OutboxMessage): Promise<void> => {
-    if (
-      messagePublisherWrapper === undefined ||
-      messagePublisherWrapper(message)
-    ) {
-      await messageReceiver(message);
-    }
+  const messagePublisher = {
+    handle: async (message: TransactionalMessage): Promise<void> => {
+      if (
+        messagePublisherWrapper === undefined ||
+        messagePublisherWrapper(message)
+      ) {
+        await messageReceiver(message);
+      }
+    },
   };
 
   // Outbox
-  const [outSrvShutdown] = initializeOutboxListener(
+  const [outSrvShutdown] = initializeReplicationMessageListener(
     outboxConfig,
     messagePublisher,
     outboxLogger,
   );
-  const storeOutboxMessage = initializeOutboxMessageStorage(
-    aggregateType,
-    messageType,
+  const storeOutboxMessage = initializeMessageStorage(
     outboxConfig,
+    outboxLogger,
   );
 
   return [
     storeOutboxMessage,
     async () => {
+      await pool.end();
       await inSrvShutdown();
-      await inStoreShutdown();
       await outSrvShutdown();
     },
   ];
@@ -99,7 +100,9 @@ const setupProducerAndConsumer = (
 
 const createContent = (id: string) => `Content for id ${id}`;
 
-const createMsg = (overrides?: Partial<OutboxMessage>): OutboxMessage => ({
+const createMsg = (
+  overrides?: Partial<TransactionalMessage>,
+): TransactionalMessage => ({
   id: uuid(),
   aggregateId: uuid(),
   aggregateType,
@@ -114,7 +117,7 @@ const insertSourceEntity = async (
   loginPool: Pool,
   id: string,
   content: string,
-  storeOutboxMessage: ReturnType<typeof initializeOutboxMessageStorage>,
+  storeOutboxMessage: ReturnType<typeof initializeMessageStorage>,
 ) => {
   await executeTransaction(await loginPool.connect(), async (client) => {
     const entity = await client.query(
@@ -126,7 +129,16 @@ const insertSourceEntity = async (
         `Inserted ${entity.rowCount} source entities instead of 1.`,
       );
     }
-    await storeOutboxMessage(id, entity.rows[0], client, metadata);
+    const message: TransactionalMessage = {
+      id: uuid(),
+      aggregateId: id,
+      aggregateType,
+      messageType,
+      payload: entity.rows[0],
+      metadata,
+      createdAt: new Date().toISOString(),
+    };
+    await storeOutboxMessage(message, client);
   });
 };
 
@@ -164,8 +176,8 @@ describe('Integration tests', () => {
     const { host, port } = configs.loginConnection;
     const resetReplication = async ({
       settings: { postgresSlot },
-      pgReplicationConfig: { database },
-    }: TransactionalOutboxInboxConfig) => {
+      dbListenerConfig: { database },
+    }: ReplicationConfig) => {
       const rootInboxClient = new Client({
         host,
         port,
@@ -212,12 +224,12 @@ describe('Integration tests', () => {
       // Arrange
       const entityId = uuid();
       const content = createContent(entityId);
-      let inboxMessageReceived: InboxMessage | undefined;
+      let inboxMessageReceived: StoredTransactionalMessage | undefined;
       const inboxMessageHandler = {
         aggregateType,
         messageType,
         handle: async (
-          message: InboxMessage,
+          message: StoredTransactionalMessage,
           _client: PoolClient,
         ): Promise<void> => {
           inboxMessageReceived = message;
@@ -255,12 +267,12 @@ describe('Integration tests', () => {
 
     test('Ten messages are sent and received in the same sort order', async () => {
       // Arrange
-      const receivedInboxMessages: InboxMessage[] = [];
+      const receivedInboxMessages: StoredTransactionalMessage[] = [];
       const inboxMessageHandler = {
         aggregateType,
         messageType,
         handle: async (
-          message: InboxMessage,
+          message: StoredTransactionalMessage,
           _client: PoolClient,
         ): Promise<void> => {
           receivedInboxMessages.push(message);
@@ -287,7 +299,16 @@ describe('Integration tests', () => {
               [id, createContent(id)],
             );
             expect(entity.rowCount).toBe(1);
-            await storeOutboxMessage(id, entity.rows[0], client, metadata);
+            const message: TransactionalMessage = {
+              id: uuid(),
+              aggregateId: id,
+              aggregateType,
+              messageType,
+              payload: entity.rows[0],
+              metadata,
+              createdAt: new Date().toISOString(),
+            };
+            await storeOutboxMessage(message, client);
           }),
         );
       });
@@ -313,12 +334,12 @@ describe('Integration tests', () => {
       // Arrange
       const entityId = uuid();
       const content = createContent(entityId);
-      let inboxMessageReceived: InboxMessage | undefined;
+      let inboxMessageReceived: StoredTransactionalMessage | undefined;
       const inboxMessageHandler = {
         aggregateType,
         messageType,
         handle: async (
-          message: InboxMessage,
+          message: StoredTransactionalMessage,
           _client: PoolClient,
         ): Promise<void> => {
           inboxMessageReceived = message;
@@ -368,13 +389,13 @@ describe('Integration tests', () => {
     test('100 messages are reliably sent and received in the same order even if some parts throw errors.', async () => {
       // Arrange
       const uuids = Array.from(Array(100), () => uuid());
-      const inboxMessageReceived: InboxMessage[] = [];
+      const inboxMessageReceived: StoredTransactionalMessage[] = [];
       let maxErrors = 10;
       const inboxMessageHandler = {
         aggregateType,
         messageType,
         handle: async (
-          message: InboxMessage,
+          message: StoredTransactionalMessage,
           _client: PoolClient,
         ): Promise<void> => {
           if (Math.random() < 0.1 && maxErrors-- > 0) {
@@ -429,12 +450,12 @@ describe('Integration tests', () => {
       // Arrange
       const uuid1 = uuid();
       const uuid2 = uuid();
-      const inboxMessageReceived: InboxMessage[] = [];
+      const inboxMessageReceived: StoredTransactionalMessage[] = [];
       const inboxMessageHandler = {
         aggregateType,
         messageType,
         handle: async (
-          message: InboxMessage,
+          message: StoredTransactionalMessage,
           _client: PoolClient,
         ): Promise<void> => {
           if (message.aggregateId === uuid1) {
@@ -483,14 +504,18 @@ describe('Integration tests', () => {
       const msg2 = createMsg();
 
       // Act
-      const [storeInboxMessage, shutdownInboxStorage] =
-        initializeInboxMessageStorage(configs.inboxConfig, inboxLogger);
+      const storeInboxMessage = initializeMessageStorage(
+        configs.inboxConfig,
+        inboxLogger,
+      );
 
-      await storeInboxMessage(msg1);
-      await storeInboxMessage(msg2);
+      await executeTransaction(await loginPool.connect(), async (client) => {
+        await storeInboxMessage(msg1, client);
+        await storeInboxMessage(msg2, client);
+      });
 
       const items: string[] = [];
-      const [shutdownInboxSrv] = initializeInboxListener(
+      const [shutdownInboxSrv] = initializeReplicationMessageListener(
         configs.inboxConfig,
         [
           {
@@ -511,7 +536,6 @@ describe('Integration tests', () => {
         },
       );
       cleanup = async () => {
-        await shutdownInboxStorage();
         await shutdownInboxSrv();
       };
 
@@ -523,7 +547,7 @@ describe('Integration tests', () => {
       expect(items[0]).toBe(msg2.id);
       await sleepUntilTrue(() => items.length === 2, 500);
       expect(items[1]).toBe(msg1.id);
-      const findRegex = (msg: OutboxMessage) =>
+      const findRegex = (msg: TransactionalMessage) =>
         new RegExp(
           `Finished processing LSN .* with message id ${msg.id} and type ${msg.messageType}.`,
           'g',
@@ -550,16 +574,20 @@ describe('Integration tests', () => {
         metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
         messageType: 'something_else',
       });
-      const processedMessages: InboxMessage[] = [];
-      const [storeInboxMessage, shutdownInboxStorage] =
-        initializeInboxMessageStorage(configs.inboxConfig, inboxLogger);
-      const [shutdownInboxSrv] = initializeInboxListener(
+      const processedMessages: StoredTransactionalMessage[] = [];
+      const storeInboxMessage = initializeMessageStorage(
+        configs.inboxConfig,
+        inboxLogger,
+      );
+      const [shutdownInboxSrv] = initializeReplicationMessageListener(
         configs.inboxConfig,
         [
           {
             aggregateType,
             messageType,
-            handle: async (message: InboxMessage): Promise<void> => {
+            handle: async (
+              message: StoredTransactionalMessage,
+            ): Promise<void> => {
               processedMessages.push(message);
             },
           },
@@ -567,13 +595,14 @@ describe('Integration tests', () => {
         inboxLogger,
       );
       cleanup = async () => {
-        await shutdownInboxStorage();
         await shutdownInboxSrv();
       };
 
       // Act
-      await storeInboxMessage(msg1);
-      await storeInboxMessage(msg2);
+      await executeTransaction(await loginPool.connect(), async (client) => {
+        await storeInboxMessage(msg1, client);
+        await storeInboxMessage(msg2, client);
+      });
 
       // Assert
       await sleep(500);
@@ -582,14 +611,16 @@ describe('Integration tests', () => {
 
       // Check that the second message is not received now either
       await shutdownInboxSrv();
-      let receivedMsg2: InboxMessage | null = null;
-      const [shutdownInboxSrv2] = initializeInboxListener(
+      let receivedMsg2: StoredTransactionalMessage | null = null;
+      const [shutdownInboxSrv2] = initializeReplicationMessageListener(
         configs.inboxConfig,
         [
           {
             aggregateType,
             messageType: 'something_else',
-            handle: async (message: InboxMessage): Promise<void> => {
+            handle: async (
+              message: StoredTransactionalMessage,
+            ): Promise<void> => {
               receivedMsg2 = message;
             },
           },
@@ -597,7 +628,6 @@ describe('Integration tests', () => {
         inboxLogger,
       );
       cleanup = async () => {
-        await shutdownInboxStorage();
         await shutdownInboxSrv2();
       };
       await sleep(500);
@@ -606,7 +636,7 @@ describe('Integration tests', () => {
 
     test('An inbox message is is retried up to 5 times if it throws an error.', async () => {
       // Arrange
-      const msg: OutboxMessage = {
+      const msg: TransactionalMessage = {
         id: uuid(),
         aggregateId: uuid(),
         aggregateType,
@@ -615,10 +645,12 @@ describe('Integration tests', () => {
         metadata,
         createdAt: '2023-01-18T21:02:27.000Z',
       };
-      const [storeInboxMessage, shutdownInboxStorage] =
-        initializeInboxMessageStorage(configs.inboxConfig, inboxLogger);
+      const storeInboxMessage = initializeMessageStorage(
+        configs.inboxConfig,
+        inboxLogger,
+      );
       let inboxHandlerCounter = 0;
-      const [shutdownInboxSrv] = initializeInboxListener(
+      const [shutdownInboxSrv] = initializeReplicationMessageListener(
         configs.inboxConfig,
         [
           {
@@ -633,12 +665,13 @@ describe('Integration tests', () => {
         inboxLogger,
       );
       cleanup = async () => {
-        await shutdownInboxStorage();
         await shutdownInboxSrv();
       };
 
       // Act
-      await storeInboxMessage(msg);
+      await executeTransaction(await loginPool.connect(), async (client) => {
+        await storeInboxMessage(msg, client);
+      });
 
       // Assert
       await sleep(1000);
@@ -662,25 +695,29 @@ describe('Integration tests', () => {
       const createHandler = (aggregateType: string) => ({
         aggregateType,
         messageType,
-        handle: async (message: OutboxMessage): Promise<void> => {
+        handle: async (message: TransactionalMessage): Promise<void> => {
           await sleep(Number(message.aggregateId));
           items.push(message);
         },
       });
 
       // Act
-      const [storeInboxMessage, shutdownInboxStorage] =
-        initializeInboxMessageStorage(configs.inboxConfig, inboxLogger);
+      const storeInboxMessage = initializeMessageStorage(
+        configs.inboxConfig,
+        inboxLogger,
+      );
 
-      await storeInboxMessage(msg1);
-      await storeInboxMessage(msg2);
-      await storeInboxMessage(msg3);
-      await storeInboxMessage(msg4);
-      await storeInboxMessage(msg5);
-      await storeInboxMessage(msg6);
+      await executeTransaction(await loginPool.connect(), async (client) => {
+        await storeInboxMessage(msg1, client);
+        await storeInboxMessage(msg2, client);
+        await storeInboxMessage(msg3, client);
+        await storeInboxMessage(msg4, client);
+        await storeInboxMessage(msg5, client);
+        await storeInboxMessage(msg6, client);
+      });
 
-      const items: OutboxMessage[] = [];
-      const [shutdownInboxSrv] = initializeInboxListener(
+      const items: TransactionalMessage[] = [];
+      const [shutdownInboxSrv] = initializeReplicationMessageListener(
         configs.inboxConfig,
         [createHandler('A'), createHandler('B'), createHandler('C')],
         inboxLogger,
@@ -691,7 +728,6 @@ describe('Integration tests', () => {
         },
       );
       cleanup = async () => {
-        await shutdownInboxStorage();
         await shutdownInboxSrv();
       };
 
@@ -707,7 +743,7 @@ describe('Integration tests', () => {
     });
 
     test('multi concurrency controller cares for the correct message processing order', async () => {
-      // Arrange - message execution should all sum up to 40mx per concurrency type
+      // Arrange - message execution should all sum up to 40ms per concurrency type
 
       // discriminating tasks (1 then 2 and in parallel 3 then 4)
       const disc1 = createMsg({
@@ -745,13 +781,13 @@ describe('Integration tests', () => {
       const sem3 = createMsg({ aggregateId: '20', aggregateType: 'D' });
 
       const createHandler = (
-        msgArray: OutboxMessage[],
+        msgArray: TransactionalMessage[],
         aggType: string,
         msgType?: string,
       ) => ({
         aggregateType: aggType,
         messageType: msgType ?? messageType,
-        handle: async (message: OutboxMessage): Promise<void> => {
+        handle: async (message: TransactionalMessage): Promise<void> => {
           await sleep(Number(message.aggregateId));
           msgArray.push(message);
         },
@@ -777,29 +813,33 @@ describe('Integration tests', () => {
           maxSemaphoreParallelism: 2,
         },
       );
-      const discAXMessages: OutboxMessage[] = [];
-      const discAYMessages: OutboxMessage[] = [];
-      const concMessages: OutboxMessage[] = [];
-      const mutMessages: OutboxMessage[] = [];
-      const semMessages: OutboxMessage[] = [];
+      const discAXMessages: TransactionalMessage[] = [];
+      const discAYMessages: TransactionalMessage[] = [];
+      const concMessages: TransactionalMessage[] = [];
+      const mutMessages: TransactionalMessage[] = [];
+      const semMessages: TransactionalMessage[] = [];
 
       // Act
-      const [storeInboxMessage, shutdownInboxStorage] =
-        initializeInboxMessageStorage(configs.inboxConfig, inboxLogger);
+      const storeInboxMessage = initializeMessageStorage(
+        configs.inboxConfig,
+        inboxLogger,
+      );
 
-      await storeInboxMessage(disc1);
-      await storeInboxMessage(disc2);
-      await storeInboxMessage(disc3);
-      await storeInboxMessage(disc4);
-      await storeInboxMessage(conc1);
-      await storeInboxMessage(conc2);
-      await storeInboxMessage(mut1);
-      await storeInboxMessage(mut2);
-      await storeInboxMessage(sem1);
-      await storeInboxMessage(sem2);
-      await storeInboxMessage(sem3);
+      await executeTransaction(await loginPool.connect(), async (client) => {
+        await storeInboxMessage(disc1, client);
+        await storeInboxMessage(disc2, client);
+        await storeInboxMessage(disc3, client);
+        await storeInboxMessage(disc4, client);
+        await storeInboxMessage(conc1, client);
+        await storeInboxMessage(conc2, client);
+        await storeInboxMessage(mut1, client);
+        await storeInboxMessage(mut2, client);
+        await storeInboxMessage(sem1, client);
+        await storeInboxMessage(sem2, client);
+        await storeInboxMessage(sem3, client);
+      });
 
-      const [shutdownInboxSrv] = initializeInboxListener(
+      const [shutdownInboxSrv] = initializeReplicationMessageListener(
         configs.inboxConfig,
         [
           createHandler(discAXMessages, 'A', 'X'),
@@ -814,7 +854,6 @@ describe('Integration tests', () => {
         },
       );
       cleanup = async () => {
-        await shutdownInboxStorage();
         await shutdownInboxSrv();
       };
 
@@ -840,7 +879,7 @@ describe('Integration tests', () => {
       expect(semMessages[0]).toMatchObject(sem1);
       expect(semMessages[1]).toMatchObject(sem2);
       expect(semMessages[2]).toMatchObject(sem3);
-      expect(duration).toBeGreaterThan(80);
+      expect(duration).toBeGreaterThan(40);
     });
   });
 
@@ -849,25 +888,28 @@ describe('Integration tests', () => {
       // Arrange
       const entityId = uuid();
       const content = createContent(entityId);
-      let receivedFromOutbox1: OutboxMessage | null = null;
-      let receivedFromOutbox2: OutboxMessage | null = null;
-      const storeOutboxMessage = initializeOutboxMessageStorage(
-        aggregateType,
-        messageType,
+      let receivedFromOutbox1: TransactionalMessage | null = null;
+      let receivedFromOutbox2: TransactionalMessage | null = null;
+      const storeOutboxMessage = initializeMessageStorage(
         configs.outboxConfig,
+        outboxLogger,
       );
-      const [shutdown1] = initializeOutboxListener(
+      const [shutdown1] = initializeReplicationMessageListener(
         configs.outboxConfig,
-        async (msg) => {
-          receivedFromOutbox1 = msg;
+        {
+          handle: async (msg) => {
+            receivedFromOutbox1 = msg;
+          },
         },
         outboxLogger,
       );
       await sleep(500); // enough time for the first one to start up
-      const [shutdown2] = initializeOutboxListener(
+      const [shutdown2] = initializeReplicationMessageListener(
         configs.outboxConfig,
-        async (msg) => {
-          receivedFromOutbox2 = msg;
+        {
+          handle: async (msg) => {
+            receivedFromOutbox2 = msg;
+          },
         },
         outboxLogger,
       );

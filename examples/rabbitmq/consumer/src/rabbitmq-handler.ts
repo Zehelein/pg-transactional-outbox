@@ -1,5 +1,12 @@
 import { Mutex } from 'async-mutex';
-import { TransactionalLogger } from 'pg-transactional-outbox';
+import { Pool, PoolClient } from 'pg';
+import {
+  IsolationLevel,
+  ReplicationConfig,
+  TransactionalLogger,
+  ensureExtendedError,
+  executeTransaction,
+} from 'pg-transactional-outbox';
 import { BrokerAsPromised } from 'rascal';
 import { Config } from './config';
 import { getMessagingConfig } from './rabbitmq-config';
@@ -24,11 +31,23 @@ export interface ReceivedMessage {
  */
 export const initializeRabbitMqHandler = async (
   config: Config,
-  storeInboxMessage: (message: ReceivedMessage) => Promise<void>,
+  inboxConfig: ReplicationConfig,
+  storeInboxMessage: (
+    message: ReceivedMessage,
+    client: PoolClient,
+  ) => Promise<void>,
   messageTypes: string[],
   logger: TransactionalLogger,
 ): Promise<[shutdown: { (): Promise<void> }]> => {
   const cfg = getMessagingConfig(config);
+
+  const pool = new Pool(
+    inboxConfig.dbHandlerConfig ?? inboxConfig.dbListenerConfig,
+  );
+  pool.on('error', (err) => {
+    logger.error(ensureExtendedError(err, 'DB_ERROR'), 'PostgreSQL pool error');
+  });
+
   const broker = await BrokerAsPromised.create(cfg);
   broker.on('error', (err, { vhost, connectionUrl }) => {
     logger.error({ err, vhost, connectionUrl }, 'RabbitMQ broker error');
@@ -53,7 +72,14 @@ export const initializeRabbitMqHandler = async (
               content,
               'Started to add the incoming message to the inbox',
             );
-            await storeInboxMessage(content);
+            await executeTransaction(
+              await pool.connect(),
+              async (client): Promise<void> => {
+                await storeInboxMessage(content, client);
+              },
+              IsolationLevel.ReadCommitted,
+            );
+
             ackOrNack();
             logger.trace(content, 'Added the incoming message to the inbox');
           } catch (error) {
@@ -85,5 +111,10 @@ export const initializeRabbitMqHandler = async (
       );
   });
 
-  return [broker.shutdown];
+  return [
+    async () => {
+      await pool.end();
+      await broker.shutdown();
+    },
+  ];
 };

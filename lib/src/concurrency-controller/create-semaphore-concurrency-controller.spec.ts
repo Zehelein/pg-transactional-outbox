@@ -1,5 +1,5 @@
-import { OutboxMessage } from '../common/message';
 import { sleep } from '../common/utils';
+import { TransactionalMessage } from '../message/message';
 import { ConcurrencyController } from './concurrency-controller';
 import { createSemaphoreConcurrencyController } from './create-semaphore-concurrency-controller';
 
@@ -7,7 +7,7 @@ const protectedAsyncFunction = async (
   controller: ConcurrencyController,
   body: () => Promise<void>,
 ) => {
-  const release = await controller.acquire({} as OutboxMessage);
+  const release = await controller.acquire({} as TransactionalMessage);
   try {
     await body();
   } finally {

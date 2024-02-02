@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { Client, ClientConfig, Connection } from 'pg';
 import { Pgoutput, PgoutputPlugin } from 'pg-logical-replication';
 import { AbstractPlugin } from 'pg-logical-replication/dist/output-plugins/abstract.plugin';
+import { OutboxOrInbox } from '../common/definitions';
 import {
   ExtendedError,
   MessageError,
@@ -9,45 +10,18 @@ import {
   ensureExtendedError,
 } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
-import { OutboxMessage } from '../common/message';
 import { awaitWithTimeout } from '../common/utils';
 import { ConcurrencyController } from '../concurrency-controller/concurrency-controller';
-import { ListenerRestartStrategy } from '../strategies/listener-restart-strategy';
+import { TransactionalMessage } from '../message/message';
 import { MessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
 import { createAcknowledgeManager } from './acknowledge-manager';
-import {
-  ReplicationListenerConfig,
-  TransactionalOutboxInboxConfig,
-} from './config';
+import { ReplicationConfig, ReplicationListenerConfig } from './config';
+import { ReplicationStrategies } from './replication-strategies';
 
 /** connection exists on the Client but is not typed */
 type ReplicationClient = Client & {
   connection: Connection & { sendCopyFromChunk: (buffer: Buffer) => void };
 };
-
-export type ListenerType = 'inbox' | 'outbox';
-
-/** Optional strategies to provide custom logic for handling specific scenarios */
-export interface TransactionalStrategies {
-  /**
-   * Define the concurrency strategy - defaults to using a mutex to guarantee
-   * sequential message processing.
-   */
-  concurrencyStrategy: ConcurrencyController;
-
-  /**
-   * Defines the message processing timeout strategy. By default, it uses the
-   * configured messageProcessingTimeout or falls back to a 15-second timeout.
-   */
-  messageProcessingTimeoutStrategy: MessageProcessingTimeoutStrategy;
-
-  /**
-   * Returns the time in milliseconds after an error was caught until the
-   * listener should try to restart itself. Offers an integration point to
-   * act on the error and/or log it.
-   */
-  listenerRestartStrategy: ListenerRestartStrategy;
-}
 
 /**
  * Initiate the outbox or inbox listener to listen for WAL messages.
@@ -58,13 +32,18 @@ export interface TransactionalStrategies {
  * @param strategies Strategies to provide custom logic for handling specific scenarios
  * @returns A function to stop the logical replication listener
  */
-export const createLogicalReplicationListener = <T extends OutboxMessage>(
-  { pgReplicationConfig, settings }: TransactionalOutboxInboxConfig,
+export const createLogicalReplicationListener = <
+  T extends TransactionalMessage,
+>(
+  {
+    dbListenerConfig: pgReplicationConfig,
+    settings,
+    outboxOrInbox,
+  }: ReplicationConfig,
   messageHandler: (message: T, cancellation: EventEmitter) => Promise<void>,
   errorHandler: (message: T, err: ExtendedError) => Promise<boolean>,
   logger: TransactionalLogger,
-  strategies: TransactionalStrategies,
-  listenerType: ListenerType,
+  strategies: ReplicationStrategies,
 ): [shutdown: { (): Promise<void> }] => {
   const plugin = new PgoutputPlugin({
     protoVersion: 1,
@@ -79,7 +58,7 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
     if (stopped) {
       return;
     }
-    logger.debug(`Transactional ${listenerType} listener starting`);
+    logger.debug(`Transactional ${outboxOrInbox} listener starting`);
     restartTimeout = undefined;
     client = new Client({
       ...pgReplicationConfig,
@@ -92,7 +71,7 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
         const timeout = await strategies.listenerRestartStrategy(
           err,
           logger,
-          listenerType,
+          outboxOrInbox,
         );
         // On errors stop the DB client and reconnect from a clean state
         await stopClient(client, logger);
@@ -107,7 +86,7 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
 
     // Start background functions to connect the DB client and handle replication data
     applyRestart(
-      subscribe(client, plugin, settings.postgresSlot, logger, listenerType),
+      subscribe(client, plugin, settings.postgresSlot, logger, outboxOrInbox),
     );
     applyRestart(
       handleIncomingData(
@@ -125,7 +104,7 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
 
   return [
     async (): Promise<void> => {
-      logger.debug(`Started transactional ${listenerType} listener cleanup`);
+      logger.debug(`Started transactional ${outboxOrInbox} listener cleanup`);
       stopped = true;
       if (restartTimeout) {
         clearTimeout(restartTimeout);
@@ -136,9 +115,9 @@ export const createLogicalReplicationListener = <T extends OutboxMessage>(
 };
 
 /** Get and map the outbox/inbox message if the WAL log entry is such a message. Otherwise returns undefined. */
-const getRelevantMessage = <T extends OutboxMessage>(
+const getRelevantMessage = <T extends TransactionalMessage>(
   log: Pgoutput.Message,
-  { dbSchema, dbTable }: TransactionalOutboxInboxConfig['settings'],
+  { dbSchema, dbTable }: ReplicationConfig['settings'],
 ): T | undefined =>
   log.tag === 'insert' &&
   log.relation.schema === dbSchema &&
@@ -147,7 +126,9 @@ const getRelevantMessage = <T extends OutboxMessage>(
     : undefined;
 
 /** Maps the WAL log entry to an outbox or inbox message */
-const mapMessage = <T extends OutboxMessage>(input: unknown): T | undefined => {
+const mapMessage = <T extends TransactionalMessage>(
+  input: unknown,
+): T | undefined => {
   if (typeof input !== 'object' || input === null) {
     return undefined;
   }
@@ -167,7 +148,7 @@ const mapMessage = <T extends OutboxMessage>(input: unknown): T | undefined => {
   ) {
     return undefined;
   }
-  const message: OutboxMessage = {
+  const message: TransactionalMessage = {
     id: input.id,
     aggregateType: input.aggregate_type,
     aggregateId: input.aggregate_id,
@@ -184,7 +165,7 @@ const subscribe = async (
   plugin: AbstractPlugin,
   slotName: string,
   logger: TransactionalLogger,
-  listenerType: ListenerType,
+  outboxOrInbox: OutboxOrInbox,
   uptoLsn?: string,
 ) => {
   const lastLsn = uptoLsn || '0/00000000';
@@ -193,17 +174,17 @@ const subscribe = async (
   client.on('error', (e) => {
     logger.error(
       ensureExtendedError(e, 'DB_ERROR'),
-      `Transactional ${listenerType} listener DB client error`,
+      `Transactional ${outboxOrInbox} listener DB client error`,
     );
   });
   client.connection.on('error', (e) => {
     logger.error(
       ensureExtendedError(e, 'DB_ERROR'),
-      `Transactional ${listenerType} listener DB connection error`,
+      `Transactional ${outboxOrInbox} listener DB connection error`,
     );
   });
   client.connection.once('replicationStart', () => {
-    logger.trace(`Transactional ${listenerType} listener started`);
+    logger.trace(`Transactional ${outboxOrInbox} listener started`);
   });
 
   return plugin.start(client, slotName, lastLsn);
@@ -289,11 +270,9 @@ const acknowledge = (
   client.connection.sendCopyFromChunk(response);
 };
 
-// The acknowledge function is based on the https://github.com/kibae/pg-logical-replication library
-// but with an async loop and custom concurrency handling
 const LOG_FLAG = 0x77; // 119 in base 10
 const KEEP_ALIVE_FLAG = 0x6b; // 107 in base 10
-const handleIncomingData = <T extends OutboxMessage>(
+const handleIncomingData = <T extends TransactionalMessage>(
   client: ReplicationClient,
   plugin: AbstractPlugin,
   config: ReplicationListenerConfig,
@@ -320,7 +299,7 @@ const handleIncomingData = <T extends OutboxMessage>(
 
   // This function handles the message processing and message error handler.
   // It is inlined to stop processing when "stopped" is true.
-  const handleOutboxInboxMessage = async <T extends OutboxMessage>(
+  const handleOutboxInboxMessage = async <T extends TransactionalMessage>(
     messageHandler: (message: T, cancellation: EventEmitter) => Promise<void>,
     errorHandler: (message: T, err: ExtendedError) => Promise<boolean>,
     message: T,
@@ -374,6 +353,7 @@ const handleIncomingData = <T extends OutboxMessage>(
   };
 
   return new Promise((_resolve, reject) => {
+    // The copyData part is based on the https://github.com/kibae/pg-logical-replication library
     client.connection.on(
       'copyData',
       async ({

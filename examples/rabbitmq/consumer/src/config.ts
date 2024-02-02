@@ -1,4 +1,4 @@
-import { InboxConfig } from 'pg-transactional-outbox';
+import { ReplicationConfig } from 'pg-transactional-outbox';
 
 /**
  * Parses the environment or provided settings and ensures all the fields are
@@ -88,16 +88,17 @@ export const getConfig = (env: Env = process.env) => {
 /** The configuration object type with parsed environment variables. */
 export type Config = ReturnType<typeof getConfig>;
 
-export const getInboxConfig = (config: Config): InboxConfig => {
+export const getInboxConfig = (config: Config): ReplicationConfig => {
   return {
-    pgConfig: {
+    outboxOrInbox: 'inbox',
+    dbHandlerConfig: {
       host: config.postgresHost,
       port: config.postgresPort,
       user: config.postgresLoginRole,
       password: config.postgresLoginRolePassword,
       database: config.postgresDatabase,
     },
-    pgReplicationConfig: {
+    dbListenerConfig: {
       host: config.postgresHost,
       port: config.postgresPort,
       user: config.postgresInboxRole,

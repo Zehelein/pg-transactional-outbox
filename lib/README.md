@@ -274,12 +274,15 @@ the database, roles, and other settings for you.
 ```sql
 CREATE TABLE public.outbox (
   id uuid PRIMARY KEY,
-  aggregate_type VARCHAR(255) NOT NULL,
-  aggregate_id VARCHAR(255) NOT NULL,
-  message_type VARCHAR(255) NOT NULL,
+  aggregate_type TEXT NOT NULL,
+  aggregate_id TEXT NOT NULL,
+  message_type TEXT NOT NULL,
   payload JSONB NOT NULL,
   metadata JSONB,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  processed_at TIMESTAMPTZ,
+  started_attempts smallint NOT NULL DEFAULT 0,
+  finished_attempts smallint NOT NULL DEFAULT 0
 );
 ```
 
@@ -328,9 +331,9 @@ the database, roles, and other settings for you.
 ```sql
 CREATE TABLE public.inbox (
   id uuid PRIMARY KEY,
-  aggregate_type VARCHAR(255) NOT NULL,
-  aggregate_id VARCHAR(255) NOT NULL,
-  message_type VARCHAR(255) NOT NULL,
+  aggregate_type TEXT NOT NULL,
+  aggregate_id TEXT NOT NULL,
+  message_type TEXT NOT NULL,
   payload JSONB NOT NULL,
   metadata JSONB,
   created_at TIMESTAMPTZ NOT NULL,
@@ -367,34 +370,38 @@ SELECT pg_create_logical_replication_slot('pg_transactional_inbox_slot', 'pgoutp
 ## Implementing the transactional outbox producer
 
 The following code shows the producer side of the transactional outbox pattern.
-The two main functions are the `initializeOutboxListener` to listen to the WAL
-messages when an outbox message is written to the outbox table. And the
-`initializeOutboxMessageStorage` generator function to store outgoing messages
-in the outbox table (for a specific aggregate type and message type).
+The two main functions are the `initializeReplicationMessageListener` to listen
+to the WAL messages when an outbox message is written to the outbox table. And
+the `initializeMessageStorage` generator function to store outgoing messages in
+the outbox table.
 
 ```TypeScript
 import process from 'node:process';
-import { Client } from 'pg';
+import { Pool } from 'pg';
 import {
-  OutboxConfig,
-  OutboxMessage,
+  GeneralMessageHandler,
+  ReplicationConfig,
+  TransactionalMessage,
   createMutexConcurrencyController,
   getDefaultLogger,
-  initializeOutboxListener,
-  initializeOutboxMessageStorage,
+  initializeMessageStorage,
+  initializeReplicationMessageListener,
 } from 'pg-transactional-outbox';
 
 (async () => {
   const logger = getDefaultLogger('outbox');
 
   // Initialize the actual message publisher e.g. publish the message via RabbitMQ
-  const messagePublisher = async (message: OutboxMessage): Promise<void> => {
-    // In the simplest case the message can be sent via inter process communication
-    process.send?.(message);
+  const messagePublisher: GeneralMessageHandler = {
+    handle: async (message: TransactionalMessage): Promise<void> => {
+      // In the simplest case the message can be sent via inter process communication
+      process.send?.(message);
+    },
   };
 
-  const config: OutboxConfig = {
-    pgReplicationConfig: {
+  const config: ReplicationConfig = {
+    outboxOrInbox: 'outbox',
+    dbListenerConfig: {
       host: 'localhost',
       port: 5432,
       user: 'db_outbox',
@@ -409,96 +416,98 @@ import {
     },
   };
 
-  // Initialize and start the outbox subscription. This listener receives all the
-  // outbox table inserts from the WAL. It executes the messagePublisher function
-  // with every received outbox message. It cares for the at least once delivery.
-  const [shutdown] = initializeOutboxListener(
+  // Initialize and start the subscription for outbox messages. This listener
+  // receives all the outbox table inserts from the WAL. It executes the
+  // messagePublisher handle function with every received outbox message. It
+  // cares for the at least once delivery.
+  const [shutdown] = initializeReplicationMessageListener(
     config,
     messagePublisher,
     logger,
     {
       concurrencyStrategy: createMutexConcurrencyController(),
-      messageProcessingTimeoutStrategy: (message: OutboxMessage) =>
+      messageProcessingTimeoutStrategy: (message: TransactionalMessage) =>
         message.messageType === 'ABC' ? 10_000 : 2_000,
     },
   );
 
-  // Initialize the outbox storage function. This function encapsulates the
-  // aggregate type (movie) and the message type (movie_created). It will be
-  // called to insert the outgoing message into the outbox as part of the DB
-  // transaction that is responsible for this event.
-  // You can alternatively use initializeGeneralOutboxMessageStorage for a
-  // outbox message storage function to store different message/aggregate types.
-  const storeOutboxMessage = initializeOutboxMessageStorage(
-    'movie',
-    'movie_created',
-    config,
-  );
+  // Initialize the message storage function to store outbox messages. It will
+  // be called to insert the outgoing message into the outbox table as part of
+  // the DB transaction that is responsible for this event.
+  const storeOutboxMessage = initializeMessageStorage(config, logger);
 
   // The actual business logic generates in this example a new movie in the DB
   // and wants to reliably send a "movie_created" message.
-  const client = new Client({
+  const pool = new Pool({
     host: 'localhost',
     port: 5432,
     user: 'db_login_outbox',
     password: 'db_login_outbox_password',
     database: 'pg_transactional_outbox',
   });
+  const client = await pool.connect();
 
   try {
-    client.connect();
     // The movie and the outbox message must be inserted in the same transaction.
     await client.query('START TRANSACTION ISOLATION LEVEL SERIALIZABLE');
     // Insert the movie (and query/mutate potentially a lot more data)
     const result = await client.query(
       `INSERT INTO public.movies (title) VALUES ('some movie') RETURNING id, title;`,
     );
+    // Define the outbox message
+    const message: TransactionalMessage = {
+      id: new Crypto().randomUUID(),
+      aggregateType: 'movie',
+      messageType: 'movie_created',
+      aggregateId: result.rows[0].id,
+      payload: result.rows[0],
+      createdAt: new Date().toISOString(),
+    };
     // Store the message in the outbox table
-    await storeOutboxMessage(result.rows[0].id, result.rows[0], client);
+    await storeOutboxMessage(message, client);
     // (Try to) commit the transaction to save the movie and the outbox message
     await client.query('COMMIT');
-    client.end();
+    client.release();
   } catch (err) {
     // In case of an error roll back the DB transaction - neither movie nor
     // the outbox message will be stored in the DB now.
     await client?.query('ROLLBACK');
-    client.end();
+    client.release(true);
     throw err;
   }
   await shutdown();
 })();
 ```
 
+> **Please note:** This library does not automatically delete outbox messages
+> from the outbox table. Keeping them can ensure that a message is only added
+> once. Please define your own logic on how long the messages should stay in
+> this table.
+
 ### Outbox Storage
 
 The outbox storage is used to store the message that should later be sent into
 the `outbox` database table. It comes in two flavors:
 
-The `initializeOutboxMessageStorage` is initialized to store a specific
-combination of aggregate type and message type. In the above example, it is used
-to store outbox messages for the aggregate type `movie` and the message type
-`movie_created`. The storage function accepts the following parameters:
+The `initializeMessageStorage` is initialized to store outbox messages. In the
+above example, it is used to store outbox messages for the aggregate type
+`movie` and the message type `movie_created`. The storage function accepts the
+following parameters:
 
-- `aggregateId`: the unique identifier of the aggregate - e.g. the movie
-  database ID
-- `payload`: the message payload that is used on the receiving side to act on
-  such a message.
-- `dbClient`: the database client with an open database transaction to both do
-  the business logic as well as store the outgoing message within that
-  transaction.
-- `metadata`: optional metadata that can be used for the actual message
-  transport like routing keys and the target queue.
-
-The more generic outbox storage can be created with the
-`initializeGeneralOutboxMessageStorage` function. It has the same input
-parameters as the above storage function but in addition also the
-`aggregateType` and the `messageType`.
+- `message`: the outbox message with a unique message ID, aggregate type,
+  message type, the ID of the aggregate, and the create date. It contains the
+  message payload that is used on the receiving side to act on such a message.
+  And optional metadata that can be used for the actual message transport like
+  routing keys and the target queue.
+- `client`: the database client with an open database transaction to both handle
+  the business logic database changes as well as store the outgoing message
+  within that transaction.
 
 ### Outbox Listener
 
-The `initializeOutboxListener` is used to create and start the WAL listener that
-gets notified when a new outbox message is written to the outbox table. It takes
-the message publisher instance as an input parameter (`sendMessage`) and calls
+The `initializeReplicationMessageListener` is used to create and start the WAL
+listener that gets notified when a new outbox message is written to the outbox
+table. It takes the message publisher instance as an input parameter and calls
 it to send out messages. Other parameters are the `config` object, a `logger`
 instance and an optional strategies object to fine-tune and customize specific
 aspects of the outbox listener.
@@ -527,16 +536,17 @@ handler queries/mutations, and finally mark the inbox message as processed in
 the database.
 
 ```TypeScript
-import { PoolClient } from 'pg';
+import { Pool, PoolClient } from 'pg';
 import {
-  InboxConfig,
-  InboxMessage,
   IsolationLevel,
-  OutboxMessage,
+  ReplicationConfig,
+  TransactionalMessage,
   createMultiConcurrencyController,
+  ensureExtendedError,
+  executeTransaction,
   getDefaultLogger,
-  initializeInboxListener,
-  initializeInboxMessageStorage,
+  initializeMessageStorage,
+  initializeReplicationMessageListener,
 } from 'pg-transactional-outbox';
 
 /** The main entry point of the message producer. */
@@ -544,13 +554,14 @@ import {
   const logger = getDefaultLogger('outbox');
 
   // Configuration settings for the replication and inbox table configurations
-  const config: InboxConfig = {
+  const config: ReplicationConfig = {
+    outboxOrInbox: 'inbox',
     // This configuration is used to start a transaction that locks and updates
     // the row in the inbox table that was found from the WAL log. This connection
     // will also be used in the message handler so every select and data change is
     // part of the same database transaction. The inbox database row is then
     // marked as "processed" when everything went fine.
-    pgConfig: {
+    dbHandlerConfig: {
       host: 'localhost',
       port: 5432,
       user: 'db_login_inbox',
@@ -560,7 +571,7 @@ import {
     // Configure the replication role to receive notifications when a new inbox
     // row was added to the inbox table. This role must have the replication
     // permission.
-    pgReplicationConfig: {
+    dbListenerConfig: {
       host: 'localhost',
       port: 5432,
       user: 'db_inbox',
@@ -575,14 +586,25 @@ import {
     },
   };
 
+  // Create the database pool to store the incoming inbox messages
+  const pool = new Pool(config.dbHandlerConfig);
+  pool.on('error', (err) => {
+    logger.error(ensureExtendedError(err, 'DB_ERROR'), 'PostgreSQL pool error');
+  });
+
   // Initialize the inbox message storage to store incoming messages in the inbox
-  const [storeInboxMessage, shutdownInboxStorage] =
-    initializeInboxMessageStorage(config, logger);
+  const storeInboxMessage = initializeMessageStorage(config, logger);
 
   // Initialize the message receiver e.g. based on RabbitMQ
   // In the simplest scenario use the inter process communication:
-  process.on('message', async (message: OutboxMessage) => {
-    await storeInboxMessage(message);
+  process.on('message', async (message: TransactionalMessage) => {
+    await executeTransaction(
+      await pool.connect(),
+      async (client): Promise<void> => {
+        await storeInboxMessage(message, client);
+      },
+      IsolationLevel.ReadCommitted,
+    );
   });
 
   // Define an optional concurrency strategy to handle messages with the message
@@ -597,11 +619,14 @@ import {
           return 'discriminating-mutex';
       }
     },
-    (message) => `${message.aggregateType}.${message.messageType}`,
+    {
+      discriminator: (message) =>
+        `${message.aggregateType}.${message.messageType}`,
+    },
   );
 
   // Initialize and start the inbox subscription
-  initializeInboxListener(
+  const [shutdown] = initializeReplicationMessageListener(
     config,
     // This array holds a list of all message handlers for all the aggregate
     // and message types.
@@ -610,7 +635,7 @@ import {
         aggregateType: 'movie',
         messageType: 'movie_created',
         handle: async (
-          message: InboxMessage,
+          message: TransactionalMessage,
           client: PoolClient,
         ): Promise<void> => {
           // Executes the message handler logic using the same database
@@ -632,37 +657,35 @@ import {
         },
         handleError: async (
           error: Error,
-          message: InboxMessage,
+          message: TransactionalMessage,
           _client: PoolClient,
-          { current, max }: { current: number; max: number },
-        ): Promise<'transient_error' | 'permanent_error'> => {
-          // Lets you decide if a message should be retried (transient error) or
-          // not (permanent error). You can run also run your compensation code.
-          if (current < max) {
-            return 'transient_error';
+          retry: boolean,
+        ): Promise<void> => {
+          if (!retry) {
+            // Potentially send a compensating message to adjust other services e.g. via the Saga Pattern
+            logger.error(
+              error,
+              `Giving up processing message with ID ${message.id}.`,
+            );
           }
-          logger.error(
-            error,
-            `Giving up processing message with ID ${message.id}.`,
-          );
-          return 'permanent_error';
         },
       },
     ],
     logger,
     {
       concurrencyStrategy,
-      messageProcessingTimeoutStrategy: (message: OutboxMessage) =>
+      messageProcessingTimeoutStrategy: (message: TransactionalMessage) =>
         message.messageType === 'ABC' ? 10_000 : 2_000,
-      messageProcessingTransactionLevel: (message: OutboxMessage) =>
+      messageProcessingTransactionLevelStrategy: (
+        message: TransactionalMessage,
+      ) =>
         message.messageType === 'ABC'
           ? IsolationLevel.ReadCommitted
           : IsolationLevel.RepeatableRead,
     },
   );
-  await shutdownInboxStorage();
+  await shutdown();
 })();
-
 ```
 
 > **Please note:** This library does not automatically delete inbox messages
@@ -684,14 +707,14 @@ needed. You can find a RabbitMQ-based implementation in the examples folder.
 
 When a message is received it must use the inbox storage functionality to store
 the message. The `initializeInboxMessageStorage` is used to create to create an
-inbox storage instance. The inbox storage takes the incoming `OutboxMessage` and
-stores it as an `InboxMessage` in the inbox table.
+inbox storage instance. The inbox storage takes the incoming message and stores
+it in the inbox table.
 
 ### Inbox Listener
 
 The `initializeInboxListener` initializes the inbox listener which is notified
 whenever a new inbox message is written to the inbox table. It takes a list of
-message handlers and invokes the one that matches the incoming messages
+message handlers and invokes the one that matches the incoming message's
 aggregate type and message type.
 
 The optional `strategies` object can be provided to customize different inbox
@@ -739,24 +762,18 @@ message producer to the message consumer.
 
 Both the outbox and inbox message have the following properties:
 
-| Field Name    | Field Type | Description                                                                            |
-| ------------- | ---------- | -------------------------------------------------------------------------------------- |
-| id            | string     | The unique identifier of the message. Used to ensure a message is only processed once. |
-| aggregateType | string     | The type of the aggregate root (in DDD context) to which this message is related.      |
-| aggregateId   | string     | The unique identifier of the aggregate.                                                |
-| messageType   | string     | The type name of the event or command.                                                 |
-| payload       | object     | The message payload with the details for an event or instructions for a command.       |
-| metadata      | object     | Optional metadata used for the actual message transfer.                                |
-| createdAt     | string     | The date and time in ISO 8601 UTC format when the message was created.                 |
-
-In addition, the inbox message keeps track of when it was processed and the
-number of attempts it took/currently has done.
-
-| Field Name        | Field Type | Description                                                                               |
-| ----------------- | ---------- | ----------------------------------------------------------------------------------------- |
-| started_attempts  | number     | The number of times an inbox message was attempted to be processed.                       |
-| finished_attempts | number     | The number of times an inbox message was processed (successfully or with a caught error). |
-| processedAt       | string     | The date and time in ISO 8601 UTC format when the message was processed.                  |
+| Field Name        | Field Type | Description                                                                            |
+| ----------------- | ---------- | -------------------------------------------------------------------------------------- |
+| id                | string     | The unique identifier of the message. Used to ensure a message is only processed once. |
+| aggregateType     | string     | The type of the aggregate root (in DDD context) to which this message is related.      |
+| aggregateId       | string     | The unique identifier of the aggregate.                                                |
+| messageType       | string     | The type name of the event or command.                                                 |
+| payload           | object     | The message payload with the details for an event or instructions for a command.       |
+| metadata          | object     | Optional metadata used for the actual message transfer.                                |
+| createdAt         | string     | The date and time in ISO 8601 UTC format when the message was created.                 |
+| started_attempts  | number     | The number of times a message was attempted to be processed.                           |
+| finished_attempts | number     | The number of times a message was processed (successfully or with a caught error).     |
+| processedAt       | string     | The date and time in ISO 8601 UTC format when the message was processed.               |
 
 # Strategies
 
@@ -793,15 +810,16 @@ pre-build ones but you can also write your own:
 
 ## Message processing client strategy
 
-Inbox messages are processed in a database transaction that verifies from the
-inbox table if the message was not processed already and loads the
-retry-specific data. It handles also the business-logic related database work.
+Messages are processed in a database transaction that verifies from the
+outbox/inbox table if the message was not processed already and loads the
+retry-specific data. It handles also the business-logic related database work
+(especially for the inbox).
 
 Some message handlers may require a database login with elevated permissions
 while others can use more restricted users. With this strategy, you can return a
 database client from your desired Pool in the `getClient` function. When the
-inbox listener is shut down it will call the `shutdown` function where you can
-close your used database pools and run other cleanup logic.
+replication listener is shut down it will call the `shutdown` function where you
+can close your database pool and run other cleanup logic.
 
 ## Message processing timeout strategy
 
@@ -813,14 +831,14 @@ processing others on a short timeout. By default, it uses the configured
 
 ## Message processing Transaction level strategy
 
-The inbox listener lets you define the `messageProcessingTransactionLevel` per
-message. Some message processing may have higher isolation level requirements
-than others. If no custom strategy is provided it uses the default database
-transaction level via `BEGIN`.
+The replication listener lets you define the `messageProcessingTransactionLevel`
+per message. Some message processing may have higher isolation level
+requirements than others. If no custom strategy is provided it uses the default
+database transaction level via `BEGIN`.
 
 ## Message retry strategy
 
-When processing an inbox message an error can be thrown. The inbox listener
+When processing a message an error can be thrown. The transactional listener
 catches that error and needs to decide if the message should be processed
 again - or not. The `messageRetryStrategy` offers the possibility to customize
 the decision if a message should be retried or not. By default, the
@@ -850,7 +868,7 @@ You can customize the behavior of the service by changing the following options:
 
 ## Listener restart time strategy
 
-When the inbox or outbox listener fails due to an error it is restarted. The
+When the outbox or inbox listener fails due to an error it is restarted. The
 `listenerRestartStrategy` is used to define how long it should wait before it
 attempts to start again. It allows you to decide (based on the error) to log or
 track the caught error.

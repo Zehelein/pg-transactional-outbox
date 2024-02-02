@@ -2,16 +2,14 @@
 import { resolve } from 'path';
 import { Client, Pool, PoolClient } from 'pg';
 import {
-  InboxMessage,
-  OutboxMessage,
+  StoredTransactionalMessage,
   TransactionalLogger,
+  TransactionalMessage,
   executeTransaction,
   getDefaultLogger,
   getDisabledLogger,
-  initializeInboxListener,
-  initializeInboxMessageStorage,
-  initializeOutboxListener,
-  initializeOutboxMessageStorage,
+  initializeMessageStorage,
+  initializeReplicationMessageListener,
 } from 'pg-transactional-outbox';
 import {
   DockerComposeEnvironment,
@@ -41,7 +39,7 @@ const insertSourceEntity = async (
   client: PoolClient,
   id: string,
   content: string,
-  storeOutboxMessage: ReturnType<typeof initializeOutboxMessageStorage>,
+  storeOutboxMessage: ReturnType<typeof initializeMessageStorage>,
 ) => {
   await executeTransaction(client, async (txnClient) => {
     const entity = await txnClient.query(
@@ -53,7 +51,16 @@ const insertSourceEntity = async (
         `Inserted ${entity.rowCount} source entities instead of 1.`,
       );
     }
-    await storeOutboxMessage(id, entity.rows[0], txnClient, metadata);
+    const message: TransactionalMessage = {
+      id: uuid(),
+      aggregateId: id,
+      aggregateType,
+      messageType,
+      createdAt: new Date().toISOString(),
+      payload: entity.rows[0],
+      metadata,
+    };
+    await storeOutboxMessage(message, txnClient);
   });
 };
 
@@ -131,11 +138,10 @@ describe('Outbox and inbox resilience integration tests', () => {
     const content1 = createContent(entity1Id);
     const entity2Id = uuid();
     const content2 = createContent(entity2Id);
-    const sentMessages: OutboxMessage[] = [];
-    const storeOutboxMessage = initializeOutboxMessageStorage(
-      aggregateType,
-      messageType,
+    const sentMessages: TransactionalMessage[] = [];
+    const storeOutboxMessage = initializeMessageStorage(
       configs.outboxConfig,
+      logger,
     );
 
     // Act
@@ -156,10 +162,12 @@ describe('Outbox and inbox resilience integration tests', () => {
     // the outbox listener starts. The outbox listener will retry for a while
     await createInfraOutage(startedEnv, logger);
     // Start the listener - it should succeed after PG is up again
-    const [shutdown] = initializeOutboxListener(
+    const [shutdown] = initializeReplicationMessageListener(
       configs.outboxConfig,
-      async (msg) => {
-        sentMessages.push(msg);
+      {
+        handle: async (msg) => {
+          sentMessages.push(msg);
+        },
       },
       logger,
     );
@@ -198,7 +206,7 @@ describe('Outbox and inbox resilience integration tests', () => {
 
   test('Messages are stored in the inbox and fully delivered even if the PostgreSQL server goes down', async () => {
     // Arrange
-    const msg1: OutboxMessage = {
+    const msg1: TransactionalMessage = {
       id: uuid(),
       aggregateId: uuid(),
       aggregateType,
@@ -207,31 +215,35 @@ describe('Outbox and inbox resilience integration tests', () => {
       metadata,
       createdAt: '2023-01-18T21:02:27.000Z',
     };
-    const msg2: OutboxMessage = {
+    const msg2: TransactionalMessage = {
       ...msg1,
       id: uuid(),
       aggregateId: uuid(),
     };
-    const processedMessages: InboxMessage[] = [];
-    const [storeInboxMessage, shutdownInboxStorage] =
-      initializeInboxMessageStorage(configs.inboxConfig, logger);
+    const processedMessages: StoredTransactionalMessage[] = [];
+    const storeInboxMessage = initializeMessageStorage(
+      configs.inboxConfig,
+      logger,
+    );
 
     // Act
     // Store two message before starting up the inbox listener
-    await storeInboxMessage(msg1);
-    await storeInboxMessage(msg2);
+    await executeTransaction(await loginPool.connect(), async (client) => {
+      await storeInboxMessage(msg1, client);
+      await storeInboxMessage(msg2, client);
+    });
     // Stop the PostgreSQL docker container and restart it after a few seconds while
     // the inbox listener starts. The inbox listener will retry for a while
     await createInfraOutage(startedEnv, logger);
     // Start the listener - it should succeed after PG is up again
-    const [shutdownInboxSrv] = initializeInboxListener(
+    const [shutdownInboxSrv] = initializeReplicationMessageListener(
       configs.inboxConfig,
       [
         {
           aggregateType,
           messageType,
           handle: async (
-            message: InboxMessage,
+            message: StoredTransactionalMessage,
             client: PoolClient,
           ): Promise<void> => {
             await client.query('SELECT NOW() as now');
@@ -242,7 +254,6 @@ describe('Outbox and inbox resilience integration tests', () => {
       logger,
     );
     cleanup = async () => {
-      await shutdownInboxStorage();
       await shutdownInboxSrv();
     };
 

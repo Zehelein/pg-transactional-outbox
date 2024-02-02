@@ -3,7 +3,27 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
-## [0.4.0] - 2024-02-02
+## [0.5.0] - 2024-02-01
+
+### Changed
+
+- Aligned the outbox message handling logic to the inbox table. This allows to
+  include maximum retries and poisonous message handling but slightly increases
+  the time to send outbox messages.
+- The following fields are now required (also) on the outbox table:
+  ```sql
+  ALTER TABLE public.outbox ADD COLUMN started_attempts smallint NOT NULL DEFAULT 0;
+  ALTER TABLE public.outbox ADD COLUMN finished_attempts smallint NOT NULL DEFAULT 0;
+  ALTER TABLE public.outbox ADD COLUMN processed_at TIMESTAMPTZ;
+  GRANT UPDATE (started_attempts, finished_attempts, processed_at) ON public.outbox TO db_login_outbox;
+  ```
+- Function names were renamed to not include "inbox" or "outbox" specifically
+  anymore but both use the same underlying concept now. To get (close) to the
+  prior outbox handling logic you can set the settings fields
+  `enableMaxAttemptsProtection` and `enablePoisonousMessageProtection` to
+  `false`.
+
+## [0.4.0] - 2024-02-01
 
 ### Changed
 
@@ -18,9 +38,9 @@ this file.
   update your database (adjust the namespace to yours):
 
   ```sql
-  ALTER TABLE app_public.inbox RENAME COLUMN attempts TO finished_attempts;
-  ALTER TABLE app_public.inbox ADD COLUMN started_attempts smallint NOT NULL DEFAULT 0;
-  GRANT UPDATE (started_attempts, finished_attempts, processed_at) ON app_public.inbox TO db_login_inbox;
+  ALTER TABLE public.inbox RENAME COLUMN attempts TO finished_attempts;
+  ALTER TABLE public.inbox ADD COLUMN started_attempts smallint NOT NULL DEFAULT 0;
+  GRANT UPDATE (started_attempts, finished_attempts, processed_at) ON public.inbox TO db_login_inbox;
   ```
 
 ### Added

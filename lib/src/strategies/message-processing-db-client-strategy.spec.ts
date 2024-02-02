@@ -1,7 +1,7 @@
 import { Pool } from 'pg';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
-import { InboxMessage } from '../common/message';
-import { InboxConfig } from '../inbox/inbox-listener';
+import { StoredTransactionalMessage } from '../message/message';
+import { ReplicationConfig } from '../replication/config';
 import { defaultMessageProcessingDbClientStrategy } from './message-processing-db-client-strategy';
 
 let errorHandler: (err: Error) => void;
@@ -32,10 +32,12 @@ describe('defaultMessageProcessingDbClientStrategy', () => {
 
   it('should return a DB client', async () => {
     const strategy = defaultMessageProcessingDbClientStrategy(
-      {} as InboxConfig,
+      {} as ReplicationConfig,
       getDisabledLogger(),
     );
-    const client = await strategy.getClient({ id: '1' } as InboxMessage);
+    const client = await strategy.getClient({
+      id: '1',
+    } as StoredTransactionalMessage);
     expect(client.escapeLiteral('x')).toBe('x');
   });
 
@@ -43,13 +45,13 @@ describe('defaultMessageProcessingDbClientStrategy', () => {
     // Arrange
     const [logger, logs] = getInMemoryLogger('test');
     const strategy = defaultMessageProcessingDbClientStrategy(
-      {} as InboxConfig,
+      {} as ReplicationConfig,
       logger,
     );
     const error = new Error('unit test');
 
     // Act
-    await strategy.getClient({ id: '1' } as InboxMessage);
+    await strategy.getClient({ id: '1' } as StoredTransactionalMessage);
 
     // Assert
     expect(errorHandler).toBeDefined();
@@ -59,7 +61,7 @@ describe('defaultMessageProcessingDbClientStrategy', () => {
 
   it('should remove all listeners and end the pool on shutdown', async () => {
     const strategy = defaultMessageProcessingDbClientStrategy(
-      {} as InboxConfig,
+      {} as ReplicationConfig,
       getDisabledLogger(),
     );
     await strategy.shutdown();
@@ -74,7 +76,7 @@ describe('defaultMessageProcessingDbClientStrategy', () => {
     pool.end = jest.fn().mockRejectedValue(error);
     const [logger, logs] = getInMemoryLogger('test');
     const strategy = defaultMessageProcessingDbClientStrategy(
-      {} as InboxConfig,
+      {} as ReplicationConfig,
       logger,
     );
 

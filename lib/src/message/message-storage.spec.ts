@@ -1,16 +1,16 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import inspector from 'inspector';
-import { Client, Pool, PoolClient } from 'pg';
+import { Pool, PoolClient } from 'pg';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
-import { InboxMessage, OutboxMessage } from '../common/message';
-import { InboxConfig } from './inbox-listener';
+import { ReplicationConfig } from '../replication/config';
+import { StoredTransactionalMessage, TransactionalMessage } from './message';
 import {
-  increaseInboxMessageFinishedAttempts,
-  initializeInboxMessageStorage,
-  initiateInboxMessageProcessing,
-  markInboxMessageCompleted,
+  increaseMessageFinishedAttempts,
+  initializeMessageStorage,
+  initiateMessageProcessing,
+  markMessageCompleted,
   startedAttemptsIncrement,
-} from './inbox-message-storage';
+} from './message-storage';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
@@ -19,7 +19,7 @@ if (isDebugMode()) {
   jest.setTimeout(7_000);
 }
 
-const message: OutboxMessage = {
+const message: TransactionalMessage = {
   id: 'message_id',
   aggregateType: 'test_type',
   messageType: 'test_message_type',
@@ -29,22 +29,23 @@ const message: OutboxMessage = {
   createdAt: '2023-01-18T21:02:27.000Z',
 };
 
-const inboxMessage: InboxMessage = {
+const storedMessage: StoredTransactionalMessage = {
   ...message,
   startedAttempts: 1,
   finishedAttempts: 0,
   processedAt: null,
 };
 
-const config: InboxConfig = {
-  pgConfig: {
+const config: ReplicationConfig = {
+  outboxOrInbox: 'inbox',
+  dbHandlerConfig: {
     host: 'test_host',
     port: 5432,
     database: 'test_db',
     user: 'test_user',
     password: 'test_user_password',
   },
-  pgReplicationConfig: {
+  dbListenerConfig: {
     host: 'test_host',
     port: 5432,
     database: 'test_db',
@@ -60,20 +61,11 @@ const config: InboxConfig = {
   },
 };
 
-// required for the initializeInboxMessageStorage
-let onPoolError: (err: Error) => void;
-jest.mock('pg', () => {
-  return {
-    ...jest.requireActual('pg'),
-    Pool: jest.fn().mockImplementation(() => ({
-      connect: jest.fn(() => new Client()),
-      on: jest.fn((_name, func) => {
-        onPoolError = func;
-      }),
-      end: jest.fn(() => Promise.resolve()),
-      removeAllListeners: jest.fn(),
-    })),
-    Client: jest.fn().mockImplementation(() => ({
+describe('Message storage unit tests', () => {
+  let pool: Pool;
+  let client: PoolClient;
+  beforeEach(() => {
+    client = {
       query: jest.fn(async (sql: string, params: [unknown]) => {
         if (params[0] === 'throw-error') {
           throw new Error('message not stored');
@@ -95,126 +87,74 @@ jest.mock('pg', () => {
         }
         throw new Error(`Missed to mock the following SQL query: ${sql}`);
       }),
+    } as unknown as PoolClient;
+    pool = {
+      connect: () => client,
       on: jest.fn(),
       release: jest.fn(),
-    })),
-  };
-});
+    } as unknown as Pool;
+  });
 
-jest.mock('../common/utils', () => {
-  return {
-    ...jest.requireActual('../common/utils'),
-    executeTransaction: jest.fn(
-      async (
-        client: PoolClient,
-        callback: (client: PoolClient) => Promise<unknown>,
-      ) => {
-        const response = await callback(client);
-        client.release();
-        return response;
-      },
-    ),
-  };
-});
-
-describe('Inbox message storage unit tests', () => {
-  describe('initializeInboxMessageStorage', () => {
-    test('it initializes the inbox message storage and stores a message without an error', async () => {
+  describe('initializeMessageStorage', () => {
+    test('it initializes the message storage and stores a message without an error', async () => {
       // Act
-      const [storeInboxMessage, shutdown] = initializeInboxMessageStorage(
+      const storeMessage = initializeMessageStorage(
         config,
         getDisabledLogger(),
       );
 
       // Assert
-      await expect(storeInboxMessage(message)).resolves.not.toThrow();
-      await shutdown();
+      await expect(
+        storeMessage(message, await pool.connect()),
+      ).resolves.not.toThrow();
     });
 
-    test('it logs an PostgreSQL error when it is raised', async () => {
-      // Arrange
-      const [logger, logs] = getInMemoryLogger('test');
-      const error = new Error('Test');
-
+    test('it initializes the message storage and catches an error and logs it', async () => {
       // Act
-      const [_, shutdown] = initializeInboxMessageStorage(config, logger);
-      onPoolError(error);
-
-      // Assert
-      expect(logs).toHaveLength(1);
-      expect(logs[0].args).toEqual([error, 'PostgreSQL pool error']);
-      await shutdown();
-    });
-
-    test('it initializes the inbox message storage and catches an error and logs it', async () => {
-      // Act
-      const [storeInboxMessage, shutdown] = initializeInboxMessageStorage(
+      const storeMessage = initializeMessageStorage(
         config,
         getDisabledLogger(),
       );
-      // Let the `await pool.end();` throw an error
-      jest.mocked(Pool).mock.results[0].value.end = () => {
-        throw new Error('test');
+      client.query = () => {
+        throw new Error();
       };
 
       // Assert
       await expect(
-        storeInboxMessage({
-          ...message,
-          id: 'throw-error',
-        }),
+        storeMessage(
+          {
+            ...message,
+            id: 'throw-error',
+          },
+          await pool.connect(),
+        ),
       ).rejects.toThrow(
         `Could not store the inbox message with id throw-error`,
       );
-      await shutdown();
-    });
-
-    test('it catches an error during shutdown and logs it', async () => {
-      // Arrange
-      const [logger, logs] = getInMemoryLogger('test');
-      const error = new Error('test');
-
-      // Act
-      const [_, shutdown] = initializeInboxMessageStorage(config, logger);
-
-      // Assert
-      // Let the `await pool.end();` throw an error
-      const testPoolIndex = jest.mocked(Pool).mock.results.length;
-      jest.mocked(Pool).mock.results[testPoolIndex - 1].value.end = () => {
-        throw error;
-      };
-      await shutdown();
-      expect(logs).toHaveLength(1);
-      expect(logs[0].args).toEqual([
-        error,
-        'Inbox message storage shutdown error',
-      ]);
-      await shutdown();
     });
 
     test('it logs a warning when the message already existed', async () => {
       // Arrange
       const [logger, logs] = getInMemoryLogger('unit test');
-      const [storeInboxMessage, shutdown] = initializeInboxMessageStorage(
-        config,
-        logger,
-      );
+      const storeMessage = initializeMessageStorage(config, logger);
 
       // Assert
       await expect(
-        storeInboxMessage({ ...message, id: 'already-existed' }),
+        storeMessage(
+          { ...message, id: 'already-existed' },
+          await pool.connect(),
+        ),
       ).resolves.not.toThrow();
       const log = logs.filter(
         (log) =>
           log.args[1] === 'The message with id already-existed already existed',
       );
       expect(log).toHaveLength(1);
-      await shutdown();
     });
   });
 
   describe('startedAttemptsIncrement', () => {
-    let message: InboxMessage;
+    let message: StoredTransactionalMessage;
     const client = {
       query: jest.fn().mockResolvedValue({
         rowCount: 1,
@@ -235,7 +175,7 @@ describe('Inbox message storage unit tests', () => {
         metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
         createdAt: '2023-01-18T21:02:27.000Z',
         // Not yet filled: startedAttempts, finishedAttempts, and processedAt
-      } as unknown as InboxMessage;
+      } as unknown as StoredTransactionalMessage;
     });
 
     it('should increment started_attempts and return true for unprocessed messages', async () => {
@@ -261,8 +201,6 @@ describe('Inbox message storage unit tests', () => {
       'should return "true" when the message is found and was not processed and add the values to the message: %p',
       async (finished_attempts) => {
         // Arrange
-        const pool = new Pool();
-        const client = await pool.connect();
         client.query = jest.fn().mockResolvedValue({
           rowCount: 1,
           rows: [
@@ -276,20 +214,20 @@ describe('Inbox message storage unit tests', () => {
 
         // Act
         const result = await startedAttemptsIncrement(
-          inboxMessage,
+          storedMessage,
           client,
           config,
         );
 
         // Assert
         expect(result).toBe(true);
-        expect(inboxMessage.finishedAttempts).toBe(finished_attempts);
-        expect(inboxMessage.startedAttempts).toBe(finished_attempts + 1);
-        expect(inboxMessage.processedAt).toBeNull();
+        expect(storedMessage.finishedAttempts).toBe(finished_attempts);
+        expect(storedMessage.startedAttempts).toBe(finished_attempts + 1);
+        expect(storedMessage.processedAt).toBeNull();
       },
     );
 
-    it('should return "INBOX_MESSAGE_NOT_FOUND" for non-existent messages', async () => {
+    it('should return "MESSAGE_NOT_FOUND" for non-existent messages', async () => {
       // Arrange
       client.query = jest.fn().mockResolvedValue({ rowCount: 0 });
 
@@ -297,7 +235,7 @@ describe('Inbox message storage unit tests', () => {
       const result = await startedAttemptsIncrement(message, client, config);
 
       // Assert
-      expect(result).toBe('INBOX_MESSAGE_NOT_FOUND');
+      expect(result).toBe('MESSAGE_NOT_FOUND');
     });
 
     it('should return "ALREADY_PROCESSED" for already processed messages', async () => {
@@ -321,31 +259,27 @@ describe('Inbox message storage unit tests', () => {
     });
   });
 
-  describe('initiateInboxMessageProcessing', () => {
-    test('it verifies the inbox message', async () => {
-      // Arrange
-      const pool = new Pool();
-      const client = await pool.connect();
-
+  describe('initiateMessageProcessing', () => {
+    test('it verifies the message', async () => {
       // Act + Assert
-      // Test for INBOX_MESSAGE_NOT_FOUND (no row found)
+      // Test for MESSAGE_NOT_FOUND (no row found)
       client.query = jest.fn().mockResolvedValue({
         rowCount: 0,
       });
-      let result = await initiateInboxMessageProcessing(
-        { ...inboxMessage },
+      let result = await initiateMessageProcessing(
+        { ...storedMessage },
         client,
         config,
       );
-      expect(result).toBe('INBOX_MESSAGE_NOT_FOUND');
+      expect(result).toBe('MESSAGE_NOT_FOUND');
 
       // Test for ALREADY_PROCESSED (one row found but has a processed date)
       client.query = jest.fn().mockResolvedValue({
         rowCount: 1,
         rows: [{ processed_at: new Date() }],
       });
-      result = await initiateInboxMessageProcessing(
-        { ...inboxMessage },
+      result = await initiateMessageProcessing(
+        { ...storedMessage },
         client,
         config,
       );
@@ -356,18 +290,16 @@ describe('Inbox message storage unit tests', () => {
         rowCount: 1,
         rows: [{ processed_at: null, finished_attempts: 0 }],
       });
-      result = await initiateInboxMessageProcessing(
-        { ...inboxMessage },
+      result = await initiateMessageProcessing(
+        { ...storedMessage },
         client,
         config,
       );
       expect(result).toBe(true);
     });
 
-    test('it verifies that it updates the inbox message properties when it was processed', async () => {
+    test('it verifies that it updates the message properties when it was processed', async () => {
       // Arrange
-      const pool = new Pool();
-      const client = await pool.connect();
       client.query = jest.fn().mockResolvedValue({
         rowCount: 1,
         rows: [
@@ -378,16 +310,16 @@ describe('Inbox message storage unit tests', () => {
           },
         ],
       });
-      const msg = { ...inboxMessage };
+      const msg = { ...storedMessage };
 
       // Act
-      const result = await initiateInboxMessageProcessing(msg, client, config);
+      const result = await initiateMessageProcessing(msg, client, config);
 
       // Assert
       expect(result).toBe('ALREADY_PROCESSED');
       expect(msg).toMatchObject<
         Pick<
-          InboxMessage,
+          StoredTransactionalMessage,
           'startedAttempts' | 'finishedAttempts' | 'processedAt'
         >
       >({
@@ -397,10 +329,8 @@ describe('Inbox message storage unit tests', () => {
       });
     });
 
-    test('it verifies that it updates the inbox message properties when it was not processed', async () => {
+    test('it verifies that it updates the message properties when it was not processed', async () => {
       // Arrange
-      const pool = new Pool();
-      const client = await pool.connect();
       client.query = jest.fn().mockResolvedValue({
         rowCount: 1,
         rows: [
@@ -411,16 +341,16 @@ describe('Inbox message storage unit tests', () => {
           },
         ],
       });
-      const msg = { ...inboxMessage };
+      const msg = { ...storedMessage };
 
       // Act
-      const result = await initiateInboxMessageProcessing(msg, client, config);
+      const result = await initiateMessageProcessing(msg, client, config);
 
       // Assert
       expect(result).toBe(true);
       expect(msg).toMatchObject<
         Pick<
-          InboxMessage,
+          StoredTransactionalMessage,
           'startedAttempts' | 'finishedAttempts' | 'processedAt'
         >
       >({
@@ -431,39 +361,35 @@ describe('Inbox message storage unit tests', () => {
     });
   });
 
-  describe('markInboxMessageCompleted', () => {
+  describe('markMessageCompleted', () => {
     it('should call query with the correct parameters', async () => {
       // Arrange
-      const pool = new Pool();
-      const client = await pool.connect();
       client.query = jest.fn().mockResolvedValue({
         rowCount: 0,
       });
 
       // Act
-      await markInboxMessageCompleted(inboxMessage, client, config);
+      await markMessageCompleted(storedMessage, client, config);
 
       // Assert
       expect(client.query).toHaveBeenCalledWith(
         `UPDATE ${config.settings.dbSchema}.${config.settings.dbTable} SET processed_at = $1, finished_attempts = finished_attempts + 1 WHERE id = $2`,
-        [expect.any(String), inboxMessage.id],
+        [expect.any(String), storedMessage.id],
       );
     });
   });
 
-  describe('nackInbox', () => {
+  describe('nackMessage', () => {
     it('The nack logic increments the finished_attempts by one', async () => {
       // Arrange
-      const pool = new Pool();
-      const client = await pool.connect();
       client.query = jest.fn().mockResolvedValue({
         rowCount: 0,
         rows: [],
       });
 
       // Act
-      await increaseInboxMessageFinishedAttempts(
-        { ...inboxMessage },
+      await increaseMessageFinishedAttempts(
+        { ...storedMessage },
         client,
         config,
       );
@@ -473,7 +399,7 @@ describe('Inbox message storage unit tests', () => {
         expect.stringContaining(
           'UPDATE test_schema.test_table SET finished_attempts = finished_attempts + 1 WHERE id = $1',
         ),
-        [inboxMessage.id],
+        [storedMessage.id],
       );
     });
   });

@@ -77,7 +77,8 @@ const outboxSetup = async (config: Config): Promise<void> => {
   try {
     logger.debug('Make sure the outbox database schema exists');
     await dbClient.query(/* sql*/ `
-      CREATE SCHEMA IF NOT EXISTS ${config.postgresOutboxSchema}
+      CREATE SCHEMA IF NOT EXISTS ${config.postgresOutboxSchema};
+      GRANT USAGE ON SCHEMA ${config.postgresOutboxSchema} TO ${config.postgresLoginRole};
     `);
 
     logger.debug('Create the outbox table');
@@ -85,15 +86,18 @@ const outboxSetup = async (config: Config): Promise<void> => {
       DROP TABLE IF EXISTS ${config.postgresOutboxSchema}.${config.postgresOutboxTable} CASCADE;
       CREATE TABLE ${config.postgresOutboxSchema}.${config.postgresOutboxTable} (
         id uuid PRIMARY KEY,
-        aggregate_type VARCHAR(255) NOT NULL,
-        aggregate_id VARCHAR(255) NOT NULL,
-        message_type VARCHAR(255) NOT NULL,
+        aggregate_type TEXT NOT NULL,
+        aggregate_id TEXT NOT NULL,
+        message_type TEXT NOT NULL,
         payload JSONB NOT NULL,
         metadata JSONB,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-      GRANT USAGE ON SCHEMA ${config.postgresOutboxSchema} TO ${config.postgresLoginRole} ;
-      GRANT SELECT, INSERT, UPDATE, DELETE ON ${config.postgresOutboxSchema}.${config.postgresOutboxTable} TO ${config.postgresLoginRole};
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        processed_at TIMESTAMPTZ,
+        started_attempts smallint NOT NULL DEFAULT 0,
+        finished_attempts smallint NOT NULL DEFAULT 0
+      );      
+      GRANT SELECT, INSERT, DELETE ON ${config.postgresOutboxSchema}.${config.postgresOutboxTable} TO ${config.postgresLoginRole};
+      GRANT UPDATE (processed_at, started_attempts, finished_attempts) ON ${config.postgresOutboxSchema}.${config.postgresOutboxTable} TO ${config.postgresLoginRole};
     `);
 
     logger.debug('Create the outbox publication');

@@ -1,15 +1,15 @@
 import { ClientConfig, Pool } from 'pg';
+import { OutboxOrInbox } from '../common/definitions';
 import {
   ExtendedError,
   MessageError,
   ensureExtendedError,
 } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
-import { TransactionalOutboxInboxConfig } from '../replication/config';
-import { ListenerType } from '../replication/logical-replication-listener';
+import { ReplicationConfig } from '../replication/config';
 
 /**
- * When some error is caught in the inbox or outbox listener this strategy will
+ * When some error is caught in the outbox or inbox listener this strategy will
  * allow you to log/track the error and potentially remove the underlying issue
  * e.g. if the replication slot does not exist after a database failover. It
  * returns the wait time until the listener should try to connect again.
@@ -19,13 +19,13 @@ export interface ListenerRestartStrategy {
    * Check based on the error how long the listener should wait to restart.
    * @param error The caught error object (non Error type errors are wrapped)
    * @param logger The logger instance to use for logging the error.
-   * @param listenerType The inbox or outbox listener name
+   * @param outboxOrInbox The outbox or inbox name
    * @returns The time in milliseconds how long the listener should wait before restarting
    */
   (
     error: ExtendedError,
     logger: TransactionalLogger,
-    listenerType: ListenerType,
+    outboxOrInbox: OutboxOrInbox,
   ): Promise<number>;
 }
 
@@ -37,7 +37,7 @@ export interface ListenerRestartStrategy {
  * configured `restartDelay` (default: 250ms).
  */
 export const defaultListenerRestartStrategy = (
-  config: TransactionalOutboxInboxConfig,
+  config: ReplicationConfig,
 ): ListenerRestartStrategy => {
   return handleError(config);
 };
@@ -51,7 +51,7 @@ export const defaultListenerRestartStrategy = (
  * 250ms).
  */
 export const defaultListenerAndSlotRestartStrategy = (
-  config: TransactionalOutboxInboxConfig,
+  config: ReplicationConfig,
 ): ListenerRestartStrategy => {
   return handleError(config, createReplicationSlot);
 };
@@ -59,20 +59,20 @@ export const defaultListenerAndSlotRestartStrategy = (
 const handleError = (
   {
     settings: { restartDelay, restartDelaySlotInUse, postgresSlot },
-    pgReplicationConfig,
-  }: TransactionalOutboxInboxConfig,
+    dbListenerConfig: pgReplicationConfig,
+  }: ReplicationConfig,
   replicationSlotNotFoundCallback?: typeof createReplicationSlot,
 ): ListenerRestartStrategy => {
   return async (
     error: ExtendedError,
     logger: TransactionalLogger,
-    listenerType: ListenerType,
+    outboxOrInbox: OutboxOrInbox,
   ): Promise<number> => {
     if ('routine' in error && error.routine === 'ReplicationSlotAcquire') {
       if ('code' in error && error.code === '55006') {
         logger.trace(
           error,
-          `The replication slot for the ${listenerType} listener is currently in use.`,
+          `The replication slot for the ${outboxOrInbox} listener is currently in use.`,
         );
         return restartDelaySlotInUse ?? 10_000;
       } else if ('code' in error && error.code === '42704') {
@@ -82,7 +82,7 @@ const handleError = (
           pgReplicationConfig,
           postgresSlot,
           logger,
-          listenerType,
+          outboxOrInbox,
         );
       }
       return restartDelay ?? 250;
@@ -93,7 +93,7 @@ const handleError = (
       error.constructor.name !== MessageError.name // needed for jest which has an "instanceof" bug
     ) {
       // Message based errors are already logged
-      logger.error(error, `Transactional ${listenerType} listener error`);
+      logger.error(error, `Transactional ${outboxOrInbox} listener error`);
     }
     return restartDelay ?? 250;
   };
@@ -103,7 +103,7 @@ const createReplicationSlot = async (
   pgReplicationConfig: ClientConfig,
   postgresSlot: string,
   logger: TransactionalLogger,
-  listenerType: string,
+  outboxOrInbox: string,
 ) => {
   const pool = new Pool(pgReplicationConfig);
   try {
@@ -113,7 +113,7 @@ const createReplicationSlot = async (
   } catch (err) {
     logger.trace(
       ensureExtendedError(err, 'DB_ERROR'),
-      `Failed to create the replication slot for the ${listenerType} which does not exist.`,
+      `Failed to create the replication slot for the ${outboxOrInbox} which does not exist.`,
     );
   } finally {
     try {

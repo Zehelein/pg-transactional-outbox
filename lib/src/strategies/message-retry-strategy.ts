@@ -1,5 +1,5 @@
-import { InboxMessage } from '../common/message';
-import { InboxConfig } from '../inbox/inbox-listener';
+import { StoredTransactionalMessage } from '../message/message';
+import { ReplicationConfig } from '../replication/config';
 
 /**
  * Decides if a message should be attempted and what the maximum number of
@@ -10,10 +10,10 @@ export interface MessageRetryStrategy {
    * Checks if the message should be retried after an error occurred. The number
    * of processing attempts (including the current) is available in the message
    * object.
-   * @param message The inbox message
+   * @param message The stored message
    * @returns true if the message should be retried, otherwise false.
    */
-  (message: InboxMessage): boolean;
+  (message: StoredTransactionalMessage): boolean;
 }
 
 /**
@@ -22,9 +22,9 @@ export interface MessageRetryStrategy {
  * `config.settings.maxAttempts` variable and defaults to 5 attempts.
  */
 export const defaultMessageRetryStrategy = (
-  config: InboxConfig,
+  config: ReplicationConfig,
 ): MessageRetryStrategy => {
   const maxAttempts = config.settings.maxAttempts ?? 5;
-  return (message: InboxMessage): boolean =>
+  return (message: StoredTransactionalMessage): boolean =>
     message.finishedAttempts < maxAttempts;
 };

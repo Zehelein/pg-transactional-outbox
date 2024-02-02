@@ -1,4 +1,4 @@
-import { InboxMessage } from '../common/message';
+import { StoredTransactionalMessage } from '../message/message';
 import { defaultMessageProcessingTransactionLevelStrategy } from './message-processing-transaction-level-strategy';
 
 describe('defaultMessageProcessingTransactionLevelStrategy', () => {
@@ -7,7 +7,7 @@ describe('defaultMessageProcessingTransactionLevelStrategy', () => {
       id: '1',
       startedAttempts: 0,
       finishedAttempts: 0,
-    } as InboxMessage;
+    } as StoredTransactionalMessage;
     const getTransactionLevel =
       defaultMessageProcessingTransactionLevelStrategy();
 

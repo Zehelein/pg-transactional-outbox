@@ -1,4 +1,4 @@
-import { OutboxConfig } from 'pg-transactional-outbox';
+import { ReplicationConfig } from 'pg-transactional-outbox';
 
 /**
  * Parses the environment or provided settings and ensures all the fields are
@@ -81,9 +81,17 @@ export const getConfig = (env: Env = process.env) => {
 /** The configuration object type with parsed environment variables. */
 export type Config = ReturnType<typeof getConfig>;
 
-export const getOutboxConfig = (config: Config): OutboxConfig => {
+export const getOutboxConfig = (config: Config): ReplicationConfig => {
   return {
-    pgReplicationConfig: {
+    outboxOrInbox: 'outbox',
+    dbHandlerConfig: {
+      host: config.postgresHost,
+      port: config.postgresPort,
+      user: config.postgresLoginRole,
+      password: config.postgresLoginRolePassword,
+      database: config.postgresDatabase,
+    },
+    dbListenerConfig: {
       host: config.postgresHost,
       port: config.postgresPort,
       user: config.postgresOutboxRole,
@@ -95,6 +103,9 @@ export const getOutboxConfig = (config: Config): OutboxConfig => {
       dbTable: config.postgresOutboxTable,
       postgresPub: config.postgresOutboxPub,
       postgresSlot: config.postgresOutboxSlot,
+      // For the outbox we skip those settings as we assume sending the message will succeed (once RabbitMQ is up again)
+      enableMaxAttemptsProtection: false,
+      enablePoisonousMessageProtection: false,
     },
   };
 };

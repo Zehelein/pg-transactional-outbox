@@ -1,16 +1,16 @@
-import { InboxMessage } from '../common/message';
-import { InboxConfig } from '../inbox/inbox-listener';
+import { StoredTransactionalMessage } from '../message/message';
+import { ReplicationConfig } from '../replication/config';
 
 /**
  * Decide based on the message, the poisonous attempts counter (which is
  * already increased by one), and the processing attempts if the message
  * should be retried again or not. This method is called if the
  * "started_attempts" and the "finished_attempts" differ by more than one.
- * @param message The potentially poisonous inbox message
+ * @param message The potentially poisonous message
  * @returns true if it should be retried - otherwise false
  */
 export interface PoisonousMessageRetryStrategy {
-  (message: InboxMessage): boolean;
+  (message: StoredTransactionalMessage): boolean;
 }
 
 /**
@@ -21,8 +21,8 @@ export interface PoisonousMessageRetryStrategy {
  * retry attempts.
  */
 export const defaultPoisonousMessageRetryStrategy =
-  (config: InboxConfig): PoisonousMessageRetryStrategy =>
-  (message: InboxMessage): boolean => {
+  (config: ReplicationConfig): PoisonousMessageRetryStrategy =>
+  (message: StoredTransactionalMessage): boolean => {
     const diff = message.startedAttempts - message.finishedAttempts;
     return diff <= (config.settings.maxPoisonousAttempts ?? 3);
   };

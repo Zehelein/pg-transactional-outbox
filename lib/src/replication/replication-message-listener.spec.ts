@@ -7,16 +7,15 @@ import EventEmitter from 'events';
 import inspector from 'inspector';
 import { Client, Connection, PoolClient } from 'pg';
 import { Pgoutput } from 'pg-logical-replication';
+import { OutboxOrInbox } from '../common/definitions';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
-import { InboxMessage } from '../common/message';
 import { IsolationLevel, sleep } from '../common/utils';
+import { StoredTransactionalMessage } from '../message/message';
+import * as messageStorageSpy from '../message/message-storage';
 import { defaultMessageProcessingDbClientStrategy } from '../strategies/message-processing-db-client-strategy';
-import {
-  InboxConfig,
-  InboxStrategies,
-  initializeInboxListener,
-} from './inbox-listener';
-import * as inboxStorageSpy from './inbox-message-storage';
+import { ReplicationConfig } from './config';
+import { initializeReplicationMessageListener } from './replication-message-listener';
+import { ReplicationMessageStrategies } from './replication-strategies';
 
 type MessageIdType =
   | 'not_processed_id'
@@ -46,7 +45,7 @@ jest.mock('pg-logical-replication', () => {
           return {
             tag: 'insert',
             relation,
-            new: inboxMessageByFlag(buffer),
+            new: messageByFlag(buffer),
           };
         }),
         start: async () => {
@@ -104,13 +103,13 @@ const sendReplicationChunk = (id: MessageIdType) => {
   });
 };
 
-const markInboxMessageCompletedSpy = jest.spyOn(
-  inboxStorageSpy,
-  'markInboxMessageCompleted',
+const markMessageCompletedSpy = jest.spyOn(
+  messageStorageSpy,
+  'markMessageCompleted',
 );
-const increaseInboxMessageFinishedAttemptsSpy = jest.spyOn(
-  inboxStorageSpy,
-  'increaseInboxMessageFinishedAttempts',
+const increaseMessageFinishedAttemptsSpy = jest.spyOn(
+  messageStorageSpy,
+  'increaseMessageFinishedAttempts',
 );
 
 jest.mock('../common/utils', () => {
@@ -131,7 +130,7 @@ jest.mock('../common/utils', () => {
 
 const aggregate_type = 'test_type';
 const message_type = 'test_message_type';
-const inboxDbMessages = [
+const storedDbMessages = [
   {
     id: 'not_processed_id' as MessageIdType,
     aggregate_type,
@@ -183,12 +182,12 @@ const inboxDbMessages = [
 ];
 
 /** The message directly from the DB with started_attempts/finished_attempts/processed_at */
-const inboxDbMessageById = (id: MessageIdType) =>
-  inboxDbMessages.find((m) => m.id === id);
+const storedDbMessageById = (id: MessageIdType) =>
+  storedDbMessages.find((m) => m.id === id);
 
 /** The message from the WAL having no started_attempts/finished_attempts/processed_at */
-const inboxMessageById = (id: MessageIdType) => {
-  const message = inboxDbMessageById(id);
+const storedMessageById = (id: MessageIdType) => {
+  const message = storedDbMessageById(id);
   if (!message) {
     return;
   }
@@ -198,28 +197,29 @@ const inboxMessageById = (id: MessageIdType) => {
   return messageRest;
 };
 
-const inboxMessageByFlag = (buffer: Buffer) => {
+const messageByFlag = (buffer: Buffer) => {
   switch (buffer[0]) {
     case 0:
-      return inboxMessageById('processed_id');
+      return storedMessageById('processed_id');
     case 1:
-      return inboxMessageById('not_processed_id');
+      return storedMessageById('not_processed_id');
     case 2:
-      return inboxMessageById('attempts_exceeded');
+      return storedMessageById('attempts_exceeded');
     case 3:
-      return inboxMessageById('poisonous_message_exceeded');
+      return storedMessageById('poisonous_message_exceeded');
   }
 };
 
-const config: InboxConfig = {
-  pgConfig: {
+const config: ReplicationConfig = {
+  outboxOrInbox: 'inbox',
+  dbHandlerConfig: {
     host: 'test_host',
     port: 5432,
     database: 'test_db',
     user: 'test_user',
     password: 'test_password',
   },
-  pgReplicationConfig: {
+  dbListenerConfig: {
     host: 'test_host',
     port: 5432,
     database: 'test_db',
@@ -254,7 +254,7 @@ const relation: Pgoutput.MessageRelation = {
   keyColumns: ['id'],
 };
 
-describe('Inbox service unit tests - initializeInboxService', () => {
+describe('Replication message listener unit tests - initializeReplicationMessageListener', () => {
   beforeEach(() => {
     const connection = new EventEmitter();
     (connection as any).sendCopyFromChunk = jest.fn();
@@ -267,7 +267,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
           )
         ) {
           // startedAttemptsIncrement
-          const dbMessage = inboxDbMessageById(params[0] as MessageIdType);
+          const dbMessage = storedDbMessageById(params[0] as MessageIdType);
           return {
             rowCount: dbMessage ? 1 : 0,
             rows: dbMessage
@@ -285,8 +285,8 @@ describe('Inbox service unit tests - initializeInboxService', () => {
             'SELECT started_attempts, finished_attempts, processed_at FROM test_schema.test_table WHERE id = $1 FOR UPDATE NOWAIT;',
           )
         ) {
-          // initiateInboxMessageProcessing
-          const dbMessage = inboxDbMessageById(params[0] as MessageIdType);
+          // initiateMessageProcessing
+          const dbMessage = storedDbMessageById(params[0] as MessageIdType);
           return {
             rowCount: dbMessage ? 1 : 0,
             rows: dbMessage
@@ -313,8 +313,8 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       release: jest.fn(),
     } as unknown as ReplicationClient;
 
-    markInboxMessageCompletedSpy.mockReset();
-    increaseInboxMessageFinishedAttemptsSpy.mockReset();
+    markMessageCompletedSpy.mockReset();
+    increaseMessageFinishedAttemptsSpy.mockReset();
   });
 
   it('should call the correct messageHandler and acknowledge the WAL message when no errors are thrown', async () => {
@@ -333,7 +333,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       finishedAttempts: 2,
       processedAt: null,
     };
-    const [cleanup] = initializeInboxListener(
+    const [cleanup] = initializeReplicationMessageListener(
       config,
       [
         {
@@ -365,12 +365,12 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     );
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
-    expect(markInboxMessageCompletedSpy).toHaveBeenCalledWith(
+    expect(markMessageCompletedSpy).toHaveBeenCalledWith(
       expectedMessage,
       expect.any(Object),
       expect.any(Object),
     );
-    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
+    expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(1);
@@ -383,7 +383,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
 
     // Act + Assert
     expect(() =>
-      initializeInboxListener(
+      initializeReplicationMessageListener(
         config,
         [
           {
@@ -404,11 +404,11 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     );
   });
 
-  it('should not call a messageHandler but acknowledge the WAL message when the inbox DB message was already process.', async () => {
+  it('should not call a messageHandler but acknowledge the WAL message when the DB message was already process.', async () => {
     // Arrange
     const messageHandler = jest.fn(() => Promise.resolve());
     const unusedMessageHandler = jest.fn(() => Promise.resolve());
-    const [cleanup] = initializeInboxListener(
+    const [cleanup] = initializeReplicationMessageListener(
       config,
       [
         {
@@ -433,15 +433,15 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(messageHandler).not.toHaveBeenCalled();
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
-    // As the inbox DB message was already processed --> no ack/nack needed
-    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
-    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
+    // As the DB message was already processed --> no ack/nack needed
+    expect(markMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(1);
   });
 
-  it('should not call a messageHandler but acknowledge the WAL message when the inbox DB message was somehow process by another process after the started attempts increment.', async () => {
+  it('should not call a messageHandler but acknowledge the WAL message when the DB message was somehow process by another process after the started attempts increment.', async () => {
     // Arrange
     client.query = jest
       .fn()
@@ -456,7 +456,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
           },
         ],
       })
-      // the call in initiateInboxMessageProcessing
+      // the call in initiateMessageProcessing
       .mockReturnValueOnce({
         rowCount: 1,
         rows: [
@@ -468,7 +468,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         ],
       });
     const messageHandler = jest.fn(() => Promise.resolve());
-    const [cleanup] = initializeInboxListener(
+    const [cleanup] = initializeReplicationMessageListener(
       config,
       [
         {
@@ -487,19 +487,19 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     // Assert
     expect(messageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
-    // As the inbox DB message was already processed --> no ack/nack needed
-    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
-    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
+    // As the DB message was already processed --> no ack/nack needed
+    expect(markMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(1);
   });
 
-  it('should not call a messageHandler and not acknowledge the WAL message when the inbox DB message was not found.', async () => {
+  it('should not call a messageHandler and not acknowledge the WAL message when the DB message was not found.', async () => {
     // Arrange
     const messageHandler = jest.fn(() => Promise.resolve());
     const unusedMessageHandler = jest.fn(() => Promise.resolve());
-    const [cleanup] = initializeInboxListener(
+    const [cleanup] = initializeReplicationMessageListener(
       config,
       [
         {
@@ -524,9 +524,9 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(messageHandler).not.toHaveBeenCalled();
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
-    // As the inbox DB message was not found --> no ack/nack needed
-    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
-    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
+    // As the DB message was not found --> no ack/nack needed
+    expect(markMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(1);
@@ -549,7 +549,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       finishedAttempts: 2,
       processedAt: null,
     };
-    const [cleanup] = initializeInboxListener(
+    const [cleanup] = initializeReplicationMessageListener(
       config,
       [
         {
@@ -583,8 +583,8 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(unusedErrorHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
-    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
-    expect(increaseInboxMessageFinishedAttemptsSpy).toHaveBeenCalledWith(
+    expect(markMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseMessageFinishedAttemptsSpy).toHaveBeenCalledWith(
       expectedMessage,
       expect.any(Object),
       expect.any(Object),
@@ -615,7 +615,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       finishedAttempts: 2,
       processedAt: null,
     };
-    const [cleanup] = initializeInboxListener(
+    const [cleanup] = initializeReplicationMessageListener(
       config,
       [
         {
@@ -643,8 +643,8 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       finishedAttempts: message.finishedAttempts + 1,
     };
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
-    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
-    expect(increaseInboxMessageFinishedAttemptsSpy).toHaveBeenCalledWith(
+    expect(markMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseMessageFinishedAttemptsSpy).toHaveBeenCalledWith(
       expectedMessage,
       expect.any(Object),
       expect.any(Object),
@@ -676,11 +676,12 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       processedAt: null,
     };
     const cfg = {
-      pgConfig: {
-        ...config.pgConfig,
+      outboxOrInbox: 'inbox' as OutboxOrInbox,
+      dbConfig: {
+        ...config.dbHandlerConfig,
       },
-      pgReplicationConfig: {
-        ...config.pgReplicationConfig,
+      dbListenerConfig: {
+        ...config.dbListenerConfig,
       },
       settings: { ...config.settings, enablePoisonousMessageProtection: false },
     };
@@ -694,10 +695,10 @@ describe('Inbox service unit tests - initializeInboxService', () => {
         },
       ],
     });
-    const strategies: Partial<InboxStrategies> = {
+    const strategies: Partial<ReplicationMessageStrategies> = {
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(false), // always treat it as poisonous
     };
-    const [cleanup] = initializeInboxListener(
+    const [cleanup] = initializeReplicationMessageListener(
       cfg,
       [
         {
@@ -726,12 +727,12 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     );
     expect(strategies.poisonousMessageRetryStrategy).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
-    expect(markInboxMessageCompletedSpy).toHaveBeenCalledWith(
+    expect(markMessageCompletedSpy).toHaveBeenCalledWith(
       expectedMessage,
       expect.any(Object),
       expect.any(Object),
     );
-    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
+    expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(1);
@@ -740,7 +741,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
   it('should not call the messageHandler on a poisonous message that already has exceeded the maximum poisonous retries', async () => {
     // Arrange
     const messageHandler = jest.fn(() => Promise.resolve());
-    const message: InboxMessage = {
+    const message: StoredTransactionalMessage = {
       id: 'poisonous_message_exceeded',
       aggregateType: aggregate_type,
       messageType: message_type,
@@ -752,7 +753,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       finishedAttempts: 1,
       processedAt: null,
     };
-    const [cleanup] = initializeInboxListener(
+    const [cleanup] = initializeReplicationMessageListener(
       config,
       [
         {
@@ -771,8 +772,8 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     // Assert
     expect(messageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
-    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
-    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
+    expect(markMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(1);
@@ -793,7 +794,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       finishedAttempts: 4,
       processedAt: null,
     };
-    const [cleanup] = initializeInboxListener(
+    const [cleanup] = initializeReplicationMessageListener(
       config,
       [
         {
@@ -819,8 +820,8 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     // Assert
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
-    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
-    expect(increaseInboxMessageFinishedAttemptsSpy).toHaveBeenCalledWith(
+    expect(markMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseMessageFinishedAttemptsSpy).toHaveBeenCalledWith(
       {
         ...message,
         finishedAttempts: message.finishedAttempts + 1,
@@ -838,7 +839,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     // Arrange
     const messageHandler = jest.fn(() => Promise.resolve());
     const cfg = { ...config, settings: { ...config.settings, maxAttempts: 4 } };
-    const [cleanup] = initializeInboxListener(
+    const [cleanup] = initializeReplicationMessageListener(
       cfg,
       [
         {
@@ -857,8 +858,8 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     // Assert
     expect(messageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
-    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
-    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
+    expect(markMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(1);
@@ -882,7 +883,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       processedAt: null,
     };
     const [logger, logs] = getInMemoryLogger('unit test');
-    const [cleanup] = initializeInboxListener(
+    const [cleanup] = initializeReplicationMessageListener(
       config,
       [
         {
@@ -908,8 +909,8 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       finishedAttempts: message.finishedAttempts + 1,
     };
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
-    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
-    expect(increaseInboxMessageFinishedAttemptsSpy).toHaveBeenCalledWith(
+    expect(markMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseMessageFinishedAttemptsSpy).toHaveBeenCalledWith(
       expectedMessage,
       expect.any(Object),
       expect.any(Object),
@@ -954,7 +955,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       processedAt: null,
     };
     const [logger, logs] = getInMemoryLogger('unit test');
-    const [cleanup] = initializeInboxListener(
+    const [cleanup] = initializeReplicationMessageListener(
       config,
       [
         {
@@ -972,7 +973,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
           getClient: jest
             .fn()
             .mockReturnValueOnce(dbClientStrategy.getClient(message)) // startedAttemptsIncrement
-            .mockReturnValueOnce(dbClientStrategy.getClient(message)) // initiateInboxMessageProcessing
+            .mockReturnValueOnce(dbClientStrategy.getClient(message)) // initiateMessageProcessing
             .mockReturnValueOnce(dbClientStrategy.getClient(message)) // handleError
             .mockReturnValueOnce(null), // best effort increment - which should fail
           shutdown: dbClientStrategy.shutdown,
@@ -991,9 +992,9 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       finishedAttempts: message.finishedAttempts + 1,
     };
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
-    expect(markInboxMessageCompletedSpy).not.toHaveBeenCalled();
-    expect(increaseInboxMessageFinishedAttemptsSpy).toHaveBeenCalledTimes(1);
-    expect(increaseInboxMessageFinishedAttemptsSpy).toHaveBeenCalledWith(
+    expect(markMessageCompletedSpy).not.toHaveBeenCalled();
+    expect(increaseMessageFinishedAttemptsSpy).toHaveBeenCalledTimes(1);
+    expect(increaseMessageFinishedAttemptsSpy).toHaveBeenCalledWith(
       expectedMessage,
       null,
       expect.any(Object),
@@ -1036,7 +1037,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       finishedAttempts: 2,
       processedAt: null,
     };
-    const [cleanup] = initializeInboxListener(
+    const [cleanup] = initializeReplicationMessageListener(
       config,
       [
         {
@@ -1059,16 +1060,16 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     };
     expect(messageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
-    expect(markInboxMessageCompletedSpy).toHaveBeenCalledWith(
+    expect(markMessageCompletedSpy).toHaveBeenCalledWith(
       expectedMessage,
       expect.any(Object),
       expect.any(Object),
     );
-    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
+    expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     const log = logs.filter(
       (log) =>
         log.args[0] ===
-        'No message handler found for aggregate type "test_type" and message tye "test_message_type"',
+        'No inbox message handler found for aggregate type "test_type" and message tye "test_message_type"',
     );
     expect(log).toHaveLength(1);
     expect(client.connect).toHaveBeenCalledTimes(1);
@@ -1079,7 +1080,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
   it('should raise an error if no message handlers are defined', () => {
     // Act
     expect(() =>
-      initializeInboxListener(config, [], getDisabledLogger()),
+      initializeReplicationMessageListener(config, [], getDisabledLogger()),
     ).toThrow('At least one message handler must be provided');
   });
 
@@ -1099,7 +1100,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       finishedAttempts: 2,
       processedAt: null,
     };
-    const strategies: InboxStrategies = {
+    const strategies: ReplicationMessageStrategies = {
       concurrencyStrategy: {
         acquire: jest.fn().mockReturnValue(() => {
           /** just release */
@@ -1118,7 +1119,7 @@ describe('Inbox service unit tests - initializeInboxService', () => {
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(true),
       listenerRestartStrategy: jest.fn().mockReturnValue(123),
     };
-    const [cleanup] = initializeInboxListener(
+    const [cleanup] = initializeReplicationMessageListener(
       config,
       [
         {
@@ -1160,12 +1161,12 @@ describe('Inbox service unit tests - initializeInboxService', () => {
     expect(strategies.poisonousMessageRetryStrategy).not.toHaveBeenCalled();
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
-    expect(markInboxMessageCompletedSpy).toHaveBeenCalledWith(
+    expect(markMessageCompletedSpy).toHaveBeenCalledWith(
       expectedMessage,
       expect.any(Object),
       expect.any(Object),
     );
-    expect(increaseInboxMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
+    expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(1);
