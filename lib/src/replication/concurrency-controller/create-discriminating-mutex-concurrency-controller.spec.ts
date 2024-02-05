@@ -1,10 +1,10 @@
-import { sleep } from '../common/utils';
-import { TransactionalMessage } from '../message/message';
-import { ConcurrencyController } from './concurrency-controller';
-import { createDiscriminatingMutexConcurrencyController } from './create-discriminating-mutex-concurrency-controller';
+import { sleep } from '../../common/utils';
+import { TransactionalMessage } from '../../message/transactional-message';
+import { ReplicationConcurrencyController } from './concurrency-controller';
+import { createReplicationDiscriminatingMutexConcurrencyController } from './create-discriminating-mutex-concurrency-controller';
 
 const protectedAsyncFunction = async (
-  controller: ConcurrencyController,
+  controller: ReplicationConcurrencyController,
   task: (message: OrderMessage) => Promise<void>,
   message: TransactionalMessage,
 ) => {
@@ -32,12 +32,13 @@ interface OrderMessage {
   id: number;
 }
 
-describe('createDiscriminatingMutexConcurrencyController', () => {
+describe('createReplicationDiscriminatingMutexConcurrencyController', () => {
   it('Executes tasks in sequential order within a context but the contexts in parallel', async () => {
     // Arrange
-    const controller = createDiscriminatingMutexConcurrencyController(
-      (message) => message.messageType,
-    );
+    const controller =
+      createReplicationDiscriminatingMutexConcurrencyController(
+        (message) => message.messageType,
+      );
     const orderA: number[] = [];
     const orderB: number[] = [];
     const firstTask =
@@ -85,9 +86,10 @@ describe('createDiscriminatingMutexConcurrencyController', () => {
 
   it('Cancels all mutexes', async () => {
     // Arrange
-    const controller = createDiscriminatingMutexConcurrencyController(
-      (message) => message.messageType,
-    );
+    const controller =
+      createReplicationDiscriminatingMutexConcurrencyController(
+        (message) => message.messageType,
+      );
     const orderA: number[] = [];
     const errorA: number[] = [];
     const orderB: number[] = [];

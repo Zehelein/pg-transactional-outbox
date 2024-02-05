@@ -1,12 +1,12 @@
 import { ClientConfig, Pool } from 'pg';
-import { OutboxOrInbox } from '../common/definitions';
+import { OutboxOrInbox } from '../../common/base-config';
 import {
   ExtendedError,
   MessageError,
   ensureExtendedError,
-} from '../common/error';
-import { TransactionalLogger } from '../common/logger';
-import { ReplicationConfig } from '../replication/config';
+} from '../../common/error';
+import { TransactionalLogger } from '../../common/logger';
+import { ReplicationConfig } from '../config';
 
 /**
  * When some error is caught in the outbox or inbox listener this strategy will
@@ -14,7 +14,7 @@ import { ReplicationConfig } from '../replication/config';
  * e.g. if the replication slot does not exist after a database failover. It
  * returns the wait time until the listener should try to connect again.
  */
-export interface ListenerRestartStrategy {
+export interface ReplicationListenerRestartStrategy {
   /**
    * Check based on the error how long the listener should wait to restart.
    * @param error The caught error object (non Error type errors are wrapped)
@@ -36,9 +36,9 @@ export interface ListenerRestartStrategy {
  * (default: 10sec) time. Otherwise, it logs an error entry and waits for the
  * configured `restartDelay` (default: 250ms).
  */
-export const defaultListenerRestartStrategy = (
+export const defaultReplicationListenerRestartStrategy = (
   config: ReplicationConfig,
-): ListenerRestartStrategy => {
+): ReplicationListenerRestartStrategy => {
   return handleError(config);
 };
 
@@ -50,9 +50,9 @@ export const defaultListenerRestartStrategy = (
  * replication user slot and waits for the configured `restartDelay` (default:
  * 250ms).
  */
-export const defaultListenerAndSlotRestartStrategy = (
+export const defaultReplicationListenerAndSlotRestartStrategy = (
   config: ReplicationConfig,
-): ListenerRestartStrategy => {
+): ReplicationListenerRestartStrategy => {
   return handleError(config, createReplicationSlot);
 };
 
@@ -62,7 +62,7 @@ const handleError = (
     dbListenerConfig: pgReplicationConfig,
   }: ReplicationConfig,
   replicationSlotNotFoundCallback?: typeof createReplicationSlot,
-): ListenerRestartStrategy => {
+): ReplicationListenerRestartStrategy => {
   return async (
     error: ExtendedError,
     logger: TransactionalLogger,

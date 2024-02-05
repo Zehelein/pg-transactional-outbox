@@ -1,5 +1,5 @@
 import { IsolationLevel } from '../common/utils';
-import { StoredTransactionalMessage } from '../message/message';
+import { StoredTransactionalMessage } from '../message/transactional-message';
 
 /**
  * Defines which transaction isolation level should be used to handle the given

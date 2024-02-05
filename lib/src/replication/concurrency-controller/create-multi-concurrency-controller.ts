@@ -1,12 +1,12 @@
-import { MessageError } from '../common/error';
-import { TransactionalMessage } from '../message/message';
-import { ConcurrencyController } from './concurrency-controller';
-import { createDiscriminatingMutexConcurrencyController } from './create-discriminating-mutex-concurrency-controller';
-import { createFullConcurrencyController } from './create-full-concurrency-controller';
-import { createMutexConcurrencyController } from './create-mutex-concurrency-controller';
-import { createSemaphoreConcurrencyController } from './create-semaphore-concurrency-controller';
+import { MessageError } from '../../common/error';
+import { TransactionalMessage } from '../../message/transactional-message';
+import { ReplicationConcurrencyController } from './concurrency-controller';
+import { createReplicationDiscriminatingMutexConcurrencyController } from './create-discriminating-mutex-concurrency-controller';
+import { createReplicationFullConcurrencyController } from './create-full-concurrency-controller';
+import { createReplicationMutexConcurrencyController } from './create-mutex-concurrency-controller';
+import { createReplicationSemaphoreConcurrencyController } from './create-semaphore-concurrency-controller';
 
-export type MultiConcurrencyType =
+export type ReplicationMultiConcurrencyType =
   | 'mutex'
   | 'semaphore'
   | 'full-concurrency'
@@ -22,19 +22,24 @@ export type MultiConcurrencyType =
  * @param discriminator The discriminator to find or create a mutex for when using the discriminating mutex.
  * @returns The controller to acquire and release the mutex for a specific discriminator
  */
-export const createMultiConcurrencyController = (
-  getConcurrencyType: (message: TransactionalMessage) => MultiConcurrencyType,
+export const createReplicationMultiConcurrencyController = (
+  getConcurrencyType: (
+    message: TransactionalMessage,
+  ) => ReplicationMultiConcurrencyType,
   settings?: {
     discriminator?: (message: TransactionalMessage) => string;
     maxSemaphoreParallelism?: number;
   },
-): ConcurrencyController => {
-  const fullConcurrencyController = createFullConcurrencyController();
-  const mutexController = createMutexConcurrencyController();
+): ReplicationConcurrencyController => {
+  const fullConcurrencyController =
+    createReplicationFullConcurrencyController();
+  const mutexController = createReplicationMutexConcurrencyController();
   const discriminatingMutexController = settings?.discriminator
-    ? createDiscriminatingMutexConcurrencyController(settings.discriminator)
+    ? createReplicationDiscriminatingMutexConcurrencyController(
+        settings.discriminator,
+      )
     : undefined;
-  const semaphore = createSemaphoreConcurrencyController(
+  const semaphore = createReplicationSemaphoreConcurrencyController(
     settings?.maxSemaphoreParallelism ?? 5,
   );
   return {

@@ -84,10 +84,10 @@ export const executeTransaction = async <T>(
     const error = ensureExtendedError(err, 'DB_ERROR');
     try {
       await client.query('ROLLBACK');
-      client.release(error);
     } catch (rollbackError) {
       error.innerError = ensureExtendedError(rollbackError, 'DB_ERROR');
     }
+    client.release(error);
     throw error;
   }
 };

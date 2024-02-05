@@ -7,11 +7,14 @@ import EventEmitter from 'events';
 import inspector from 'inspector';
 import { Client, Connection, PoolClient } from 'pg';
 import { Pgoutput } from 'pg-logical-replication';
-import { OutboxOrInbox } from '../common/definitions';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { IsolationLevel, sleep } from '../common/utils';
-import { StoredTransactionalMessage } from '../message/message';
-import * as messageStorageSpy from '../message/message-storage';
+import * as increaseFinishedAttemptsImportSpy from '../message/increase-message-finished-attempts';
+import * as markMessageCompletedImportSpy from '../message/mark-message-completed';
+import {
+  StoredTransactionalMessage,
+  TransactionalMessage,
+} from '../message/transactional-message';
 import { defaultMessageProcessingDbClientStrategy } from '../strategies/message-processing-db-client-strategy';
 import { ReplicationConfig } from './config';
 import { initializeReplicationMessageListener } from './replication-message-listener';
@@ -104,11 +107,11 @@ const sendReplicationChunk = (id: MessageIdType) => {
 };
 
 const markMessageCompletedSpy = jest.spyOn(
-  messageStorageSpy,
+  markMessageCompletedImportSpy,
   'markMessageCompleted',
 );
 const increaseMessageFinishedAttemptsSpy = jest.spyOn(
-  messageStorageSpy,
+  increaseFinishedAttemptsImportSpy,
   'increaseMessageFinishedAttempts',
 );
 
@@ -433,7 +436,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     expect(messageHandler).not.toHaveBeenCalled();
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
-    // As the DB message was already processed --> no ack/nack needed
+    // As the DB message was already processed --> no marking as completed needed
     expect(markMessageCompletedSpy).not.toHaveBeenCalled();
     expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
@@ -487,7 +490,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     // Assert
     expect(messageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
-    // As the DB message was already processed --> no ack/nack needed
+    // As the DB message was already processed --> no marking as completed needed
     expect(markMessageCompletedSpy).not.toHaveBeenCalled();
     expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
@@ -524,7 +527,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     expect(messageHandler).not.toHaveBeenCalled();
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
-    // As the DB message was not found --> no ack/nack needed
+    // As the DB message was not found --> no marking as completed needed
     expect(markMessageCompletedSpy).not.toHaveBeenCalled();
     expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
@@ -675,9 +678,9 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       finishedAttempts: 0,
       processedAt: null,
     };
-    const cfg = {
-      outboxOrInbox: 'inbox' as OutboxOrInbox,
-      dbConfig: {
+    const cfg: ReplicationConfig = {
+      outboxOrInbox: 'inbox',
+      dbHandlerConfig: {
         ...config.dbHandlerConfig,
       },
       dbListenerConfig: {
@@ -926,7 +929,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     const log = logs.filter(
       (log) =>
         log.args[1] ===
-        'The error handling of the message failed. Please make sure that your error handling code does not throw an error!',
+        'The error handling of the inbox message failed. Please make sure that your error handling code does not throw an error!',
     );
     expect(log).toHaveLength(1);
     await cleanup();
@@ -1009,13 +1012,13 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     const log = logs.filter(
       (log) =>
         log.args[1] ===
-        'The error handling of the message failed. Please make sure that your error handling code does not throw an error!',
+        'The error handling of the inbox message failed. Please make sure that your error handling code does not throw an error!',
     );
     expect(log).toHaveLength(1);
     const bestEffortLog = logs.filter(
       (log) =>
         log.args[1] ===
-        "The 'best-effort' logic to increase the finished attempts failed as well.",
+        "The 'best-effort' logic to increase the inbox message finished attempts failed as well.",
     );
     expect(bestEffortLog).toHaveLength(1);
     await cleanup();
@@ -1025,7 +1028,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     // Arrange
     const [logger, logs] = getInMemoryLogger('unit test');
     const messageHandler = jest.fn(() => Promise.resolve());
-    const message = {
+    const message: TransactionalMessage = {
       id: 'not_processed_id',
       aggregateType: aggregate_type,
       aggregateId: 'test_aggregate_id',
@@ -1033,9 +1036,6 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
-      startedAttempts: 2,
-      finishedAttempts: 2,
-      processedAt: null,
     };
     const [cleanup] = initializeReplicationMessageListener(
       config,
@@ -1054,14 +1054,10 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     await continueEventLoop();
 
     // Assert
-    const expectedMessage = {
-      ...message,
-      startedAttempts: message.startedAttempts + 1,
-    };
     expect(messageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
     expect(markMessageCompletedSpy).toHaveBeenCalledWith(
-      expectedMessage,
+      message,
       expect.any(Object),
       expect.any(Object),
     );

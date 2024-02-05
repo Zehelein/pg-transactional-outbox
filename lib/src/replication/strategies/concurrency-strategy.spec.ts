@@ -1,10 +1,10 @@
-import { sleep } from '../common/utils';
-import { ConcurrencyController } from '../concurrency-controller/concurrency-controller';
-import { TransactionalMessage } from '../message/message';
-import { defaultConcurrencyStrategy } from './concurrency-strategy';
+import { sleep } from '../../common/utils';
+import { TransactionalMessage } from '../../message/transactional-message';
+import { ReplicationConcurrencyController } from '../concurrency-controller/concurrency-controller';
+import { defaultReplicationConcurrencyStrategy } from './concurrency-strategy';
 
 const protectedAsyncFunction = async (
-  controller: ConcurrencyController,
+  controller: ReplicationConcurrencyController,
   body: () => Promise<void>,
 ) => {
   const release = await controller.acquire({} as TransactionalMessage);
@@ -15,10 +15,10 @@ const protectedAsyncFunction = async (
   }
 };
 
-describe('defaultConcurrencyStrategy', () => {
+describe('defaultReplicationConcurrencyStrategy', () => {
   it('uses the mutex strategy to call and finish tasks in the correct order', async () => {
     // Arrange
-    const controller = defaultConcurrencyStrategy();
+    const controller = defaultReplicationConcurrencyStrategy();
     const order: number[] = [];
     const firstTask = async () => {
       await sleep(30);

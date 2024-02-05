@@ -1,5 +1,5 @@
-import { StoredTransactionalMessage } from '../message/message';
-import { ReplicationConfig } from '../replication/config';
+import { ListenerConfig } from '../common/base-config';
+import { StoredTransactionalMessage } from '../message/transactional-message';
 
 /**
  * Decide based on the message, the poisonous attempts counter (which is
@@ -21,7 +21,7 @@ export interface PoisonousMessageRetryStrategy {
  * retry attempts.
  */
 export const defaultPoisonousMessageRetryStrategy =
-  (config: ReplicationConfig): PoisonousMessageRetryStrategy =>
+  (config: ListenerConfig): PoisonousMessageRetryStrategy =>
   (message: StoredTransactionalMessage): boolean => {
     const diff = message.startedAttempts - message.finishedAttempts;
     return diff <= (config.settings.maxPoisonousAttempts ?? 3);

@@ -1,5 +1,5 @@
 import { ListenerConfig } from '../common/base-config';
-import { TransactionalMessage } from '../message/message';
+import { StoredTransactionalMessage } from '../message/transactional-message';
 
 /**
  * Defines how much time in milliseconds a given message is allowed to take
@@ -8,7 +8,7 @@ import { TransactionalMessage } from '../message/message';
  * @returns The time in milliseconds for the timeout
  */
 export interface MessageProcessingTimeoutStrategy {
-  <T extends TransactionalMessage>(message: T): number;
+  (message: StoredTransactionalMessage): number;
 }
 
 /**

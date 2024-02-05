@@ -202,6 +202,23 @@ describe('Utils Unit Tests', () => {
       expect(client.query).toHaveBeenCalledWith('ROLLBACK');
       expect(client.release).toHaveBeenCalled();
     });
+
+    it('should rollback the transaction if the callback throws and log any rollback error as inner error', async () => {
+      // Arrange
+      callback.mockRejectedValue(new Error('Callback error'));
+      const client = await pool.connect();
+      client.query = jest
+        .fn()
+        .mockResolvedValueOnce(Promise.resolve()) // start transaction
+        .mockReturnValueOnce(Promise.reject(new Error('Inner error'))); // rollback
+
+      // Act + Assert
+      await expect(
+        executeTransaction(client, callback, IsolationLevel.Serializable),
+      ).rejects.toThrow('Callback error');
+      expect(client.query).toHaveBeenCalledWith('ROLLBACK');
+      expect(client.release).toHaveBeenCalled();
+    });
   });
 
   describe('getClient', () => {

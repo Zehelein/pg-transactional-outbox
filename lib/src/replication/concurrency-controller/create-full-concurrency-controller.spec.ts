@@ -1,10 +1,10 @@
-import { sleep } from '../common/utils';
-import { TransactionalMessage } from '../message/message';
-import { ConcurrencyController } from './concurrency-controller';
-import { createFullConcurrencyController } from './create-full-concurrency-controller';
+import { sleep } from '../../common/utils';
+import { TransactionalMessage } from '../../message/transactional-message';
+import { ReplicationConcurrencyController } from './concurrency-controller';
+import { createReplicationFullConcurrencyController } from './create-full-concurrency-controller';
 
 const protectedAsyncFunction = async (
-  controller: ConcurrencyController,
+  controller: ReplicationConcurrencyController,
   body: () => Promise<void>,
 ) => {
   const release = await controller.acquire({} as TransactionalMessage);
@@ -15,10 +15,10 @@ const protectedAsyncFunction = async (
   }
 };
 
-describe('createFullConcurrencyController', () => {
+describe('createReplicationFullConcurrencyController', () => {
   it('Executes tasks in parallel', async () => {
     // Arrange
-    const controller = createFullConcurrencyController();
+    const controller = createReplicationFullConcurrencyController();
     const task = async () => {
       await sleep(50);
     };
@@ -38,7 +38,7 @@ describe('createFullConcurrencyController', () => {
 
   it('Cancel has no effect', async () => {
     // Arrange
-    const controller = createFullConcurrencyController();
+    const controller = createReplicationFullConcurrencyController();
     const items: number[] = [];
     const task = (id: number) => async () => {
       await sleep(50);

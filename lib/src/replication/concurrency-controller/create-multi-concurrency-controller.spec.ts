@@ -1,10 +1,10 @@
-import { sleep } from '../common/utils';
-import { TransactionalMessage } from '../message/message';
-import { ConcurrencyController } from './concurrency-controller';
-import { createMultiConcurrencyController } from './create-multi-concurrency-controller';
+import { sleep } from '../../common/utils';
+import { TransactionalMessage } from '../../message/transactional-message';
+import { ReplicationConcurrencyController } from './concurrency-controller';
+import { createReplicationMultiConcurrencyController } from './create-multi-concurrency-controller';
 
 const protectedAsyncFunction = async (
-  controller: ConcurrencyController,
+  controller: ReplicationConcurrencyController,
   task: (message: OrderMessage) => Promise<void>,
   message: TransactionalMessage,
 ) => {
@@ -33,10 +33,10 @@ interface OrderMessage {
   id: number;
 }
 
-describe('createMultiConcurrencyController', () => {
+describe('createReplicationMultiConcurrencyController', () => {
   it('Executes tasks in parallel when the full concurrency is selected', async () => {
     // Arrange
-    const controller = createMultiConcurrencyController(
+    const controller = createReplicationMultiConcurrencyController(
       () => 'full-concurrency',
     );
     const task = async () => {
@@ -58,7 +58,7 @@ describe('createMultiConcurrencyController', () => {
 
   it('Executes tasks in sequential order within a context but the contexts in parallel when the discriminating mutex is selected', async () => {
     // Arrange
-    const controller = createMultiConcurrencyController(
+    const controller = createReplicationMultiConcurrencyController(
       () => 'discriminating-mutex',
       { discriminator: (message) => message.messageType },
     );
@@ -110,7 +110,9 @@ describe('createMultiConcurrencyController', () => {
 
   it('calls and finishes tasks in the correct order when the mutex is selected', async () => {
     // Arrange
-    const controller = createMultiConcurrencyController(() => 'mutex');
+    const controller = createReplicationMultiConcurrencyController(
+      () => 'mutex',
+    );
     const order: number[] = [];
     const firstTask = async () => {
       await sleep(30);
@@ -143,9 +145,12 @@ describe('createMultiConcurrencyController', () => {
 
   it('calls and finishes tasks in the correct order when the semaphore is selected', async () => {
     // Arrange
-    const controller = createMultiConcurrencyController(() => 'semaphore', {
-      maxSemaphoreParallelism: 2,
-    });
+    const controller = createReplicationMultiConcurrencyController(
+      () => 'semaphore',
+      {
+        maxSemaphoreParallelism: 2,
+      },
+    );
     const order: number[] = [];
     const firstTask = async () => {
       await sleep(30);
@@ -188,7 +193,7 @@ describe('createMultiConcurrencyController', () => {
 
   it('Executes tasks in correct order when different concurrency types are combined', async () => {
     // Arrange
-    const controller = createMultiConcurrencyController(
+    const controller = createReplicationMultiConcurrencyController(
       (message) => {
         switch (message.messageType) {
           case 'A':
@@ -305,7 +310,7 @@ describe('createMultiConcurrencyController', () => {
 
   it('Throws an error if a discriminating mutex is used but the controller was not configured.', async () => {
     // Arrange
-    const controller = createMultiConcurrencyController(
+    const controller = createReplicationMultiConcurrencyController(
       () => 'discriminating-mutex',
     );
 
@@ -321,7 +326,7 @@ describe('createMultiConcurrencyController', () => {
 
   it('Cancel works for all types', async () => {
     // Arrange
-    const controller = createMultiConcurrencyController(
+    const controller = createReplicationMultiConcurrencyController(
       (message) => {
         switch (message.messageType) {
           case 'A':

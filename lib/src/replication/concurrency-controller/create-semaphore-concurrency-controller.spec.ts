@@ -1,10 +1,10 @@
-import { sleep } from '../common/utils';
-import { TransactionalMessage } from '../message/message';
-import { ConcurrencyController } from './concurrency-controller';
-import { createSemaphoreConcurrencyController } from './create-semaphore-concurrency-controller';
+import { sleep } from '../../common/utils';
+import { TransactionalMessage } from '../../message/transactional-message';
+import { ReplicationConcurrencyController } from './concurrency-controller';
+import { createReplicationSemaphoreConcurrencyController } from './create-semaphore-concurrency-controller';
 
 const protectedAsyncFunction = async (
-  controller: ConcurrencyController,
+  controller: ReplicationConcurrencyController,
   body: () => Promise<void>,
 ) => {
   const release = await controller.acquire({} as TransactionalMessage);
@@ -15,10 +15,10 @@ const protectedAsyncFunction = async (
   }
 };
 
-describe('createSemaphoreConcurrencyController', () => {
+describe('createReplicationSemaphoreConcurrencyController', () => {
   it('calls and finishes tasks in the correct order', async () => {
     // Arrange
-    const controller = createSemaphoreConcurrencyController(2);
+    const controller = createReplicationSemaphoreConcurrencyController(2);
     const order: number[] = [];
     const firstTask = async () => {
       await sleep(50);
@@ -48,7 +48,7 @@ describe('createSemaphoreConcurrencyController', () => {
 
   it('Cancels the semaphore', async () => {
     // Arrange
-    const controller = createSemaphoreConcurrencyController(2);
+    const controller = createReplicationSemaphoreConcurrencyController(2);
     const order: number[] = [];
     const error: number[] = [];
     const successTask1 = (orderArray: number[]) => async () => {

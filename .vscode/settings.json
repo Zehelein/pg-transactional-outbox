@@ -1,3 +1,6 @@
 {
-  "cSpell.words": ["Lsns", "NOWAIT", "testcontainers", "wtfnode"]
+  "cSpell.words": ["Lsns", "NOWAIT", "testcontainers", "wtfnode"],
+  "search.exclude": {
+    "**/dist": true
+  }
 }

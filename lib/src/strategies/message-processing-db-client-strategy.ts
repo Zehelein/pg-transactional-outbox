@@ -1,8 +1,8 @@
 import { Pool, PoolClient } from 'pg';
+import { ListenerConfig } from '../common/base-config';
 import { ensureExtendedError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
-import { StoredTransactionalMessage } from '../message/message';
-import { ReplicationConfig } from '../replication/config';
+import { StoredTransactionalMessage } from '../message/transactional-message';
 
 /**
  * Create a DB client instance from the pool. This can be helpful if some message
@@ -26,7 +26,7 @@ export interface MessageProcessingDbClientStrategy {
  * `pgConfig` settings.
  */
 export const defaultMessageProcessingDbClientStrategy = (
-  config: ReplicationConfig,
+  config: ListenerConfig,
   logger: TransactionalLogger,
 ): MessageProcessingDbClientStrategy => {
   const pool = new Pool(config.dbHandlerConfig ?? config.dbListenerConfig);

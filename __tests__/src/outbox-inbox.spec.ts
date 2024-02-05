@@ -8,9 +8,9 @@ import {
   TransactionalLogger,
   TransactionalMessage,
   TransactionalMessageHandler,
-  createDiscriminatingMutexConcurrencyController,
-  createFullConcurrencyController,
-  createMultiConcurrencyController,
+  createReplicationDiscriminatingMutexConcurrencyController,
+  createReplicationFullConcurrencyController,
+  createReplicationMultiConcurrencyController,
   executeTransaction,
   getInMemoryLogger,
   initializeMessageStorage,
@@ -532,7 +532,7 @@ describe('Integration tests', () => {
         ],
         inboxLogger,
         {
-          concurrencyStrategy: createFullConcurrencyController(),
+          concurrencyStrategy: createReplicationFullConcurrencyController(),
         },
       );
       cleanup = async () => {
@@ -722,9 +722,10 @@ describe('Integration tests', () => {
         [createHandler('A'), createHandler('B'), createHandler('C')],
         inboxLogger,
         {
-          concurrencyStrategy: createDiscriminatingMutexConcurrencyController(
-            (message) => message.aggregateType,
-          ),
+          concurrencyStrategy:
+            createReplicationDiscriminatingMutexConcurrencyController(
+              (message) => message.aggregateType,
+            ),
         },
       );
       cleanup = async () => {
@@ -793,7 +794,7 @@ describe('Integration tests', () => {
         },
       });
 
-      const concurrencyStrategy = createMultiConcurrencyController(
+      const concurrencyStrategy = createReplicationMultiConcurrencyController(
         (message) => {
           switch (message.aggregateType) {
             case 'A':

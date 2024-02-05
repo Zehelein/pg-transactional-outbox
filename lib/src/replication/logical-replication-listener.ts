@@ -2,7 +2,7 @@ import { EventEmitter } from 'events';
 import { Client, ClientConfig, Connection } from 'pg';
 import { Pgoutput, PgoutputPlugin } from 'pg-logical-replication';
 import { AbstractPlugin } from 'pg-logical-replication/dist/output-plugins/abstract.plugin';
-import { OutboxOrInbox } from '../common/definitions';
+import { OutboxOrInbox } from '../common/base-config';
 import {
   ExtendedError,
   MessageError,
@@ -11,10 +11,13 @@ import {
 } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { awaitWithTimeout } from '../common/utils';
-import { ConcurrencyController } from '../concurrency-controller/concurrency-controller';
-import { TransactionalMessage } from '../message/message';
+import {
+  StoredTransactionalMessage,
+  TransactionalMessage,
+} from '../message/transactional-message';
 import { MessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
 import { createAcknowledgeManager } from './acknowledge-manager';
+import { ReplicationConcurrencyController } from './concurrency-controller/concurrency-controller';
 import { ReplicationConfig, ReplicationListenerConfig } from './config';
 import { ReplicationStrategies } from './replication-strategies';
 
@@ -32,16 +35,16 @@ type ReplicationClient = Client & {
  * @param strategies Strategies to provide custom logic for handling specific scenarios
  * @returns A function to stop the logical replication listener
  */
-export const createLogicalReplicationListener = <
-  T extends TransactionalMessage,
->(
-  {
-    dbListenerConfig: pgReplicationConfig,
-    settings,
-    outboxOrInbox,
-  }: ReplicationConfig,
-  messageHandler: (message: T, cancellation: EventEmitter) => Promise<void>,
-  errorHandler: (message: T, err: ExtendedError) => Promise<boolean>,
+export const createLogicalReplicationListener = (
+  { dbListenerConfig, settings, outboxOrInbox }: ReplicationConfig,
+  messageHandler: (
+    message: StoredTransactionalMessage,
+    cancellation: EventEmitter,
+  ) => Promise<void>,
+  errorHandler: (
+    message: StoredTransactionalMessage,
+    err: ExtendedError,
+  ) => Promise<boolean>,
   logger: TransactionalLogger,
   strategies: ReplicationStrategies,
 ): [shutdown: { (): Promise<void> }] => {
@@ -61,7 +64,7 @@ export const createLogicalReplicationListener = <
     logger.debug(`Transactional ${outboxOrInbox} listener starting`);
     restartTimeout = undefined;
     client = new Client({
-      ...pgReplicationConfig,
+      ...dbListenerConfig,
       replication: 'database',
       stop: false,
     } as ClientConfig) as ReplicationClient;
@@ -115,10 +118,10 @@ export const createLogicalReplicationListener = <
 };
 
 /** Get and map the outbox/inbox message if the WAL log entry is such a message. Otherwise returns undefined. */
-const getRelevantMessage = <T extends TransactionalMessage>(
+const getRelevantMessage = (
   log: Pgoutput.Message,
   { dbSchema, dbTable }: ReplicationConfig['settings'],
-): T | undefined =>
+): StoredTransactionalMessage | undefined =>
   log.tag === 'insert' &&
   log.relation.schema === dbSchema &&
   log.relation.name === dbTable
@@ -126,9 +129,7 @@ const getRelevantMessage = <T extends TransactionalMessage>(
     : undefined;
 
 /** Maps the WAL log entry to an outbox or inbox message */
-const mapMessage = <T extends TransactionalMessage>(
-  input: unknown,
-): T | undefined => {
+const mapMessage = (input: unknown): StoredTransactionalMessage | undefined => {
   if (typeof input !== 'object' || input === null) {
     return undefined;
   }
@@ -157,7 +158,7 @@ const mapMessage = <T extends TransactionalMessage>(
     metadata: input.metadata as Record<string, unknown> | undefined,
     createdAt: input.created_at.toISOString(),
   };
-  return message as T;
+  return message as StoredTransactionalMessage;
 };
 
 const subscribe = async (
@@ -272,13 +273,19 @@ const acknowledge = (
 
 const LOG_FLAG = 0x77; // 119 in base 10
 const KEEP_ALIVE_FLAG = 0x6b; // 107 in base 10
-const handleIncomingData = <T extends TransactionalMessage>(
+const handleIncomingData = (
   client: ReplicationClient,
   plugin: AbstractPlugin,
   config: ReplicationListenerConfig,
-  messageHandler: (message: T, cancellation: EventEmitter) => Promise<void>,
-  errorHandler: (message: T, err: ExtendedError) => Promise<boolean>,
-  concurrencyStrategy: ConcurrencyController,
+  messageHandler: (
+    message: StoredTransactionalMessage,
+    cancellation: EventEmitter,
+  ) => Promise<void>,
+  errorHandler: (
+    message: StoredTransactionalMessage,
+    err: ExtendedError,
+  ) => Promise<boolean>,
+  concurrencyStrategy: ReplicationConcurrencyController,
   messageProcessingTimeoutStrategy: MessageProcessingTimeoutStrategy,
   logger: TransactionalLogger,
 ): Promise<void> => {
@@ -299,10 +306,16 @@ const handleIncomingData = <T extends TransactionalMessage>(
 
   // This function handles the message processing and message error handler.
   // It is inlined to stop processing when "stopped" is true.
-  const handleOutboxInboxMessage = async <T extends TransactionalMessage>(
-    messageHandler: (message: T, cancellation: EventEmitter) => Promise<void>,
-    errorHandler: (message: T, err: ExtendedError) => Promise<boolean>,
-    message: T,
+  const handleOutboxInboxMessage = async (
+    messageHandler: (
+      message: StoredTransactionalMessage,
+      cancellation: EventEmitter,
+    ) => Promise<void>,
+    errorHandler: (
+      message: StoredTransactionalMessage,
+      err: ExtendedError,
+    ) => Promise<boolean>,
+    message: StoredTransactionalMessage,
     lsn: string,
     finishProcessingLSN: (lsn: string) => void,
     logger: TransactionalLogger,
@@ -379,7 +392,7 @@ const handleIncomingData = <T extends TransactionalMessage>(
 
           if (buffer[0] === LOG_FLAG) {
             const xLogData = plugin.parse(buffer.subarray(25));
-            const message = getRelevantMessage<T>(xLogData, config);
+            const message = getRelevantMessage(xLogData, config);
             if (!message) {
               return;
             }
@@ -394,7 +407,7 @@ const handleIncomingData = <T extends TransactionalMessage>(
               `Started processing LSN ${lsn} with message id ${message.id} and type ${message.messageType}.`,
             );
             try {
-              await handleOutboxInboxMessage<T>(
+              await handleOutboxInboxMessage(
                 messageHandler,
                 errorHandler,
                 message,

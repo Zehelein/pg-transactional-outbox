@@ -1,14 +1,14 @@
 import { Semaphore } from 'async-mutex';
-import { ConcurrencyController } from './concurrency-controller';
+import { ReplicationConcurrencyController } from './concurrency-controller';
 
 /**
  * Uses a semaphore to execute up to a given amount of messages in parallel. Any
  * additional message waits until a currently processed message finishes.
  * @returns The controller to acquire and release the semaphore and to cancel all semaphores
  */
-export const createSemaphoreConcurrencyController = (
+export const createReplicationSemaphoreConcurrencyController = (
   maxParallel: number,
-): ConcurrencyController => {
+): ReplicationConcurrencyController => {
   const semaphore = new Semaphore(maxParallel);
   return {
     acquire: async () => {

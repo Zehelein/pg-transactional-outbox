@@ -1,7 +1,10 @@
-export { ListenerConfig, ListenerSettings } from './common/base-config';
+export {
+  ListenerConfig,
+  ListenerSettings,
+  OutboxOrInbox,
+} from './common/base-config';
 export {
   ErrorCode,
-  ErrorType,
   ExtendedError,
   MessageError,
   TransactionalOutboxInboxError,
@@ -15,35 +18,42 @@ export {
   getInMemoryLogger,
 } from './common/logger';
 export { IsolationLevel, executeTransaction } from './common/utils';
-export { ConcurrencyController } from './concurrency-controller/concurrency-controller';
-export { createDiscriminatingMutexConcurrencyController } from './concurrency-controller/create-discriminating-mutex-concurrency-controller';
-export { createFullConcurrencyController } from './concurrency-controller/create-full-concurrency-controller';
-export {
-  MultiConcurrencyType,
-  createMultiConcurrencyController,
-} from './concurrency-controller/create-multi-concurrency-controller';
-export { createMutexConcurrencyController } from './concurrency-controller/create-mutex-concurrency-controller';
-export { createSemaphoreConcurrencyController } from './concurrency-controller/create-semaphore-concurrency-controller';
+export { GeneralMessageHandler } from './handler/general-message-handler';
+export { HandlerStrategies } from './handler/handler-strategies';
+export { TransactionalMessageHandler } from './handler/transactional-message-handler';
+export { initializeMessageStorage } from './message/initialize-message-storage';
 export {
   StoredTransactionalMessage,
   TransactionalMessage,
-} from './message/message';
-export { initializeMessageStorage } from './message/message-storage';
+} from './message/transactional-message';
+export { ReplicationConcurrencyController } from './replication/concurrency-controller/concurrency-controller';
+export { createReplicationDiscriminatingMutexConcurrencyController } from './replication/concurrency-controller/create-discriminating-mutex-concurrency-controller';
+export { createReplicationFullConcurrencyController } from './replication/concurrency-controller/create-full-concurrency-controller';
+export {
+  ReplicationMultiConcurrencyType,
+  createReplicationMultiConcurrencyController,
+} from './replication/concurrency-controller/create-multi-concurrency-controller';
+export { createReplicationMutexConcurrencyController } from './replication/concurrency-controller/create-mutex-concurrency-controller';
+export { createReplicationSemaphoreConcurrencyController } from './replication/concurrency-controller/create-semaphore-concurrency-controller';
 export {
   ReplicationConfig,
   ReplicationListenerConfig,
 } from './replication/config';
+export { initializeReplicationMessageListener } from './replication/replication-message-listener';
 export {
-  GeneralMessageHandler,
-  TransactionalMessageHandler,
-  initializeReplicationMessageListener,
-} from './replication/replication-message-listener';
-export { defaultConcurrencyStrategy } from './strategies/concurrency-strategy';
+  ReplicationMessageStrategies,
+  ReplicationStrategies,
+} from './replication/replication-strategies';
+export { defaultReplicationConcurrencyStrategy } from './replication/strategies/concurrency-strategy';
 export {
-  ListenerRestartStrategy,
-  defaultListenerAndSlotRestartStrategy,
-  defaultListenerRestartStrategy,
-} from './strategies/listener-restart-strategy';
+  ReplicationListenerRestartStrategy,
+  defaultReplicationListenerAndSlotRestartStrategy,
+  defaultReplicationListenerRestartStrategy,
+} from './replication/strategies/listener-restart-strategy';
+export {
+  MessageProcessingDbClientStrategy,
+  defaultMessageProcessingDbClientStrategy,
+} from './strategies/message-processing-db-client-strategy';
 export {
   MessageProcessingTimeoutStrategy,
   defaultMessageProcessingTimeoutStrategy,

@@ -3,7 +3,7 @@ import path from 'path';
 dotenv.config({ path: path.join(__dirname, '../.env') });
 // eslint-disable-next-line prettier/prettier
 import {
-  createMutexConcurrencyController,
+  createReplicationMutexConcurrencyController,
   initializeReplicationMessageListener,
 } from 'pg-transactional-outbox';
 import { addMovies } from './add-movies';
@@ -37,7 +37,7 @@ process.on('unhandledRejection', (err, promise) => {
     },
     logger,
     {
-      concurrencyStrategy: createMutexConcurrencyController(),
+      concurrencyStrategy: createReplicationMutexConcurrencyController(),
       messageProcessingTimeoutStrategy: () => 1000,
     },
   );

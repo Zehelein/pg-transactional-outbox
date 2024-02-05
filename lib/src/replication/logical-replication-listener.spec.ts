@@ -6,9 +6,6 @@ import { Client, Connection } from 'pg';
 import { Pgoutput } from 'pg-logical-replication';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { sleep } from '../common/utils';
-import { TransactionalMessage } from '../message/message';
-import { defaultConcurrencyStrategy } from '../strategies/concurrency-strategy';
-import { defaultListenerRestartStrategy } from '../strategies/listener-restart-strategy';
 import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
 import { ReplicationConfig } from './config';
 import {
@@ -16,6 +13,8 @@ import {
   __only_for_unit_tests__ as tests,
 } from './logical-replication-listener';
 import { ReplicationStrategies } from './replication-strategies';
+import { defaultReplicationConcurrencyStrategy } from './strategies/concurrency-strategy';
+import { defaultReplicationListenerRestartStrategy } from './strategies/listener-restart-strategy';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
 if (isDebugMode()) {
@@ -180,10 +179,10 @@ const getStrategies = (config?: ReplicationConfig): ReplicationStrategies => {
       settings: { ...settings, messageProcessingTimeout: 2_000 },
     } as ReplicationConfig);
   return {
-    concurrencyStrategy: defaultConcurrencyStrategy(),
+    concurrencyStrategy: defaultReplicationConcurrencyStrategy(),
     messageProcessingTimeoutStrategy:
       defaultMessageProcessingTimeoutStrategy(cfg),
-    listenerRestartStrategy: defaultListenerRestartStrategy(cfg),
+    listenerRestartStrategy: defaultReplicationListenerRestartStrategy(cfg),
   };
 };
 
@@ -337,7 +336,7 @@ describe('Local replication listener unit tests', () => {
     });
   });
 
-  describe('createListener', () => {
+  describe('createLogicalReplicationListener', () => {
     let messageHandler: jest.Mock;
     let errorHandler: jest.Mock;
 
@@ -365,7 +364,7 @@ describe('Local replication listener unit tests', () => {
         dbListenerConfig: {},
         settings,
       };
-      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
+      const [cleanup] = createLogicalReplicationListener(
         config,
         messageHandler,
         errorHandler,
@@ -399,7 +398,7 @@ describe('Local replication listener unit tests', () => {
       };
       const testError = new Error('Transient error');
       let errorHandlerCalled = false;
-      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
+      const [cleanup] = createLogicalReplicationListener(
         config,
         async () => {
           throw testError;
@@ -437,7 +436,7 @@ describe('Local replication listener unit tests', () => {
       };
       const testError = new Error('Unit test error');
       let errorHandlerCalled = false;
-      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
+      const [cleanup] = createLogicalReplicationListener(
         config,
         async () => {
           throw testError;
@@ -473,7 +472,7 @@ describe('Local replication listener unit tests', () => {
         dbListenerConfig: {},
         settings,
       };
-      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
+      const [cleanup] = createLogicalReplicationListener(
         config,
         messageHandler,
         errorHandler,
@@ -505,7 +504,7 @@ describe('Local replication listener unit tests', () => {
         dbListenerConfig: {},
         settings,
       };
-      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
+      const [cleanup] = createLogicalReplicationListener(
         config,
         messageHandler,
         errorHandler,
@@ -543,7 +542,7 @@ describe('Local replication listener unit tests', () => {
         count++;
         await sleep(sleepTime);
       };
-      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
+      const [cleanup] = createLogicalReplicationListener(
         config,
         delayedMessageHandler,
         errorHandler,
@@ -580,7 +579,7 @@ describe('Local replication listener unit tests', () => {
       };
       let messageHandlerCalled = false;
       let errorHandlerCalled = false;
-      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
+      const [cleanup] = createLogicalReplicationListener(
         config,
         async () => {
           messageHandlerCalled = true;
@@ -619,7 +618,7 @@ describe('Local replication listener unit tests', () => {
       };
       let messageHandlerCalled = false;
       let errorHandlerCalled = false;
-      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
+      const [cleanup] = createLogicalReplicationListener(
         config,
         async () => {
           messageHandlerCalled = true;
@@ -635,9 +634,10 @@ describe('Local replication listener unit tests', () => {
         },
         getDisabledLogger(),
         {
-          concurrencyStrategy: defaultConcurrencyStrategy(),
+          concurrencyStrategy: defaultReplicationConcurrencyStrategy(),
           messageProcessingTimeoutStrategy: () => 100,
-          listenerRestartStrategy: defaultListenerRestartStrategy(config),
+          listenerRestartStrategy:
+            defaultReplicationListenerRestartStrategy(config),
         },
       );
       await continueEventLoop();
@@ -660,15 +660,16 @@ describe('Local replication listener unit tests', () => {
         dbListenerConfig: {},
         settings: { ...settings, messageProcessingTimeout: 200 },
       };
-      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
+      const [cleanup] = createLogicalReplicationListener(
         config,
         messageHandler,
         errorHandler,
         getDisabledLogger(),
         {
-          concurrencyStrategy: defaultConcurrencyStrategy(),
+          concurrencyStrategy: defaultReplicationConcurrencyStrategy(),
           messageProcessingTimeoutStrategy: () => 200,
-          listenerRestartStrategy: defaultListenerRestartStrategy(config),
+          listenerRestartStrategy:
+            defaultReplicationListenerRestartStrategy(config),
         },
       );
       await continueEventLoop();
@@ -697,7 +698,7 @@ describe('Local replication listener unit tests', () => {
         settings,
       };
       const [logger, logs] = getInMemoryLogger('test');
-      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
+      const [cleanup] = createLogicalReplicationListener(
         config,
         messageHandler,
         errorHandler,
@@ -733,7 +734,7 @@ describe('Local replication listener unit tests', () => {
         settings,
       };
       const [logger, logs] = getInMemoryLogger('test');
-      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
+      const [cleanup] = createLogicalReplicationListener(
         config,
         messageHandler,
         errorHandler,
@@ -773,7 +774,7 @@ describe('Local replication listener unit tests', () => {
         settings,
       };
       const [logger, logs] = getInMemoryLogger('test');
-      const [cleanup] = createLogicalReplicationListener<TransactionalMessage>(
+      const [cleanup] = createLogicalReplicationListener(
         config,
         messageHandler,
         errorHandler,

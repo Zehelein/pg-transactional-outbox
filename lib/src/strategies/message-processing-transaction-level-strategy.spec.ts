@@ -1,4 +1,4 @@
-import { StoredTransactionalMessage } from '../message/message';
+import { StoredTransactionalMessage } from '../message/transactional-message';
 import { defaultMessageProcessingTransactionLevelStrategy } from './message-processing-transaction-level-strategy';
 
 describe('defaultMessageProcessingTransactionLevelStrategy', () => {

@@ -1,5 +1,5 @@
-import { StoredTransactionalMessage } from '../message/message';
-import { ReplicationConfig } from '../replication/config';
+import { ListenerConfig } from '../common/base-config';
+import { StoredTransactionalMessage } from '../message/transactional-message';
 
 /**
  * Decides if a message should be attempted and what the maximum number of
@@ -22,7 +22,7 @@ export interface MessageRetryStrategy {
  * `config.settings.maxAttempts` variable and defaults to 5 attempts.
  */
 export const defaultMessageRetryStrategy = (
-  config: ReplicationConfig,
+  config: ListenerConfig,
 ): MessageRetryStrategy => {
   const maxAttempts = config.settings.maxAttempts ?? 5;
   return (message: StoredTransactionalMessage): boolean =>

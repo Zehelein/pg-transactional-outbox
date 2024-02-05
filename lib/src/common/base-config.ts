@@ -1,5 +1,6 @@
 import { ClientConfig } from 'pg';
-import { OutboxOrInbox } from './definitions';
+
+export type OutboxOrInbox = 'outbox' | 'inbox';
 
 export interface ListenerConfig {
   /**

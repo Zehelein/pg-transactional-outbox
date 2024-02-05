@@ -1,10 +1,10 @@
-import { sleep } from '../common/utils';
-import { TransactionalMessage } from '../message/message';
-import { ConcurrencyController } from './concurrency-controller';
-import { createMutexConcurrencyController } from './create-mutex-concurrency-controller';
+import { sleep } from '../../common/utils';
+import { TransactionalMessage } from '../../message/transactional-message';
+import { ReplicationConcurrencyController } from './concurrency-controller';
+import { createReplicationMutexConcurrencyController } from './create-mutex-concurrency-controller';
 
 const protectedAsyncFunction = async (
-  controller: ConcurrencyController,
+  controller: ReplicationConcurrencyController,
   body: () => Promise<void>,
 ) => {
   const release = await controller.acquire({} as TransactionalMessage);
@@ -15,10 +15,10 @@ const protectedAsyncFunction = async (
   }
 };
 
-describe('createMutexConcurrencyController', () => {
+describe('createReplicationMutexConcurrencyController', () => {
   it('calls and finishes tasks in the correct order', async () => {
     // Arrange
-    const controller = createMutexConcurrencyController();
+    const controller = createReplicationMutexConcurrencyController();
     const order: number[] = [];
     const firstTask = async () => {
       await sleep(30);
@@ -43,7 +43,7 @@ describe('createMutexConcurrencyController', () => {
 
   it('Cancels the mutex', async () => {
     // Arrange
-    const controller = createMutexConcurrencyController();
+    const controller = createReplicationMutexConcurrencyController();
     const order: number[] = [];
     const error: number[] = [];
     const successTask = (orderArray: number[]) => async () => {

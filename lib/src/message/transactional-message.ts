@@ -1,4 +1,4 @@
-/** The incoming message that should be  */
+/** The incoming transactional outbox or inbox message that should be stored */
 export interface TransactionalMessage {
   /** The unique identifier of the message. This is used to ensure a message is only processed once */
   id: string;

@@ -1,6 +1,6 @@
 import { Mutex } from 'async-mutex';
-import { TransactionalMessage } from '../message/message';
-import { ConcurrencyController } from './concurrency-controller';
+import { TransactionalMessage } from '../../message/transactional-message';
+import { ReplicationConcurrencyController } from './concurrency-controller';
 
 const mutexMap = new Map<string, Mutex>();
 
@@ -9,9 +9,9 @@ const mutexMap = new Map<string, Mutex>();
  * @param discriminator The discriminator to find or create a mutex for
  * @returns The controller to acquire and release the mutex for a specific discriminator
  */
-export const createDiscriminatingMutexConcurrencyController = (
+export const createReplicationDiscriminatingMutexConcurrencyController = (
   discriminator: (message: TransactionalMessage) => string,
-): ConcurrencyController => {
+): ReplicationConcurrencyController => {
   return {
     /** Acquire a lock (if any) and return a function to release it. */
     acquire: (message: TransactionalMessage): Promise<() => void> => {

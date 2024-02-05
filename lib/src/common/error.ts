@@ -1,6 +1,4 @@
-import { TransactionalMessage } from '../message/message';
-
-export type ErrorType = 'transient_error' | 'permanent_error';
+import { TransactionalMessage } from '../message/transactional-message';
 
 export type ErrorCode =
   | 'DB_ERROR'

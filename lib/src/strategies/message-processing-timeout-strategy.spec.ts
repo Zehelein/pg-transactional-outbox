@@ -1,5 +1,5 @@
 import { ListenerConfig } from '../common/base-config';
-import { TransactionalMessage } from '../message/message';
+import { StoredTransactionalMessage } from '../message/transactional-message';
 import { defaultMessageProcessingTimeoutStrategy } from './message-processing-timeout-strategy';
 
 describe('defaultMessageProcessingTimeoutStrategy', () => {
@@ -10,7 +10,7 @@ describe('defaultMessageProcessingTimeoutStrategy', () => {
       },
     } as ListenerConfig);
 
-    expect(getTimeout({} as TransactionalMessage)).toBe(123);
+    expect(getTimeout({} as StoredTransactionalMessage)).toBe(123);
   });
 
   it('should return the default value when the config value is undefined', () => {
@@ -20,6 +20,6 @@ describe('defaultMessageProcessingTimeoutStrategy', () => {
       },
     } as ListenerConfig);
 
-    expect(getTimeout({} as TransactionalMessage)).toBe(2000);
+    expect(getTimeout({} as StoredTransactionalMessage)).toBe(2000);
   });
 });

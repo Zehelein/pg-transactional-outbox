@@ -1,12 +1,12 @@
-import { StoredTransactionalMessage } from '../message/message';
-import { ReplicationConfig } from '../replication/config';
+import { ListenerConfig } from '../common/base-config';
+import { StoredTransactionalMessage } from '../message/transactional-message';
 import { defaultPoisonousMessageRetryStrategy } from './poisonous-message-retry-strategy';
 
 describe('defaultPoisonousMessageRetryStrategy', () => {
   it('should use the default message retry strategy settings', () => {
     const config = {
       settings: {},
-    } as ReplicationConfig;
+    } as ListenerConfig;
     const message = {
       startedAttempts: 1,
       finishedAttempts: 0,
@@ -21,7 +21,7 @@ describe('defaultPoisonousMessageRetryStrategy', () => {
       settings: {
         maxPoisonousAttempts: 2,
       },
-    } as ReplicationConfig;
+    } as ListenerConfig;
     const message = {
       startedAttempts: 2,
       finishedAttempts: 0,
@@ -34,7 +34,7 @@ describe('defaultPoisonousMessageRetryStrategy', () => {
   it('should use the default message retry strategy settings and not retry for exceeded attempts', () => {
     const config = {
       settings: {},
-    } as ReplicationConfig;
+    } as ListenerConfig;
     const message = {
       startedAttempts: 4,
       finishedAttempts: 0,
@@ -50,7 +50,7 @@ describe('defaultPoisonousMessageRetryStrategy', () => {
       settings: {
         maxPoisonousAttempts: 2,
       },
-    } as ReplicationConfig;
+    } as ListenerConfig;
     const message = {
       startedAttempts: 4,
       finishedAttempts: 1,

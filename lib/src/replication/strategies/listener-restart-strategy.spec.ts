@@ -1,11 +1,11 @@
 import { DatabaseError, Pool } from 'pg';
 import { BaseLogger } from 'pino';
-import { ErrorCode, ExtendedError, MessageError } from '../common/error';
-import { TransactionalMessage } from '../message/message';
-import { ReplicationConfig } from '../replication/config';
+import { ErrorCode, ExtendedError, MessageError } from '../../common/error';
+import { TransactionalMessage } from '../../message/transactional-message';
+import { ReplicationConfig } from '../config';
 import {
-  defaultListenerAndSlotRestartStrategy,
-  defaultListenerRestartStrategy,
+  defaultReplicationListenerAndSlotRestartStrategy,
+  defaultReplicationListenerRestartStrategy,
 } from './listener-restart-strategy';
 
 const query = jest.fn();
@@ -34,8 +34,8 @@ const createPgError = (
 };
 
 describe.each([
-  defaultListenerRestartStrategy,
-  defaultListenerAndSlotRestartStrategy,
+  defaultReplicationListenerRestartStrategy,
+  defaultReplicationListenerAndSlotRestartStrategy,
 ])('Should return the same %p', (strategyFunction) => {
   const config = {
     settings: {
@@ -164,7 +164,10 @@ describe.each([
 
     // Assert
     expect(result).toBe(config.settings.restartDelay);
-    if (strategyFunction.name === defaultListenerAndSlotRestartStrategy.name) {
+    if (
+      strategyFunction.name ===
+      defaultReplicationListenerAndSlotRestartStrategy.name
+    ) {
       /* eslint-disable jest/no-conditional-expect */
       expect(Pool).toHaveBeenCalledWith(config.dbListenerConfig);
       expect(query).toHaveBeenCalled();
@@ -188,7 +191,10 @@ describe.each([
 
     // Assert
     expect(result).toBe(config.settings.restartDelay);
-    if (strategyFunction.name === defaultListenerAndSlotRestartStrategy.name) {
+    if (
+      strategyFunction.name ===
+      defaultReplicationListenerAndSlotRestartStrategy.name
+    ) {
       /* eslint-disable jest/no-conditional-expect */
       expect(Pool).toHaveBeenCalledWith(config.dbListenerConfig);
       expect(query).toHaveBeenCalled();

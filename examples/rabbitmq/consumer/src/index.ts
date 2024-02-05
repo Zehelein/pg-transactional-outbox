@@ -4,7 +4,7 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 // eslint-disable-next-line prettier/prettier
 import {
   IsolationLevel,
-  createMutexConcurrencyController,
+  createReplicationMutexConcurrencyController,
   initializeMessageStorage,
   initializeReplicationMessageListener,
 } from 'pg-transactional-outbox';
@@ -55,7 +55,7 @@ void (async () => {
     ],
     logger,
     {
-      concurrencyStrategy: createMutexConcurrencyController(),
+      concurrencyStrategy: createReplicationMutexConcurrencyController(),
       messageProcessingTimeoutStrategy: () => 2_000,
       messageProcessingTransactionLevelStrategy: () =>
         IsolationLevel.Serializable,
