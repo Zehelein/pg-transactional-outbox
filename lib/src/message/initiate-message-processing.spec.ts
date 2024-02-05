@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import inspector from 'inspector';
 import { PoolClient } from 'pg';
-import { ListenerConfig } from '../common/base-config';
+import { ReplicationListenerConfig } from '../replication/config';
 import { initiateMessageProcessing } from './initiate-message-processing';
 import {
   StoredTransactionalMessage,
@@ -29,15 +29,17 @@ const storedMessage: StoredTransactionalMessage = {
   ...message,
   startedAttempts: 1,
   finishedAttempts: 0,
+  concurrency: 'sequential',
+  lockedUntil: '2023-01-18T21:05:27.000Z',
   processedAt: null,
 };
 
-const config = {
-  settings: {
-    dbSchema: 'test_schema',
-    dbTable: 'test_table',
-  },
-} as ListenerConfig;
+const settings = {
+  dbSchema: 'test_schema',
+  dbTable: 'test_table',
+  postgresPub: 'test_pub',
+  postgresSlot: 'test_slot',
+} as ReplicationListenerConfig;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const getTestClient = (resolveValue: any) =>
@@ -55,7 +57,7 @@ describe('initiateMessageProcessing', () => {
     let result = await initiateMessageProcessing(
       { ...storedMessage },
       client,
-      config,
+      settings,
     );
     expect(result).toBe('MESSAGE_NOT_FOUND');
 
@@ -67,7 +69,7 @@ describe('initiateMessageProcessing', () => {
     result = await initiateMessageProcessing(
       { ...storedMessage },
       client,
-      config,
+      settings,
     );
     expect(result).toBe('ALREADY_PROCESSED');
 
@@ -79,7 +81,7 @@ describe('initiateMessageProcessing', () => {
     result = await initiateMessageProcessing(
       { ...storedMessage },
       client,
-      config,
+      settings,
     );
     expect(result).toBe(true);
   });
@@ -92,14 +94,14 @@ describe('initiateMessageProcessing', () => {
         {
           started_attempts: 4,
           finished_attempts: 3,
-          processed_at: '2023-01-18T21:02:27.000Z',
+          processed_at: new Date('2023-01-18T21:02:27.000Z'),
         },
       ],
     });
     const msg = { ...storedMessage };
 
     // Act
-    const result = await initiateMessageProcessing(msg, client, config);
+    const result = await initiateMessageProcessing(msg, client, settings);
 
     // Assert
     expect(result).toBe('ALREADY_PROCESSED');
@@ -130,7 +132,7 @@ describe('initiateMessageProcessing', () => {
     const msg = { ...storedMessage };
 
     // Act
-    const result = await initiateMessageProcessing(msg, client, config);
+    const result = await initiateMessageProcessing(msg, client, settings);
 
     // Assert
     expect(result).toBe(true);

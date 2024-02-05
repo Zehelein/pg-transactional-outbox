@@ -71,7 +71,7 @@ const insertMovie = async (
   dbClient: PoolClient,
   logger: TransactionalLogger,
 ) => {
-  const movieInsertedIdResult = await dbClient.query(/* sql*/ `
+  const movieInsertedIdResult = await dbClient.query(/* sql */ `
         INSERT INTO public.movies (title, description, actors, directors, studio)
         VALUES ('movie ${index++}', 'some description', ARRAY['Some Actor'], ARRAY['Some Director'], 'Some Studio')
         RETURNING id, title, description;

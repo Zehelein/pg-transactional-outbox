@@ -14,7 +14,7 @@ export const increaseMessageFinishedAttempts = async (
   { settings }: Pick<ListenerConfig, 'settings'>,
 ): Promise<void> => {
   await client.query(
-    /* sql*/ `
+    /* sql */ `
     UPDATE ${settings.dbSchema}.${settings.dbTable} SET finished_attempts = finished_attempts + 1 WHERE id = $1;`,
     [id],
   );

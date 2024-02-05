@@ -96,7 +96,7 @@ describe('startedAttemptsIncrement', () => {
         {
           started_attempts: 1,
           finished_attempts: 1,
-          processed_at: new Date().toISOString(),
+          processed_at: new Date(),
         },
       ],
     });

@@ -139,11 +139,13 @@ const storedDbMessages = [
     aggregate_type,
     message_type,
     aggregate_id: 'test_aggregate_id',
+    concurrency: 'sequential',
     payload: { result: 'success' },
     metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
     created_at: new Date('2023-01-18T21:02:27.000Z'),
     started_attempts: 2,
     finished_attempts: 2,
+    locked_until: new Date('1970-01-01T00:00:00.000Z'),
     processed_at: null,
   },
   {
@@ -151,11 +153,13 @@ const storedDbMessages = [
     aggregate_type,
     message_type,
     aggregate_id: 'test_aggregate_id',
+    concurrency: 'sequential',
     payload: { result: 'success' },
     metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
     created_at: new Date('2023-01-18T21:02:27.000Z'),
     started_attempts: 0,
     finished_attempts: 0,
+    locked_until: new Date('1970-01-01T00:00:00.000Z'),
     processed_at: new Date('2023-01-18T21:02:27.000Z'),
   },
   {
@@ -163,11 +167,13 @@ const storedDbMessages = [
     aggregate_type,
     message_type,
     aggregate_id: 'test_aggregate_id',
+    concurrency: 'sequential',
     payload: { result: 'success' },
     metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
     created_at: new Date('2023-01-18T21:02:27.000Z'),
     started_attempts: 4,
     finished_attempts: 4, // 5 is max by default
+    locked_until: new Date('1970-01-01T00:00:00.000Z'),
     processed_at: null,
   },
   {
@@ -175,11 +181,13 @@ const storedDbMessages = [
     aggregate_type,
     message_type,
     aggregate_id: 'test_aggregate_id',
+    concurrency: 'sequential',
     payload: { result: 'success' },
     metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
     created_at: new Date('2023-01-18T21:02:27.000Z'),
     started_attempts: 4, // maximum difference of 3
     finished_attempts: 1,
+    locked_until: new Date('1970-01-01T00:00:00.000Z'),
     processed_at: null,
   },
 ];
@@ -279,13 +287,14 @@ describe('Replication message listener unit tests - initializeReplicationMessage
                     started_attempts: dbMessage.started_attempts + 1,
                     finished_attempts: dbMessage.finished_attempts,
                     processed_at: dbMessage.processed_at,
+                    locked_until: dbMessage.locked_until,
                   },
                 ]
               : [],
           };
         } else if (
           sql.includes(
-            'SELECT started_attempts, finished_attempts, processed_at FROM test_schema.test_table WHERE id = $1 FOR UPDATE NOWAIT;',
+            'SELECT started_attempts, finished_attempts, processed_at, locked_until FROM test_schema.test_table WHERE id = $1 FOR NO KEY UPDATE NOWAIT;',
           )
         ) {
           // initiateMessageProcessing
@@ -298,6 +307,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
                     started_attempts: dbMessage.started_attempts + 1,
                     finished_attempts: dbMessage.finished_attempts,
                     processed_at: dbMessage.processed_at,
+                    locked_until: dbMessage.locked_until,
                   },
                 ]
               : [],
@@ -332,6 +342,8 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
+      concurrency: 'sequential',
+      lockedUntil: '1970-01-01T00:00:00.000Z',
       startedAttempts: 2,
       finishedAttempts: 2,
       processedAt: null,
@@ -466,7 +478,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
           {
             started_attempts: 1,
             finished_attempts: 0,
-            processed_at: new Date().toISOString(),
+            processed_at: new Date(),
           },
         ],
       });
@@ -548,6 +560,8 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
+      concurrency: 'sequential',
+      lockedUntil: '1970-01-01T00:00:00.000Z',
       startedAttempts: 2,
       finishedAttempts: 2,
       processedAt: null,
@@ -614,6 +628,8 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
+      concurrency: 'sequential',
+      lockedUntil: '1970-01-01T00:00:00.000Z',
       startedAttempts: 2,
       finishedAttempts: 2,
       processedAt: null,
@@ -674,6 +690,8 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
+      concurrency: 'sequential',
+      lockedUntil: '1970-01-01T00:00:00.000Z',
       startedAttempts: 99, // would be a poisonous message
       finishedAttempts: 0,
       processedAt: null,
@@ -695,6 +713,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
           started_attempts: 99,
           finished_attempts: 1,
           processed_at: null,
+          locked_until: new Date('1970-01-01T00:00:00.000Z'),
         },
       ],
     });
@@ -749,11 +768,13 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       aggregateType: aggregate_type,
       messageType: message_type,
       aggregateId: 'test_aggregate_id',
+      concurrency: 'sequential',
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
       startedAttempts: 4,
       finishedAttempts: 1,
+      lockedUntil: '1970-01-01T00:00:00.000Z',
       processedAt: null,
     };
     const [cleanup] = initializeReplicationMessageListener(
@@ -793,6 +814,8 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
+      concurrency: 'sequential',
+      lockedUntil: '1970-01-01T00:00:00.000Z',
       startedAttempts: 4,
       finishedAttempts: 4,
       processedAt: null,
@@ -881,6 +904,8 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
+      concurrency: 'sequential',
+      lockedUntil: '1970-01-01T00:00:00.000Z',
       startedAttempts: 2,
       finishedAttempts: 2,
       processedAt: null,
@@ -945,16 +970,18 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       config,
       getDisabledLogger(),
     );
-    const message = {
+    const message: StoredTransactionalMessage = {
       id: 'not_processed_id',
       aggregateType: aggregate_type,
       aggregateId: 'test_aggregate_id',
       messageType: message_type,
+      concurrency: 'sequential',
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
       startedAttempts: 2,
       finishedAttempts: 2,
+      lockedUntil: '1970-01-01T00:00:00.000Z',
       processedAt: null,
     };
     const [logger, logs] = getInMemoryLogger('unit test');
@@ -1033,8 +1060,10 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       aggregateType: aggregate_type,
       aggregateId: 'test_aggregate_id',
       messageType: message_type,
+      concurrency: 'sequential',
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
+      lockedUntil: '1970-01-01T00:00:00.000Z',
       createdAt: '2023-01-18T21:02:27.000Z',
     };
     const [cleanup] = initializeReplicationMessageListener(
@@ -1133,9 +1162,11 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     await continueEventLoop();
 
     // Assert
-    const expectedMessage = {
+    const expectedMessage: StoredTransactionalMessage = {
       ...message,
       startedAttempts: message.startedAttempts + 1,
+      concurrency: 'sequential', // default
+      lockedUntil: '1970-01-01T00:00:00.000Z',
     };
     expect(messageHandler).toHaveBeenCalledWith(
       expectedMessage,

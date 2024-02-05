@@ -143,7 +143,7 @@ const mapMessage = (input: unknown): StoredTransactionalMessage | undefined => {
     !('message_type' in input) ||
     typeof input.message_type !== 'string' ||
     !('created_at' in input) ||
-    !(input.created_at instanceof Date) || // date
+    !(input.created_at instanceof Date) ||
     !('payload' in input) ||
     !('metadata' in input)
   ) {
@@ -158,6 +158,18 @@ const mapMessage = (input: unknown): StoredTransactionalMessage | undefined => {
     metadata: input.metadata as Record<string, unknown> | undefined,
     createdAt: input.created_at.toISOString(),
   };
+  if ('segment' in input && typeof input.segment === 'string') {
+    message.segment = input.segment;
+  }
+  if (
+    'concurrency' in input &&
+    (input.concurrency === 'sequential' || input.concurrency === 'parallel')
+  ) {
+    message.concurrency = input.concurrency;
+  }
+  if ('locked_until' in input && input.locked_until instanceof Date) {
+    message.lockedUntil = input.locked_until.toISOString();
+  }
   return message as StoredTransactionalMessage;
 };
 

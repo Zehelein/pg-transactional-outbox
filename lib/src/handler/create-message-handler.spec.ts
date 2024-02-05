@@ -1,8 +1,8 @@
 import { EventEmitter } from 'events';
 import { PoolClient } from 'pg';
-import { ListenerConfig } from '../common/base-config';
 import { getDisabledLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
+import { ReplicationConfig } from '../replication/config';
 import { defaultMessageRetryStrategy } from '../strategies/message-retry-strategy';
 import { createMessageHandler } from './create-message-handler';
 import { TransactionalMessageHandler } from './transactional-message-handler';
@@ -14,6 +14,8 @@ const message: StoredTransactionalMessage = {
   messageType: 'update',
   createdAt: new Date().toISOString(),
   payload: { test: true },
+  concurrency: 'sequential',
+  lockedUntil: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
   processedAt: null,
   startedAttempts: 0,
   finishedAttempts: 0,
@@ -62,7 +64,7 @@ function getClient({
         );
       } else if (
         sql.includes(
-          'SELECT started_attempts, finished_attempts, processed_at FROM test_schema.test_table WHERE id = $1 FOR UPDATE NOWAIT;',
+          'SELECT started_attempts, finished_attempts, processed_at, locked_until FROM test_schema.test_table WHERE id = $1 FOR NO KEY UPDATE NOWAIT;',
         )
       ) {
         client.initiateMessageProcessing++;
@@ -112,12 +114,14 @@ describe('createMessageHandler', () => {
       messageRetryStrategy: jest.fn().mockReturnValue(false),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
     };
-    const config: ListenerConfig = {
+    const config: ReplicationConfig = {
       outboxOrInbox: 'inbox',
       dbListenerConfig: {},
       settings: {
         dbSchema: 'test_schema',
         dbTable: 'test_table',
+        postgresPub: 'test_pub',
+        postgresSlot: 'test_slot',
         enablePoisonousMessageProtection: true,
         enableMaxAttemptsProtection: true,
       },
@@ -164,12 +168,14 @@ describe('createMessageHandler', () => {
       messageRetryStrategy: jest.fn().mockReturnValue(false),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
     };
-    const config: ListenerConfig = {
+    const config: ReplicationConfig = {
       outboxOrInbox: 'inbox',
       dbListenerConfig: {},
       settings: {
         dbSchema: 'test_schema',
         dbTable: 'test_table',
+        postgresPub: 'test_pub',
+        postgresSlot: 'test_slot',
         enablePoisonousMessageProtection: false,
         enableMaxAttemptsProtection: true,
       },
@@ -218,12 +224,14 @@ describe('createMessageHandler', () => {
       messageRetryStrategy: jest.fn().mockReturnValue(false),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
     };
-    const config: ListenerConfig = {
+    const config: ReplicationConfig = {
       outboxOrInbox: 'inbox',
       dbListenerConfig: {},
       settings: {
         dbSchema: 'test_schema',
         dbTable: 'test_table',
+        postgresPub: 'test_pub',
+        postgresSlot: 'test_slot',
         enablePoisonousMessageProtection: true,
         enableMaxAttemptsProtection: true,
       },
@@ -272,12 +280,14 @@ describe('createMessageHandler', () => {
       messageRetryStrategy: jest.fn().mockReturnValue(true),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
     };
-    const config: ListenerConfig = {
+    const config: ReplicationConfig = {
       outboxOrInbox: 'inbox',
       dbListenerConfig: {},
       settings: {
         dbSchema: 'test_schema',
         dbTable: 'test_table',
+        postgresPub: 'test_pub',
+        postgresSlot: 'test_slot',
         enablePoisonousMessageProtection: false,
         enableMaxAttemptsProtection: true,
       },
@@ -324,12 +334,14 @@ describe('createMessageHandler', () => {
       messageRetryStrategy: jest.fn().mockReturnValue(false),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
     };
-    const config: ListenerConfig = {
+    const config: ReplicationConfig = {
       outboxOrInbox: 'inbox',
       dbListenerConfig: {},
       settings: {
         dbSchema: 'test_schema',
         dbTable: 'test_table',
+        postgresPub: 'test_pub',
+        postgresSlot: 'test_slot',
         enablePoisonousMessageProtection: true,
         enableMaxAttemptsProtection: true,
       },
@@ -376,12 +388,14 @@ describe('createMessageHandler', () => {
       messageRetryStrategy: jest.fn().mockReturnValue(false),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
     };
-    const config: ListenerConfig = {
+    const config: ReplicationConfig = {
       outboxOrInbox: 'inbox',
       dbListenerConfig: {},
       settings: {
         dbSchema: 'test_schema',
         dbTable: 'test_table',
+        postgresPub: 'test_pub',
+        postgresSlot: 'test_slot',
         enablePoisonousMessageProtection: true,
         enableMaxAttemptsProtection: true,
       },
@@ -420,12 +434,14 @@ describe('createMessageHandler', () => {
   it('Should double check that a message is not processed if max attempts are exceeded', async () => {
     // Arrange
     const client = getClient({ finished_attempts: 6 });
-    const config: ListenerConfig = {
+    const config: ReplicationConfig = {
       outboxOrInbox: 'inbox',
       dbListenerConfig: {},
       settings: {
         dbSchema: 'test_schema',
         dbTable: 'test_table',
+        postgresPub: 'test_pub',
+        postgresSlot: 'test_slot',
         enablePoisonousMessageProtection: true,
         enableMaxAttemptsProtection: true,
         maxAttempts: 5,

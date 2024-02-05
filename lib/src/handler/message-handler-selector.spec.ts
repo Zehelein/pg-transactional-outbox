@@ -10,6 +10,8 @@ const message: StoredTransactionalMessage = {
   messageType: 'movie_created',
   payload: {},
   createdAt: new Date().toISOString(),
+  concurrency: 'sequential',
+  lockedUntil: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
   startedAttempts: 0,
   finishedAttempts: 0,
   processedAt: null,

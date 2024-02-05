@@ -56,17 +56,31 @@ const insertMessage = async (
     aggregateType,
     aggregateId,
     messageType,
+    segment,
+    concurrency,
     payload,
     metadata,
     createdAt,
+    lockedUntil,
   } = message;
   const messageResult = await client.query(
-    /* sql*/ `
+    /* sql */ `
     INSERT INTO ${settings.dbSchema}.${settings.dbTable}
-      (id, aggregate_type, aggregate_id, message_type, payload, metadata, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      (id, aggregate_type, aggregate_id, message_type, segment, concurrency, payload, metadata, created_at, locked_until)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (id) DO NOTHING`,
-    [id, aggregateType, aggregateId, messageType, payload, metadata, createdAt],
+    [
+      id,
+      aggregateType,
+      aggregateId,
+      messageType,
+      segment,
+      concurrency,
+      payload,
+      metadata,
+      createdAt,
+      lockedUntil,
+    ],
   );
   if (!messageResult.rowCount || messageResult.rowCount < 1) {
     logger.warn(message, `The message with id ${id} already existed`);

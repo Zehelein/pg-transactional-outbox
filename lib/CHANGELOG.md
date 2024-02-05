@@ -5,6 +5,34 @@ this file.
 
 ## [0.5.0] - 2024-02-01
 
+### Added
+
+- Support for a polling subscriber was added as an alternative to the logical
+  replication listener.
+- The following fields have to be added in the inbox table:
+
+  ```sql
+  ALTER TABLE public.inbox ADD COLUMN segment TEXT;
+  ALTER TABLE public.inbox ADD COLUMN locked_until TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0);
+  ALTER TABLE public.inbox ADD COLUMN concurrency TEXT NOT NULL DEFAULT 'sequential';
+  ALTER TABLE public.inbox ADD CONSTRAINT inbox_concurrency_check
+    CHECK (concurrency IN ('sequential', 'parallel'));
+
+  GRANT UPDATE (started_attempts, finished_attempts, processed_at, locked_until) ON public.inbox TO db_login_inbox;
+  ```
+
+- These fields must also be added in the outbox table:
+
+  ```sql
+  ALTER TABLE public.outbox ADD COLUMN segment TEXT;
+  ALTER TABLE public.outbox ADD COLUMN locked_until TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0);
+  ALTER TABLE public.outbox ADD COLUMN concurrency TEXT NOT NULL DEFAULT 'sequential';
+  ALTER TABLE public.outbox ADD CONSTRAINT outbox_concurrency_check
+    CHECK (concurrency IN ('sequential', 'parallel'));
+
+  GRANT UPDATE (started_attempts, finished_attempts, processed_at, locked_until) ON public.outbox TO db_login_outbox;
+  ```
+
 ### Changed
 
 - Aligned the outbox message handling logic to the inbox table. This allows to

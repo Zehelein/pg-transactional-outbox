@@ -21,37 +21,37 @@ const dbmsSetup = async (config: Config): Promise<void> => {
   rootClient.connect();
   try {
     logger.debug('Drop all connections to the database');
-    await rootClient.query(/* sql*/ `
+    await rootClient.query(/* sql */ `
       SELECT pg_terminate_backend (pg_stat_activity.pid)
       FROM pg_stat_activity
       WHERE pg_stat_activity.datname = '${config.postgresDatabase}';
     `);
 
     logger.debug('Drop the database if it exists');
-    await rootClient.query(/* sql*/ `
+    await rootClient.query(/* sql */ `
       DROP DATABASE IF EXISTS ${config.postgresDatabase};
     `);
 
     logger.debug('Create the database');
-    await rootClient.query(/* sql*/ `
+    await rootClient.query(/* sql */ `
       CREATE DATABASE ${config.postgresDatabase};
     `);
 
     logger.debug('Create the database outbox role');
-    await rootClient.query(/* sql*/ `
+    await rootClient.query(/* sql */ `
       DROP ROLE IF EXISTS ${config.postgresOutboxRole};
       CREATE ROLE ${config.postgresOutboxRole} WITH REPLICATION LOGIN PASSWORD '${config.postgresOutboxRolePassword}';
     `);
 
     logger.debug('Create the database login role');
-    await rootClient.query(/* sql*/ `
+    await rootClient.query(/* sql */ `
       DROP ROLE IF EXISTS ${config.postgresLoginRole};
       CREATE ROLE ${config.postgresLoginRole} WITH LOGIN PASSWORD '${config.postgresLoginRolePassword}';
       GRANT CONNECT ON DATABASE ${config.postgresDatabase} TO ${config.postgresLoginRole};
     `);
 
     logger.debug('Add database extensions');
-    await rootClient.query(/* sql*/ `
+    await rootClient.query(/* sql */ `
       CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public; -- used for gin indexes which optimize requests that use LIKE/ILIKE operators, e.g. filter by title
       CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public; -- used for generating UUID values for PK fields
     `);
@@ -76,7 +76,7 @@ const outboxSetup = async (config: Config): Promise<void> => {
   dbClient.connect();
   try {
     logger.debug('Make sure the outbox database schema exists');
-    await dbClient.query(/* sql*/ `
+    await dbClient.query(/* sql */ `
       CREATE SCHEMA IF NOT EXISTS ${config.postgresOutboxSchema};
       GRANT USAGE ON SCHEMA ${config.postgresOutboxSchema} TO ${config.postgresLoginRole};
     `);
@@ -101,11 +101,11 @@ const outboxSetup = async (config: Config): Promise<void> => {
     `);
 
     logger.debug('Create the outbox publication');
-    await dbClient.query(/* sql*/ `
+    await dbClient.query(/* sql */ `
       DROP PUBLICATION IF EXISTS ${config.postgresOutboxPub};
       CREATE PUBLICATION ${config.postgresOutboxPub} FOR TABLE ${config.postgresOutboxSchema}.${config.postgresOutboxTable} WITH (publish = 'insert')
     `);
-    await dbClient.query(/* sql*/ `
+    await dbClient.query(/* sql */ `
       select pg_create_logical_replication_slot('${config.postgresOutboxSlot}', 'pgoutput');
     `);
 
@@ -133,7 +133,7 @@ const testDataSetup = async (config: Config): Promise<void> => {
     logger.debug(
       'Create the movies table and grant permissions to the login role',
     );
-    await dbClient.query(/* sql*/ `
+    await dbClient.query(/* sql */ `
       DROP TABLE IF EXISTS public.movies CASCADE;
       DROP SEQUENCE IF EXISTS movies_id_seq;
       CREATE SEQUENCE movies_id_seq;
@@ -150,7 +150,7 @@ const testDataSetup = async (config: Config): Promise<void> => {
     `);
 
     logger.debug('Initialize the movie database with some movies');
-    await dbClient.query(/* sql*/ `
+    await dbClient.query(/* sql */ `
       INSERT INTO public.movies (title, description, actors, directors, studio)
       VALUES
         ('Inception', 'A thief who steals corporate secrets through use of dream-sharing technology is given the inverse task of planting an idea into the mind of a CEO.', ARRAY['Leonardo DiCaprio', 'Joseph Gordon-Levitt', 'Ellen Page'], ARRAY['Christopher Nolan'], 'Warner Bros. Pictures'),

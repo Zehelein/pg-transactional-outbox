@@ -12,8 +12,8 @@ import { StoredTransactionalMessage } from './transactional-message';
  * (success case) or catching an error (error case). If the "started_attempts"
  * and the "finished_attempts" field differ by more than one, the chances are
  * high that this message is causing a service crash.
- * It sets the started_attempts, finished_attempts and processed_at
- * values on the message.
+ * It sets the started_attempts, finished_attempts, locked_until. and
+ * processed_at values on the message.
  * For additional safety it makes sure, that the message was not and is not
  * currently being worked on.
  * @param message The message for which to acquire a lock and increment the started_attempts
@@ -28,16 +28,16 @@ export const startedAttemptsIncrement = async (
 ): Promise<true | 'MESSAGE_NOT_FOUND' | 'ALREADY_PROCESSED'> => {
   // Use a NOWAIT select to fully lock and immediately fail if another process is locking that message row
   const updateResult = await client.query(
-    /* sql*/ `
+    /* sql */ `
       UPDATE ${settings.dbSchema}.${settings.dbTable} SET started_attempts = started_attempts + 1 WHERE id IN
         (SELECT id FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT)
-        RETURNING started_attempts, finished_attempts, processed_at;`,
+        RETURNING started_attempts, finished_attempts, processed_at, locked_until;`,
     [message.id],
   );
   if (updateResult.rowCount === 0) {
     return 'MESSAGE_NOT_FOUND';
   }
-  const { started_attempts, finished_attempts, processed_at } =
+  const { started_attempts, finished_attempts, locked_until, processed_at } =
     updateResult.rows[0];
   if (processed_at) {
     return 'ALREADY_PROCESSED';
@@ -45,6 +45,7 @@ export const startedAttemptsIncrement = async (
   // set the values for the poisonous message strategy
   message.startedAttempts = started_attempts;
   message.finishedAttempts = finished_attempts;
-  message.processedAt = processed_at;
+  message.lockedUntil = locked_until?.toISOString();
+  message.processedAt = processed_at?.toISOString() ?? null;
   return true;
 };
