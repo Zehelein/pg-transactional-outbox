@@ -10,6 +10,7 @@ import { Pgoutput } from 'pg-logical-replication';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { IsolationLevel, sleep } from '../common/utils';
 import * as increaseFinishedAttemptsImportSpy from '../message/increase-message-finished-attempts';
+import * as markMessageAbandonedImportSpy from '../message/mark-message-abandoned';
 import * as markMessageCompletedImportSpy from '../message/mark-message-completed';
 import {
   StoredTransactionalMessage,
@@ -115,6 +116,11 @@ const increaseMessageFinishedAttemptsSpy = jest.spyOn(
   'increaseMessageFinishedAttempts',
 );
 
+const markMessageAbandonedSpy = jest.spyOn(
+  markMessageAbandonedImportSpy,
+  'markMessageAbandoned',
+);
+
 jest.mock('../common/utils', () => {
   return {
     ...jest.requireActual('../common/utils'),
@@ -147,6 +153,7 @@ const storedDbMessages = [
     finished_attempts: 2,
     locked_until: new Date('1970-01-01T00:00:00.000Z'),
     processed_at: null,
+    abandoned_at: null,
   },
   {
     id: 'processed_id' as MessageIdType,
@@ -161,6 +168,7 @@ const storedDbMessages = [
     finished_attempts: 0,
     locked_until: new Date('1970-01-01T00:00:00.000Z'),
     processed_at: new Date('2023-01-18T21:02:27.000Z'),
+    abandoned_at: null,
   },
   {
     id: 'attempts_exceeded' as MessageIdType,
@@ -175,6 +183,7 @@ const storedDbMessages = [
     finished_attempts: 4, // 5 is max by default
     locked_until: new Date('1970-01-01T00:00:00.000Z'),
     processed_at: null,
+    abandoned_at: null, // attempts will be exceeded with next try
   },
   {
     id: 'poisonous_message_exceeded' as MessageIdType,
@@ -189,22 +198,29 @@ const storedDbMessages = [
     finished_attempts: 1,
     locked_until: new Date('1970-01-01T00:00:00.000Z'),
     processed_at: null,
+    abandoned_at: null,
   },
 ];
 
-/** The message directly from the DB with started_attempts/finished_attempts/processed_at */
+/** The message directly from the DB with started_attempts/finished_attempts/... */
 const storedDbMessageById = (id: MessageIdType) =>
   storedDbMessages.find((m) => m.id === id);
 
-/** The message from the WAL having no started_attempts/finished_attempts/processed_at */
+/** The message from the WAL having no started_attempts/finished_attempts/... */
 const storedMessageById = (id: MessageIdType) => {
   const message = storedDbMessageById(id);
   if (!message) {
     return;
   }
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { started_attempts, finished_attempts, processed_at, ...messageRest } =
-    message;
+  const {
+    /* eslint-disable @typescript-eslint/no-unused-vars */
+    started_attempts,
+    finished_attempts,
+    processed_at,
+    abandoned_at,
+    /* eslint-enable @typescript-eslint/no-unused-vars */
+    ...messageRest
+  } = message;
   return messageRest;
 };
 
@@ -227,15 +243,15 @@ const config: ReplicationConfig = {
     host: 'test_host',
     port: 5432,
     database: 'test_db',
-    user: 'test_user',
-    password: 'test_password',
+    user: 'test_inbox_handler',
+    password: 'test_inbox_handler_password',
   },
   dbListenerConfig: {
     host: 'test_host',
     port: 5432,
     database: 'test_db',
-    user: 'test_inbox_user',
-    password: 'test_inbox_user_password',
+    user: 'test_inbox_listener',
+    password: 'test_inbox_listener_password',
   },
   settings: {
     dbSchema: 'test_schema',
@@ -287,6 +303,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
                     started_attempts: dbMessage.started_attempts + 1,
                     finished_attempts: dbMessage.finished_attempts,
                     processed_at: dbMessage.processed_at,
+                    abandoned_at: dbMessage.abandoned_at,
                     locked_until: dbMessage.locked_until,
                   },
                 ]
@@ -294,7 +311,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
           };
         } else if (
           sql.includes(
-            'SELECT started_attempts, finished_attempts, processed_at, locked_until FROM test_schema.test_table WHERE id = $1 FOR NO KEY UPDATE NOWAIT;',
+            'SELECT started_attempts, finished_attempts, processed_at, abandoned_at, locked_until FROM test_schema.test_table WHERE id = $1 FOR NO KEY UPDATE NOWAIT;',
           )
         ) {
           // initiateMessageProcessing
@@ -307,6 +324,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
                     started_attempts: dbMessage.started_attempts + 1,
                     finished_attempts: dbMessage.finished_attempts,
                     processed_at: dbMessage.processed_at,
+                    abandoned_at: dbMessage.abandoned_at,
                     locked_until: dbMessage.locked_until,
                   },
                 ]
@@ -334,7 +352,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     // Arrange
     const messageHandler = jest.fn(() => Promise.resolve());
     const unusedMessageHandler = jest.fn(() => Promise.resolve());
-    const message = {
+    const message: StoredTransactionalMessage = {
       id: 'not_processed_id',
       aggregateType: aggregate_type,
       aggregateId: 'test_aggregate_id',
@@ -347,6 +365,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       startedAttempts: 2,
       finishedAttempts: 2,
       processedAt: null,
+      abandonedAt: null,
     };
     const [cleanup] = initializeReplicationMessageListener(
       config,
@@ -468,6 +487,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
             started_attempts: 1,
             finished_attempts: 0,
             processed_at: null,
+            abandoned_at: null,
           },
         ],
       })
@@ -479,6 +499,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
             started_attempts: 1,
             finished_attempts: 0,
             processed_at: new Date(),
+            abandoned_at: null,
           },
         ],
       });
@@ -552,7 +573,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     const handleError = jest.fn();
     const unusedMessageHandler = jest.fn(() => Promise.resolve());
     const unusedErrorHandler = jest.fn();
-    const message = {
+    const message: StoredTransactionalMessage = {
       id: 'not_processed_id',
       aggregateType: aggregate_type,
       aggregateId: 'test_aggregate_id',
@@ -565,6 +586,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       startedAttempts: 2,
       finishedAttempts: 2,
       processedAt: null,
+      abandonedAt: null,
     };
     const [cleanup] = initializeReplicationMessageListener(
       config,
@@ -620,7 +642,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
   it('on a message handler timeout the client should do a ROLLBACK and not commit', async () => {
     // Arrange
     const handleError = jest.fn();
-    const message = {
+    const message: StoredTransactionalMessage = {
       id: 'not_processed_id',
       aggregateType: aggregate_type,
       aggregateId: 'test_aggregate_id',
@@ -633,6 +655,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       startedAttempts: 2,
       finishedAttempts: 2,
       processedAt: null,
+      abandonedAt: null,
     };
     const [cleanup] = initializeReplicationMessageListener(
       config,
@@ -682,7 +705,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
   it('should call the messageHandler and acknowledge the WAL message even if the started attempts are much higher than the finished when poisonous message protection is disabled', async () => {
     // Arrange
     const messageHandler = jest.fn(() => Promise.resolve());
-    const message = {
+    const message: StoredTransactionalMessage = {
       id: 'poisonous_message_exceeded',
       aggregateType: aggregate_type,
       aggregateId: 'test_aggregate_id',
@@ -695,6 +718,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       startedAttempts: 99, // would be a poisonous message
       finishedAttempts: 0,
       processedAt: null,
+      abandonedAt: null,
     };
     const cfg: ReplicationConfig = {
       outboxOrInbox: 'inbox',
@@ -713,6 +737,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
           started_attempts: 99,
           finished_attempts: 1,
           processed_at: null,
+          abandoned_at: null,
           locked_until: new Date('1970-01-01T00:00:00.000Z'),
         },
       ],
@@ -776,6 +801,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       finishedAttempts: 1,
       lockedUntil: '1970-01-01T00:00:00.000Z',
       processedAt: null,
+      abandonedAt: null,
     };
     const [cleanup] = initializeReplicationMessageListener(
       config,
@@ -806,7 +832,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
   it('should not retry a message when there is an error and the attempts are exceeded', async () => {
     // Arrange
     const unusedMessageHandler = jest.fn(() => Promise.resolve());
-    const message = {
+    const message: StoredTransactionalMessage = {
       id: 'attempts_exceeded',
       aggregateType: aggregate_type,
       messageType: message_type,
@@ -819,6 +845,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       startedAttempts: 4,
       finishedAttempts: 4,
       processedAt: null,
+      abandonedAt: null,
     };
     const [cleanup] = initializeReplicationMessageListener(
       config,
@@ -847,7 +874,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     expect(unusedMessageHandler).not.toHaveBeenCalled();
     expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalledWith();
     expect(markMessageCompletedSpy).not.toHaveBeenCalled();
-    expect(increaseMessageFinishedAttemptsSpy).toHaveBeenCalledWith(
+    expect(markMessageAbandonedSpy).toHaveBeenCalledWith(
       {
         ...message,
         finishedAttempts: message.finishedAttempts + 1,
@@ -896,7 +923,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     const handleError = jest.fn().mockImplementationOnce(() => {
       throw new Error('Error handling error');
     });
-    const message = {
+    const message: StoredTransactionalMessage = {
       id: 'not_processed_id',
       aggregateType: aggregate_type,
       aggregateId: 'test_aggregate_id',
@@ -909,6 +936,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       startedAttempts: 2,
       finishedAttempts: 2,
       processedAt: null,
+      abandonedAt: null,
     };
     const [logger, logs] = getInMemoryLogger('unit test');
     const [cleanup] = initializeReplicationMessageListener(
@@ -983,6 +1011,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       finishedAttempts: 2,
       lockedUntil: '1970-01-01T00:00:00.000Z',
       processedAt: null,
+      abandonedAt: null,
     };
     const [logger, logs] = getInMemoryLogger('unit test');
     const [cleanup] = initializeReplicationMessageListener(
@@ -1113,17 +1142,20 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     // Arrange
     const messageHandler = jest.fn(() => Promise.resolve());
     const unusedMessageHandler = jest.fn(() => Promise.resolve());
-    const message = {
+    const message: StoredTransactionalMessage = {
       id: 'not_processed_id',
       aggregateType: aggregate_type,
       aggregateId: 'test_aggregate_id',
       messageType: message_type,
       payload: { result: 'success' },
+      concurrency: 'sequential',
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
       startedAttempts: 2,
       finishedAttempts: 2,
       processedAt: null,
+      abandonedAt: null,
+      lockedUntil: '1970-01-01T00:00:00.000Z',
     };
     const strategies: ReplicationMessageStrategies = {
       concurrencyStrategy: {

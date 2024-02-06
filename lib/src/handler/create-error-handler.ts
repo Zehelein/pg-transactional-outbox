@@ -3,6 +3,7 @@ import { ExtendedError, MessageError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { executeTransaction } from '../common/utils';
 import { increaseMessageFinishedAttempts } from '../message/increase-message-finished-attempts';
+import { markMessageAbandoned } from '../message/mark-message-abandoned';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 import { GeneralMessageHandler } from './general-message-handler';
 import { HandlerStrategies } from './handler-strategies';
@@ -48,6 +49,7 @@ export const createErrorHandler = (
             await handler.handleError(error, message, client, shouldRetry);
           }
           if (shouldRetry) {
+            await increaseMessageFinishedAttempts(message, client, config);
             logger.warn(
               {
                 ...error,
@@ -56,6 +58,7 @@ export const createErrorHandler = (
               `An error ocurred while processing the ${config.outboxOrInbox} message with id ${message.id}.`,
             );
           } else {
+            await markMessageAbandoned(message, client, config);
             logger.error(
               new MessageError(
                 error.message,
@@ -66,7 +69,6 @@ export const createErrorHandler = (
               `Giving up processing the ${config.outboxOrInbox} message with id ${message.id}.`,
             );
           }
-          await increaseMessageFinishedAttempts(message, client, config);
           return shouldRetry;
         },
         transactionLevel,
@@ -84,7 +86,11 @@ export const createErrorHandler = (
         await executeTransaction(
           await strategies.messageProcessingDbClientStrategy.getClient(message),
           async (client) => {
-            await increaseMessageFinishedAttempts(message, client, config);
+            if (shouldRetry) {
+              await increaseMessageFinishedAttempts(message, client, config);
+            } else {
+              await markMessageAbandoned(message, client, config);
+            }
           },
           transactionLevel,
         );

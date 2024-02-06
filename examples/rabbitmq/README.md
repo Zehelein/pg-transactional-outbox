@@ -39,7 +39,7 @@ of them and store them as `.env` files. If you used the default infrastructure
 setup the env values are already prepared.
 
 A `setup:db` script is included in the producer and consumer service. Please run
-it to set up the corresponding database, login roles, and table structure.
+it to set up the corresponding database, database roles, and table structure.
 
 ## Run
 

@@ -16,7 +16,14 @@ describe('startedAttemptsIncrement', () => {
   const client = {
     query: jest.fn().mockResolvedValue({
       rowCount: 1,
-      rows: [{ started_attempts: 1, finished_attempts: 0, processed_at: null }],
+      rows: [
+        {
+          started_attempts: 1,
+          finished_attempts: 0,
+          processed_at: null,
+          abandoned_at: null,
+        },
+      ],
     }),
   } as unknown as PoolClient;
 
@@ -30,7 +37,7 @@ describe('startedAttemptsIncrement', () => {
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
-      // Not yet filled: startedAttempts, finishedAttempts, and processedAt
+      // Not yet filled: startedAttempts, finishedAttempts, abandonedAt, and processedAt
     } as unknown as StoredTransactionalMessage;
   });
 
@@ -38,7 +45,14 @@ describe('startedAttemptsIncrement', () => {
     // Arrange
     client.query = jest.fn().mockResolvedValue({
       rowCount: 1,
-      rows: [{ started_attempts: 1, finished_attempts: 0, processed_at: null }],
+      rows: [
+        {
+          started_attempts: 1,
+          finished_attempts: 0,
+          processed_at: null,
+          abandoned_at: null,
+        },
+      ],
     });
 
     // Act
@@ -49,6 +63,7 @@ describe('startedAttemptsIncrement', () => {
     expect(message.startedAttempts).toBe(1);
     expect(message.finishedAttempts).toBe(0);
     expect(message.processedAt).toBeNull();
+    expect(message.abandonedAt).toBeNull();
   });
 
   it.each([0, 1, 2, 3, 4, 5, 6, 7, 100])(
@@ -62,6 +77,7 @@ describe('startedAttemptsIncrement', () => {
             finished_attempts,
             started_attempts: finished_attempts + 1,
             processed_at: null,
+            abandoned_at: null,
           },
         ],
       });
@@ -74,6 +90,7 @@ describe('startedAttemptsIncrement', () => {
       expect(message.finishedAttempts).toBe(finished_attempts);
       expect(message.startedAttempts).toBe(finished_attempts + 1);
       expect(message.processedAt).toBeNull();
+      expect(message.abandonedAt).toBeNull();
     },
   );
 
@@ -97,6 +114,7 @@ describe('startedAttemptsIncrement', () => {
           started_attempts: 1,
           finished_attempts: 1,
           processed_at: new Date(),
+          abandoned_at: null,
         },
       ],
     });
@@ -106,5 +124,26 @@ describe('startedAttemptsIncrement', () => {
 
     // Assert
     expect(result).toBe('ALREADY_PROCESSED');
+  });
+
+  it('should return "ABANDONED_MESSAGE" for already abandoned messages', async () => {
+    // Arrange
+    client.query = jest.fn().mockResolvedValue({
+      rowCount: 1,
+      rows: [
+        {
+          started_attempts: 1,
+          finished_attempts: 1,
+          processed_at: null,
+          abandoned_at: new Date(),
+        },
+      ],
+    });
+
+    // Act
+    const result = await startedAttemptsIncrement(message, client, config);
+
+    // Assert
+    expect(result).toBe('ABANDONED_MESSAGE');
   });
 });

@@ -114,12 +114,12 @@ const createMsg = (
 });
 
 const insertSourceEntity = async (
-  loginPool: Pool,
+  handlerPool: Pool,
   id: string,
   content: string,
   storeOutboxMessage: ReturnType<typeof initializeMessageStorage>,
 ) => {
-  await executeTransaction(await loginPool.connect(), async (client) => {
+  await executeTransaction(await handlerPool.connect(), async (client) => {
     const entity = await client.query(
       `INSERT INTO public.source_entities (id, content) VALUES ($1, $2) RETURNING id, content;`,
       [id, content],
@@ -145,7 +145,7 @@ const insertSourceEntity = async (
 describe('Integration tests', () => {
   let dockerEnv: DockerComposeEnvironment;
   let startedEnv: StartedDockerComposeEnvironment;
-  let loginPool: Pool;
+  let handlerPool: Pool;
   let configs: TestConfigs;
   let cleanup: { (): Promise<void> } | undefined = undefined;
   const [outboxLogger, outboxLogs] = getInMemoryLogger('outbox');
@@ -163,8 +163,8 @@ describe('Integration tests', () => {
     configs = getConfigs(port);
     await setupTestDb(configs);
 
-    loginPool = new Pool(configs.loginConnection);
-    loginPool.on('error', (err) => {
+    handlerPool = new Pool(configs.handlerConnection);
+    handlerPool.on('error', (err) => {
       outboxLogger.error(err, 'PostgreSQL pool error');
       inboxLogger.error(err, 'PostgreSQL pool error');
     });
@@ -173,7 +173,7 @@ describe('Integration tests', () => {
   beforeEach(async () => {
     inboxLogs.length = 0;
     outboxLogs.length = 0;
-    const { host, port } = configs.loginConnection;
+    const { host, port } = configs.handlerConnection;
     const resetReplication = async ({
       settings: { postgresSlot },
       dbListenerConfig: { database },
@@ -211,7 +211,7 @@ describe('Integration tests', () => {
 
   afterAll(async () => {
     try {
-      await loginPool?.end();
+      await handlerPool?.end();
       await startedEnv?.down();
     } catch (e) {
       inboxLogger.error(e);
@@ -245,7 +245,7 @@ describe('Integration tests', () => {
 
       // Act
       await insertSourceEntity(
-        loginPool,
+        handlerPool,
         entityId,
         content,
         storeOutboxMessage,
@@ -291,7 +291,7 @@ describe('Integration tests', () => {
       const ids = Array.from({ length: 10 }, () => uuid());
 
       // Act
-      await executeTransaction(await loginPool.connect(), async (client) => {
+      await executeTransaction(await handlerPool.connect(), async (client) => {
         await Promise.all(
           ids.map(async (id) => {
             const entity = await client.query(
@@ -365,7 +365,7 @@ describe('Integration tests', () => {
 
       // Act
       await insertSourceEntity(
-        loginPool,
+        handlerPool,
         entityId,
         content,
         storeOutboxMessage,
@@ -423,7 +423,7 @@ describe('Integration tests', () => {
       for (const id of uuids) {
         // Sequentially insert the messages to test message processing sort order
         await insertSourceEntity(
-          loginPool,
+          handlerPool,
           id,
           JSON.stringify({ id, content: 'movie' }),
           storeOutboxMessage,
@@ -475,13 +475,13 @@ describe('Integration tests', () => {
 
       // Act
       await insertSourceEntity(
-        loginPool,
+        handlerPool,
         uuid1,
         JSON.stringify({ id: uuid1, content: 'movie' }),
         storeOutboxMessage,
       );
       await insertSourceEntity(
-        loginPool,
+        handlerPool,
         uuid2,
         JSON.stringify({ id: uuid2, content: 'movie' }),
         storeOutboxMessage,
@@ -509,7 +509,7 @@ describe('Integration tests', () => {
         inboxLogger,
       );
 
-      await executeTransaction(await loginPool.connect(), async (client) => {
+      await executeTransaction(await handlerPool.connect(), async (client) => {
         await storeInboxMessage(msg1, client);
         await storeInboxMessage(msg2, client);
       });
@@ -599,7 +599,7 @@ describe('Integration tests', () => {
       };
 
       // Act
-      await executeTransaction(await loginPool.connect(), async (client) => {
+      await executeTransaction(await handlerPool.connect(), async (client) => {
         await storeInboxMessage(msg1, client);
         await storeInboxMessage(msg2, client);
       });
@@ -669,14 +669,14 @@ describe('Integration tests', () => {
       };
 
       // Act
-      await executeTransaction(await loginPool.connect(), async (client) => {
+      await executeTransaction(await handlerPool.connect(), async (client) => {
         await storeInboxMessage(msg, client);
       });
 
       // Assert
       await sleep(1000);
       expect(inboxHandlerCounter).toBe(5);
-      const inboxResult = await loginPool.query(
+      const inboxResult = await handlerPool.query(
         `SELECT finished_attempts FROM ${configs.inboxConfig.settings.dbSchema}.${configs.inboxConfig.settings.dbTable} WHERE id = $1;`,
         [msg.id],
       );
@@ -707,7 +707,7 @@ describe('Integration tests', () => {
         inboxLogger,
       );
 
-      await executeTransaction(await loginPool.connect(), async (client) => {
+      await executeTransaction(await handlerPool.connect(), async (client) => {
         await storeInboxMessage(msg1, client);
         await storeInboxMessage(msg2, client);
         await storeInboxMessage(msg3, client);
@@ -826,7 +826,7 @@ describe('Integration tests', () => {
         inboxLogger,
       );
 
-      await executeTransaction(await loginPool.connect(), async (client) => {
+      await executeTransaction(await handlerPool.connect(), async (client) => {
         await storeInboxMessage(disc1, client);
         await storeInboxMessage(disc2, client);
         await storeInboxMessage(disc3, client);
@@ -917,7 +917,7 @@ describe('Integration tests', () => {
 
       // Act
       await insertSourceEntity(
-        loginPool,
+        handlerPool,
         entityId,
         content,
         storeOutboxMessage,

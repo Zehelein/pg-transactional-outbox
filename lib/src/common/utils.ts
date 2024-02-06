@@ -49,8 +49,11 @@ export const awaitWithTimeout = <T>(
  * "finished_attempts" counter is updated for the message.
  */
 export enum IsolationLevel {
+  /** Highest protection - no serialization anomaly */
   Serializable = 'SERIALIZABLE',
+  /** Second highest protection - no non-repeatable read */
   RepeatableRead = 'REPEATABLE READ',
+  /** Lowest protection (same as read uncommitted in PG) - non-repeatable reads possible */
   ReadCommitted = 'READ COMMITTED',
 }
 

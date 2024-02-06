@@ -92,7 +92,7 @@ const createInfraOutage = async (
 describe('Outbox and inbox resilience integration tests', () => {
   let dockerEnv: DockerComposeEnvironment;
   let startedEnv: StartedDockerComposeEnvironment;
-  let loginPool: Pool;
+  let handlerPool: Pool;
   let configs: TestConfigs;
   let cleanup: { (): Promise<void> } | undefined = undefined;
   const logger = isDebugMode() ? getDefaultLogger() : getDisabledLogger();
@@ -107,8 +107,8 @@ describe('Outbox and inbox resilience integration tests', () => {
     configs = getConfigs(60399);
     await setupTestDb(configs);
 
-    loginPool = new Pool(configs.loginConnection);
-    loginPool.on('error', (err) => {
+    handlerPool = new Pool(configs.handlerConnection);
+    handlerPool.on('error', (err) => {
       logger.error(err, 'PostgreSQL pool error');
     });
   });
@@ -125,7 +125,7 @@ describe('Outbox and inbox resilience integration tests', () => {
 
   afterAll(async () => {
     try {
-      await loginPool?.end();
+      await handlerPool?.end();
       await startedEnv?.down();
     } catch (e) {
       logger.error(e);
@@ -147,13 +147,13 @@ describe('Outbox and inbox resilience integration tests', () => {
     // Act
     // Store two message before starting up the outbox listener
     await insertSourceEntity(
-      await loginPool.connect(),
+      await handlerPool.connect(),
       entity1Id,
       content1,
       storeOutboxMessage,
     );
     await insertSourceEntity(
-      await loginPool.connect(),
+      await handlerPool.connect(),
       entity2Id,
       content2,
       storeOutboxMessage,
@@ -228,7 +228,7 @@ describe('Outbox and inbox resilience integration tests', () => {
 
     // Act
     // Store two message before starting up the inbox listener
-    await executeTransaction(await loginPool.connect(), async (client) => {
+    await executeTransaction(await handlerPool.connect(), async (client) => {
       await storeInboxMessage(msg1, client);
       await storeInboxMessage(msg2, client);
     });
@@ -277,7 +277,7 @@ describe('Outbox and inbox resilience integration tests', () => {
     const ensureDbConnection = async () => {
       let client: Client | undefined = undefined;
       try {
-        client = new Client(configs.loginConnection);
+        client = new Client(configs.handlerConnection);
         await client.connect();
         const one = await client.query(`SELECT 1 as one`);
         expect(one).toMatchObject({

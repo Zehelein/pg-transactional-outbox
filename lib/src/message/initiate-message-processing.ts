@@ -19,26 +19,37 @@ export const initiateMessageProcessing = async (
   message: StoredTransactionalMessage,
   client: PoolClient,
   settings: PollingListenerConfig | ReplicationListenerConfig,
-): Promise<true | 'MESSAGE_NOT_FOUND' | 'ALREADY_PROCESSED'> => {
+): Promise<
+  true | 'MESSAGE_NOT_FOUND' | 'ALREADY_PROCESSED' | 'ABANDONED_MESSAGE'
+> => {
   // Use a NOWAIT select to immediately fail if another process is locking that message
   const selectResult = await client.query(
     /* sql */ `
-    SELECT started_attempts, finished_attempts, processed_at, locked_until FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR NO KEY UPDATE NOWAIT;`,
+    SELECT started_attempts, finished_attempts, processed_at, abandoned_at, locked_until FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR NO KEY UPDATE NOWAIT;`,
     [message.id],
   );
   if (selectResult.rowCount === 0) {
     return 'MESSAGE_NOT_FOUND';
   }
-  const { started_attempts, finished_attempts, processed_at, locked_until } =
-    selectResult.rows[0];
+  const {
+    started_attempts,
+    finished_attempts,
+    processed_at,
+    abandoned_at,
+    locked_until,
+  } = selectResult.rows[0];
   // ensures latest values (e.g. if the `startedAttemptsIncrement` was not called or another
   // process changed them between the `startedAttemptsIncrement` and this call.
   message.startedAttempts = started_attempts;
   message.finishedAttempts = finished_attempts;
   message.lockedUntil = locked_until?.toISOString();
   message.processedAt = processed_at?.toISOString() ?? null;
+  message.abandonedAt = abandoned_at?.toISOString() ?? null;
   if (processed_at) {
     return 'ALREADY_PROCESSED';
+  }
+  if (abandoned_at) {
+    return 'ABANDONED_MESSAGE';
   }
   return true;
 };

@@ -37,27 +37,21 @@ const dbmsSetup = async (config: Config): Promise<void> => {
       CREATE DATABASE ${config.postgresDatabase};
     `);
 
-    logger.debug('Create the database inbox role');
+    logger.debug('Create the database inbox listener role');
     await rootClient.query(/* sql */ `
-      DROP ROLE IF EXISTS ${config.postgresInboxRole};
-      CREATE ROLE ${config.postgresInboxRole} WITH REPLICATION LOGIN PASSWORD '${config.postgresInboxRolePassword}';
+      DROP ROLE IF EXISTS ${config.postgresInboxListenerRole};
+      CREATE ROLE ${config.postgresInboxListenerRole} WITH REPLICATION LOGIN PASSWORD '${config.postgresInboxListenerRolePassword}';
     `);
 
-    logger.debug('Create the database login role');
+    logger.debug('Create the database inbox handler role');
     await rootClient.query(/* sql */ `
-      DROP ROLE IF EXISTS ${config.postgresLoginRole};
-      CREATE ROLE ${config.postgresLoginRole} WITH LOGIN PASSWORD '${config.postgresLoginRolePassword}';
-      GRANT CONNECT ON DATABASE ${config.postgresDatabase} TO ${config.postgresLoginRole};
-    `);
-
-    logger.debug('Add database extensions');
-    await rootClient.query(/* sql */ `
-      CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public; -- used for gin indexes which optimize requests that use LIKE/ILIKE operators, e.g. filter by title
-      CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public; -- used for generating UUID values for PK fields
+      DROP ROLE IF EXISTS ${config.postgresHandlerRole};
+      CREATE ROLE ${config.postgresHandlerRole} WITH LOGIN PASSWORD '${config.postgresHandlerRolePassword}';
+      GRANT CONNECT ON DATABASE ${config.postgresDatabase} TO ${config.postgresHandlerRole};
     `);
 
     rootClient.end();
-    logger.info('Created the database and the inbox and login roles');
+    logger.info('Created the database and the inbox and handler roles');
   } catch (err) {
     logger.error(err);
     process.exit(1);
@@ -78,7 +72,8 @@ const inboxSetup = async (config: Config): Promise<void> => {
     logger.debug('Make sure the inbox database schema exists');
     await dbClient.query(/* sql */ `
       CREATE SCHEMA IF NOT EXISTS ${config.postgresInboxSchema};
-      GRANT USAGE ON SCHEMA ${config.postgresInboxSchema} TO ${config.postgresLoginRole} ;
+      GRANT USAGE ON SCHEMA ${config.postgresInboxSchema} TO ${config.postgresHandlerRole};
+      GRANT USAGE ON SCHEMA ${config.postgresInboxSchema} TO ${config.postgresInboxListenerRole};
     `);
 
     logger.debug('Create the inbox table');
@@ -87,17 +82,24 @@ const inboxSetup = async (config: Config): Promise<void> => {
       CREATE TABLE ${config.postgresInboxSchema}.${config.postgresInboxTable} (
         id uuid PRIMARY KEY,
         aggregate_type TEXT NOT NULL,
-        aggregate_id TEXT NOT NULL, 
+        aggregate_id TEXT NOT NULL,
         message_type TEXT NOT NULL,
+        segment TEXT,
+        concurrency TEXT NOT NULL DEFAULT 'sequential',
         payload JSONB NOT NULL,
         metadata JSONB,
-        created_at TIMESTAMPTZ NOT NULL,
+        locked_until TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         processed_at TIMESTAMPTZ,
+        abandoned_at TIMESTAMPTZ,
         started_attempts smallint NOT NULL DEFAULT 0,
         finished_attempts smallint NOT NULL DEFAULT 0
       );
-      GRANT SELECT, INSERT, DELETE ON ${config.postgresInboxSchema}.${config.postgresInboxTable} TO ${config.postgresLoginRole};
-      GRANT UPDATE (processed_at, started_attempts, finished_attempts) ON ${config.postgresInboxSchema}.${config.postgresInboxTable} TO ${config.postgresLoginRole};
+      ALTER TABLE ${config.postgresInboxSchema}.${config.postgresInboxTable} ADD CONSTRAINT inbox_concurrency_check
+        CHECK (concurrency IN ('sequential', 'parallel'));
+      GRANT SELECT, INSERT, DELETE ON ${config.postgresInboxSchema}.${config.postgresInboxTable} TO ${config.postgresHandlerRole};
+      GRANT UPDATE (locked_until, processed_at, abandoned_at, started_attempts, finished_attempts) ON ${config.postgresInboxSchema}.${config.postgresInboxTable} TO ${config.postgresHandlerRole};
+      GRANT SELECT, INSERT, UPDATE, DELETE ON ${config.postgresInboxSchema}.${config.postgresInboxTable} TO ${config.postgresInboxListenerRole};
     `);
 
     logger.debug('Create the inbox publication');
@@ -107,6 +109,89 @@ const inboxSetup = async (config: Config): Promise<void> => {
     `);
     await dbClient.query(/* sql */ `
       select pg_create_logical_replication_slot('${config.postgresInboxSlot}', 'pgoutput');
+    `);
+
+    logger.debug('Create the inbox polling function');
+    await dbClient.query(/* sql */ `
+      DROP FUNCTION IF EXISTS ${config.postgresInboxSchema}.${config.nextInboxMessagesFunctionName}(integer);
+      CREATE OR REPLACE FUNCTION ${config.postgresInboxSchema}.${config.nextInboxMessagesFunctionName}(
+        max_size integer)
+          RETURNS SETOF ${config.postgresInboxSchema}.${config.postgresInboxTable} 
+          LANGUAGE 'plpgsql'
+
+      AS $BODY$
+      DECLARE 
+        loop_row ${config.postgresInboxSchema}.${config.postgresInboxTable}%ROWTYPE;
+        message_row ${config.postgresInboxSchema}.${config.postgresInboxTable}%ROWTYPE;
+        ids uuid[] := '{}';
+      BEGIN
+
+        IF max_size < 1 THEN
+          RAISE EXCEPTION 'The max_size for the next messages batch must be at least one.' using errcode = 'MAXNR';
+        END IF;
+
+        -- get (only) the oldest message of every segment but only return it if it is not locked
+        FOR loop_row IN
+          SELECT * FROM ${config.postgresInboxSchema}.${config.postgresInboxTable} m WHERE m.id in (SELECT DISTINCT ON (segment) id
+            FROM ${config.postgresInboxSchema}.${config.postgresInboxTable}
+            WHERE processed_at IS NULL AND abandoned_at IS NULL
+            ORDER BY segment, created_at) order by created_at
+        LOOP
+          BEGIN
+            EXIT WHEN cardinality(ids) >= max_size;
+          
+            SELECT id, locked_until
+              INTO message_row
+              FROM ${config.postgresInboxSchema}.${config.postgresInboxTable}
+              WHERE id = loop_row.id
+              FOR NO KEY UPDATE NOWAIT;
+            
+            IF message_row.locked_until > NOW() THEN
+              CONTINUE;
+            END IF;
+            
+            ids := array_append(ids, message_row.id);
+          EXCEPTION WHEN lock_not_available THEN
+            CONTINUE;
+          END;
+        END LOOP;
+        
+        -- if max_size not reached: get the oldest parallelizable message independent of segment
+        IF cardinality(ids) < max_size THEN
+          FOR loop_row IN
+            SELECT * FROM ${config.postgresInboxSchema}.${config.postgresInboxTable}
+              WHERE concurrency = 'parallel' AND processed_at IS NULL AND abandoned_at IS NULL AND locked_until < NOW() 
+                AND id NOT IN (SELECT UNNEST(ids))
+              order by created_at
+          LOOP
+            BEGIN
+              EXIT WHEN cardinality(ids) >= max_size;
+
+              SELECT *
+                INTO message_row
+                FROM ${config.postgresInboxSchema}.${config.postgresInboxTable}
+                WHERE id = loop_row.id
+                FOR NO KEY UPDATE NOWAIT;
+
+              ids := array_append(ids, message_row.id);
+            EXCEPTION WHEN lock_not_available THEN
+              CONTINUE;
+            END;
+          END LOOP;
+        END IF;
+        
+        -- set a short lock value so the the workers can each process a message
+        IF cardinality(ids) > 0 THEN
+
+          RETURN QUERY 
+            UPDATE ${config.postgresInboxSchema}.${config.postgresInboxTable}
+              SET locked_until = NOW() + INTERVAL '10 seconds', started_attempts = started_attempts + 1
+              WHERE ID = ANY(ids)
+              RETURNING *;
+
+        END IF;
+      END;
+      $BODY$;
     `);
 
     dbClient.end();
@@ -131,7 +216,7 @@ const testDataSetup = async (config: Config): Promise<void> => {
   dbClient.connect();
   try {
     logger.debug(
-      'Create the published movies table and grant permissions to the login role',
+      'Create the published movies table and grant permissions to the handler role',
     );
     await dbClient.query(/* sql */ `
       DROP TABLE IF EXISTS public.published_movies CASCADE;
@@ -142,13 +227,13 @@ const testDataSetup = async (config: Config): Promise<void> => {
         title TEXT NOT NULL,
         description TEXT NOT NULL
       );
-      GRANT SELECT, INSERT, UPDATE, DELETE ON public.published_movies TO ${config.postgresLoginRole};
-      GRANT USAGE ON SEQUENCE published_movies_id_seq TO ${config.postgresLoginRole};;
+      GRANT SELECT, INSERT, UPDATE, DELETE ON public.published_movies TO ${config.postgresHandlerRole};
+      GRANT USAGE ON SEQUENCE published_movies_id_seq TO ${config.postgresHandlerRole};;
     `);
 
     dbClient.end();
     logger.debug(
-      'Added the published movies tables and granted access to the login role',
+      'Added the published movies tables and granted access to the handler role',
     );
   } catch (err) {
     logger.error(err);

@@ -71,7 +71,7 @@ export const createMessageHandler = (
       }
     }
 
-    await startMessageProcessing(
+    await processMessage(
       message,
       handler,
       strategies,
@@ -115,7 +115,7 @@ const applyReplicationPoisonousMessageProtection = async (
 };
 
 /** Lock the message and execute the handler (if there is any) and mark the message as completed */
-const startMessageProcessing = async (
+const processMessage = async (
   message: StoredTransactionalMessage,
   handler: GeneralMessageHandler | undefined,
   strategies: HandlerStrategies,

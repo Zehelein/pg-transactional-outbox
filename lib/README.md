@@ -121,8 +121,8 @@ are not lost in case of failure.
 The transactional outbox pattern uses the following approach to guarantee the
 exactly-once processing (in combination with the transactional inbox pattern):
 
-1. Some business logic needs to update data in its database and send an event
-   with details of the changes.
+1. Some business logic needs to update data in its database and send a message
+   (e.g. with details of the changes).
 2. It uses a database transaction to add all of the business data changes on the
    one hand and it inserts the details of the message that should be sent into
    an "outbox" table within the same database transaction. The message includes
@@ -143,9 +143,8 @@ exactly-once processing (in combination with the transactional inbox pattern):
 The third step can be implemented via the Polling-Publisher pattern or the
 Transactional Log Tailing pattern.
 
-- **Polling-Publisher**: an external process queries the outbox table on a
-  (short) interval. This has the drawback, that the database is put under load
-  and often results in no newly found entries.
+- **Polling-Publisher**: a polling listener queries the outbox table on a
+  (short) interval. When unprocessed messages are found they can be sent.
 - **Transactional Log Tailing** (also called Capture-Based Log Tailing) reads
   from the transactional log or change stream that contains the changes to the
   outbox table. For PostgreSQL, this is handled with the Write-Ahead Log (WAL)
@@ -173,8 +172,8 @@ exactly-once processing (in combination with the transactional outbox pattern):
    an "inbox" table in the database. The process uses the unique message
    identifier to store the message in the inbox as the primary key. This ensures
    that each message is only written once to this database table even if the
-   same message was delivered multiple times. The `inbox storage` component from
-   the above diagram handles this step.
+   same message was delivered multiple times (deduplication). The
+   `inbox storage` component from the above diagram handles this step.
 3. A consumer process receives the messages that were stored in the inbox table
    and processes them. It uses a transaction to store all the service-relevant
    data and mark the inbox message in the inbox table as processed. If an error
@@ -235,9 +234,9 @@ that may have occurred while it was disconnected.
 
 # The pg-transactional-outbox library overview
 
-This library implements the transactional outbox and inbox pattern using the
-PostgreSQL server and the Transactional Log Tailing approach via the PostgreSQL
-Write-Ahead Log (WAL).
+This library implements the transactional outbox and inbox pattern using a
+PostgreSQL server. It implements both the Transactional Log Tailing approach via
+the PostgreSQL Write-Ahead Log (WAL) and the polling listener.
 
 You can use the library in your node.js projects that use a PostgreSQL database
 as the data store and some message sending/streaming software (e.g. RabbitMQ or
@@ -245,15 +244,25 @@ Kafka).
 
 ## Database server
 
-The PostgreSQL database server itself must have the `wal_level` configured as
-`logical`. This enables the use of the WAL to be notified on e.g. new inserts.
-You should also check the `max_wal_senders`, the `max_wal_size`, and the
-`min_wal_size` settings to contain values that match your architecture. Setting
-a large size could consume/max out the disk space. Setting the value too low
-could lead to lost events in case your WAL consumer is down for a longer
-duration. An example `postgres.conf` file is shown in the `./infra` folder. This
-folder includes also a `docker-compose.yml` file to set up a PostgreSQL server
-with these default values (and a RabbitMQ instance for running the examples).
+This library was tested with PostgreSQL servers starting from version 14. But it
+should most likely work with versions starting from version 12.
+
+### Polling Listener Setup
+
+No special extensions or settings are required for the polling listener setup.
+
+### Logical Replication Setup
+
+For the logical replication setup, the PostgreSQL database server itself must
+have the `wal_level` configured as `logical`. This enables the use of the WAL to
+be notified on e.g. new inserts. You should also check the `max_wal_senders`,
+the `max_wal_size`, and the `min_wal_size` settings to contain values that match
+your architecture. Setting a large size could consume/max out the disk space.
+Setting the value too low could lead to lost events in case your WAL consumer is
+down for a longer duration. An example `postgres.conf` file is shown in the
+`./infra` folder. This folder includes also a `docker-compose.yml` file to set
+up a PostgreSQL server with these default values (and a RabbitMQ instance for
+running the examples).
 
 This library uses the standard PostgreSQL logical decoding plugin `pgoutput`.
 This plugin is included directly in PostgreSQL since version 9.4. Other
@@ -277,41 +286,150 @@ CREATE TABLE public.outbox (
   aggregate_type TEXT NOT NULL,
   aggregate_id TEXT NOT NULL,
   message_type TEXT NOT NULL,
+  segment TEXT,
+  concurrency TEXT NOT NULL DEFAULT 'sequential',
   payload JSONB NOT NULL,
   metadata JSONB,
+  locked_until TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   processed_at TIMESTAMPTZ,
+  abandoned_at TIMESTAMPTZ,
   started_attempts smallint NOT NULL DEFAULT 0,
   finished_attempts smallint NOT NULL DEFAULT 0
 );
+ALTER TABLE public.outbox ADD CONSTRAINT outbox_concurrency_check
+  CHECK (concurrency IN ('sequential', 'parallel'));
 ```
 
-The database role that is used to mutate the business-relevant data must be
-granted the select, insert and delete permissions for this outbox table.
+The database role that is used to mutate the business-relevant data and handle
+the outbox message must be granted the select and insert permissions for the
+outbox table and the update permission for processing relevant rows.
 
 ```sql
-GRANT SELECT, INSERT, DELETE ON public.outbox TO db_login_outbox;
+GRANT SELECT, INSERT ON public.outbox TO db_outbox_handler;
+GRANT UPDATE (locked_until, processed_at, abandoned_at, started_attempts, finished_attempts)
+  ON public.outbox TO db_outbox_handler;
 ```
 
-Then you need to create a new database role for the WAL subscription. As this
-role has a lot of rights it is not advised to give the replication permission to
-the same role that reads and mutates the business-relevant data.
+### Polling Listener Setup
 
-The following statements can be used:
+The role that is used to poll for unprocessed outbox messages should have
+permission to update any row and potentially be able to delete it. It should not
+have the `REPLICATION` permission.
 
 ```sql
-BEGIN;
-  CREATE ROLE db_outbox WITH REPLICATION LOGIN PASSWORD 'db_outbox_password';
-  CREATE PUBLICATION pg_transactional_outbox_pub
-    FOR TABLE public.outbox WITH (publish = 'insert');
-COMMIT;
+GRANT SELECT, UPDATE, DELETE ON public.outbox TO db_outbox_listener;
+```
 
+The following function is used in the polling listener to get the next messages.
+
+```sql
+DROP FUNCTION IF EXISTS public.next_outbox_messages(integer);
+CREATE OR REPLACE FUNCTION public.next_outbox_messages(
+  max_size integer)
+    RETURNS SETOF public.outbox
+    LANGUAGE 'plpgsql'
+
+AS $BODY$
+DECLARE
+  loop_row public.outbox%ROWTYPE;
+  message_row public.outbox%ROWTYPE;
+  ids uuid[] := '{}';
+BEGIN
+
+  IF max_size < 1 THEN
+    RAISE EXCEPTION 'The max_size for the next messages batch must be at least one.' using errcode = 'MAXNR';
+  END IF;
+
+  -- get (only) the oldest message of every segment but only return it if it is not locked
+  FOR loop_row IN
+    SELECT * FROM public.outbox m WHERE m.id in (SELECT DISTINCT ON (segment) id
+      FROM public.outbox
+      WHERE processed_at IS NULL AND abandoned_at IS NULL
+      ORDER BY segment, created_at) order by created_at
+  LOOP
+    BEGIN
+      EXIT WHEN cardinality(ids) >= max_size;
+
+      SELECT id, locked_until
+        INTO message_row
+        FROM public.outbox
+        WHERE id = loop_row.id
+        FOR NO KEY UPDATE NOWAIT;
+
+      IF message_row.locked_until > NOW() THEN
+        CONTINUE;
+      END IF;
+
+      ids := array_append(ids, message_row.id);
+    EXCEPTION WHEN lock_not_available THEN
+      CONTINUE;
+    END;
+  END LOOP;
+
+  -- if max_size not reached: get the oldest parallelizable message independent of segment
+  IF cardinality(ids) < max_size THEN
+    FOR loop_row IN
+      SELECT * FROM public.outbox
+        WHERE concurrency = 'parallel' AND processed_at IS NULL AND abandoned_at IS NULL AND locked_until < NOW()
+          AND id NOT IN (SELECT UNNEST(ids))
+        order by created_at
+    LOOP
+      BEGIN
+        EXIT WHEN cardinality(ids) >= max_size;
+
+        SELECT *
+          INTO message_row
+          FROM public.outbox
+          WHERE id = loop_row.id
+          FOR NO KEY UPDATE NOWAIT;
+
+        ids := array_append(ids, message_row.id);
+      EXCEPTION WHEN lock_not_available THEN
+        CONTINUE;
+      END;
+    END LOOP;
+  END IF;
+
+  -- set a short lock value so the the workers can each process a message
+  IF cardinality(ids) > 0 THEN
+
+    RETURN QUERY
+      UPDATE public.outbox
+        SET locked_until = NOW() + INTERVAL '10 seconds', started_attempts = started_attempts + 1
+        WHERE ID = ANY(ids)
+        RETURNING *;
+
+  END IF;
+END;
+$BODY$;
+```
+
+### Logical Replication Setup
+
+If you use the logical replication approach, the database listener role needs
+the replication permission. As this role has a lot of rights it is not advised
+to give the replication permission to the same role that reads and mutates the
+business-relevant data.
+
+The following statement can be used to create the listener role (you need to run
+the scripts in different transactions):
+
+```sql
+CREATE ROLE db_outbox_listener WITH REPLICATION LOGIN PASSWORD 'db_outbox_listener_password';
+```
+
+Create the publication:
+
+```sql
+CREATE PUBLICATION pg_transactional_outbox_pub FOR TABLE public.outbox WITH (publish = 'insert');
+```
+
+And the replication:
+
+```sql
 SELECT pg_create_logical_replication_slot('pg_transactional_outbox_slot', 'pgoutput');
 ```
-
-> **NOTE**: The `BEGIN` and `COMMIT` in the example above are important, because
-> the replication slot must be created in a transaction that has not performed
-> any writes, otherwise an error would be thrown.
 
 > **NOTE**: the replication slot name is database **server** unique! This means
 > if you use the transactional inbox pattern on multiple databases within the
@@ -322,7 +440,8 @@ SELECT pg_create_logical_replication_slot('pg_transactional_outbox_slot', 'pgout
 
 Corresponding to the outbox table, the consumer service must have the inbox
 table. You can also decide to put it in a separate database schema
-(recommended).
+(recommended). The table structure, roles, grants, etc. are identical to the
+outbox service approach.
 
 You can follow again the steps below or use the
 `examples/rabbitmq/consumer/setup/init-db.ts` script as an example to generate
@@ -334,57 +453,178 @@ CREATE TABLE public.inbox (
   aggregate_type TEXT NOT NULL,
   aggregate_id TEXT NOT NULL,
   message_type TEXT NOT NULL,
+  segment TEXT,
+  concurrency TEXT NOT NULL DEFAULT 'sequential',
   payload JSONB NOT NULL,
   metadata JSONB,
-  created_at TIMESTAMPTZ NOT NULL,
+  locked_until TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   processed_at TIMESTAMPTZ,
+  abandoned_at TIMESTAMPTZ,
   started_attempts smallint NOT NULL DEFAULT 0,
   finished_attempts smallint NOT NULL DEFAULT 0
 );
+ALTER TABLE public.inbox ADD CONSTRAINT inbox_concurrency_check
+  CHECK (concurrency IN ('sequential', 'parallel'));
 ```
 
-The database role that stores the incoming messages in the inbox table must be
-granted the select and insert permissions for this table. If the same role is
-also used to process the inbox messages later on it requires also the update
-permissions for the `started_attempts`, `finished_attempts` and `processed_at`
-fields and maybe also the delete permissions to cleanup the inbox from old
-messages.
+The database role that is used to mutate the business-relevant data and handle
+the inbox message must be granted the select and insert permissions for the
+inbox table and the update permission for processing relevant rows.
 
 ```sql
-GRANT SELECT, INSERT ON public.inbox TO db_login_inbox;
-GRANT UPDATE (started_attempts, finished_attempts, processed_at) ON public.inbox TO db_login_inbox;
+GRANT SELECT, INSERT ON public.inbox TO db_inbox_handler;
+GRANT UPDATE (locked_until, processed_at, abandoned_at, started_attempts, finished_attempts)
+  ON public.inbox TO db_inbox_handler;
 ```
 
-Just like for accessing the outbox table WAL, the inbox solution requires a
-similar setup:
+### Polling Listener Setup
+
+The role that is used to poll for unprocessed inbox messages should have
+permission to update any row and potentially be able to delete it. It should not
+have the `REPLICATION` permission.
 
 ```sql
-BEGIN;
-  CREATE ROLE db_inbox WITH REPLICATION LOGIN PASSWORD 'db_inbox_password';
-  CREATE PUBLICATION pg_transactional_inbox_pub
-  FOR TABLE public.inbox WITH (publish = 'insert');
-COMMIT;
+GRANT SELECT, UPDATE, DELETE ON public.inbox TO db_inbox_listener;
+```
+
+The following function is used in the polling listener to get the next messages.
+
+```sql
+DROP FUNCTION IF EXISTS public.next_inbox_messages(integer);
+CREATE OR REPLACE FUNCTION public.next_inbox_messages(
+  max_size integer)
+    RETURNS SETOF public.inbox
+    LANGUAGE 'plpgsql'
+
+AS $BODY$
+DECLARE
+  loop_row public.inbox%ROWTYPE;
+  message_row public.inbox%ROWTYPE;
+  ids uuid[] := '{}';
+BEGIN
+
+  IF max_size < 1 THEN
+    RAISE EXCEPTION 'The max_size for the next messages batch must be at least one.' using errcode = 'MAXNR';
+  END IF;
+
+  -- get (only) the oldest message of every segment but only return it if it is not locked
+  FOR loop_row IN
+    SELECT * FROM public.inbox m WHERE m.id in (SELECT DISTINCT ON (segment) id
+      FROM public.inbox
+      WHERE processed_at IS NULL AND abandoned_at IS NULL
+      ORDER BY segment, created_at) order by created_at
+  LOOP
+    BEGIN
+      EXIT WHEN cardinality(ids) >= max_size;
+
+      SELECT id, locked_until
+        INTO message_row
+        FROM public.inbox
+        WHERE id = loop_row.id
+        FOR NO KEY UPDATE NOWAIT;
+
+      IF message_row.locked_until > NOW() THEN
+        CONTINUE;
+      END IF;
+
+      ids := array_append(ids, message_row.id);
+    EXCEPTION WHEN lock_not_available THEN
+      CONTINUE;
+    END;
+  END LOOP;
+
+  -- if max_size not reached: get the oldest parallelizable message independent of segment
+  IF cardinality(ids) < max_size THEN
+    FOR loop_row IN
+      SELECT * FROM public.inbox
+        WHERE concurrency = 'parallel' AND processed_at IS NULL AND abandoned_at IS NULL AND locked_until < NOW()
+          AND id NOT IN (SELECT UNNEST(ids))
+        order by created_at
+    LOOP
+      BEGIN
+        EXIT WHEN cardinality(ids) >= max_size;
+
+        SELECT *
+          INTO message_row
+          FROM public.inbox
+          WHERE id = loop_row.id
+          FOR NO KEY UPDATE NOWAIT;
+
+        ids := array_append(ids, message_row.id);
+      EXCEPTION WHEN lock_not_available THEN
+        CONTINUE;
+      END;
+    END LOOP;
+  END IF;
+
+  -- set a short lock value so the the workers can each process a message
+  IF cardinality(ids) > 0 THEN
+
+    RETURN QUERY
+      UPDATE public.inbox
+        SET locked_until = NOW() + INTERVAL '10 seconds', started_attempts = started_attempts + 1
+        WHERE ID = ANY(ids)
+        RETURNING *;
+
+  END IF;
+END;
+$BODY$;
+```
+
+### Logical Replication Setup
+
+If you use the logical replication approach, the database listener role needs
+the replication permission. As this role has a lot of rights it is not advised
+to give the replication permission to the same role that reads and mutates the
+business-relevant data.
+
+The following statement can be used to create the listener role (you need to run
+the scripts in different transactions):
+
+```sql
+CREATE ROLE db_inbox_listener WITH REPLICATION LOGIN PASSWORD 'db_inbox_listener_password';
+```
+
+Create the publication:
+
+```sql
+CREATE PUBLICATION pg_transactional_inbox_pub FOR TABLE public.inbox WITH (publish = 'insert');
+```
+
+And the replication:
+
+```sql
 SELECT pg_create_logical_replication_slot('pg_transactional_inbox_slot', 'pgoutput');
 ```
+
+> **NOTE**: the replication slot name is database **server** unique! This means
+> if you use the transactional inbox pattern on multiple databases within the
+> same PostgreSQL server instance you must use different replication slot names
+> for each of them.
 
 ## Implementing the transactional outbox producer
 
 The following code shows the producer side of the transactional outbox pattern.
-The two main functions are the `initializeReplicationMessageListener` to listen
-to the WAL messages when an outbox message is written to the outbox table. And
-the `initializeMessageStorage` generator function to store outgoing messages in
-the outbox table.
+It shows the usage in the outbox scenario to either use the logical replication
+approach with `initializeReplicationMessageListener` or the polling approach
+with `initializePollingMessageListener`. They receive the messages when an
+outbox message is written to the outbox table. And the
+`initializeMessageStorage` generator function to store outgoing messages in the
+outbox table.
 
 ```TypeScript
 import process from 'node:process';
 import { Pool } from 'pg';
 import {
   GeneralMessageHandler,
+  PollingConfig,
   ReplicationConfig,
   TransactionalMessage,
-  createMutexConcurrencyController,
+  createReplicationMutexConcurrencyController,
   getDefaultLogger,
   initializeMessageStorage,
+  initializePollingMessageListener,
   initializeReplicationMessageListener,
 } from 'pg-transactional-outbox';
 
@@ -399,50 +639,82 @@ import {
     },
   };
 
-  const config: ReplicationConfig = {
+  const dbListenerConfig = {
+    host: 'localhost',
+    port: 5432,
+    user: 'db_outbox_listener',
+    password: 'db_outbox_listener_password',
+    database: 'pg_transactional_outbox',
+  };
+  const baseSettings = {
+    dbSchema: 'public',
+    dbTable: 'outbox',
+  };
+  const replicationConfig: ReplicationConfig = {
     outboxOrInbox: 'outbox',
-    dbListenerConfig: {
-      host: 'localhost',
-      port: 5432,
-      user: 'db_outbox',
-      password: 'db_outbox_password',
-      database: 'pg_transactional_outbox',
-    },
+    dbListenerConfig,
     settings: {
-      dbSchema: 'public',
-      dbTable: 'outbox',
+      ...baseSettings,
       postgresPub: 'pg_transactional_outbox_pub',
       postgresSlot: 'pg_transactional_outbox_slot',
     },
   };
-
-  // Initialize and start the subscription for outbox messages. This listener
-  // receives all the outbox table inserts from the WAL. It executes the
-  // messagePublisher handle function with every received outbox message. It
-  // cares for the at least once delivery.
-  const [shutdown] = initializeReplicationMessageListener(
-    config,
-    messagePublisher,
-    logger,
-    {
-      concurrencyStrategy: createMutexConcurrencyController(),
-      messageProcessingTimeoutStrategy: (message: TransactionalMessage) =>
-        message.messageType === 'ABC' ? 10_000 : 2_000,
+  const pollingConfig: PollingConfig = {
+    outboxOrInbox: 'outbox',
+    dbListenerConfig,
+    settings: {
+      ...baseSettings,
+      nextMessagesBatchSize: 5,
+      nextMessagesFunctionName: 'next_outbox_messages',
+      nextMessagesPollingInterval: 250,
     },
-  );
+  };
+
+  // Initialize and start the listening for outbox messages. This listeners
+  // receives all the outbox table inserts from the WAL or via polling. It
+  // executes the messagePublisher handle function with every received outbox
+  // message. It cares for the at least once delivery.
+  let shutdownListener: () => Promise<void>;
+  if (process.env.listenerType === 'replication') {
+    const [shutdown] = initializeReplicationMessageListener(
+      replicationConfig,
+      messagePublisher,
+      logger,
+      {
+        concurrencyStrategy: createReplicationMutexConcurrencyController(),
+        messageProcessingTimeoutStrategy: (message: TransactionalMessage) =>
+          message.messageType === 'ABC' ? 10_000 : 2_000,
+      },
+    );
+    shutdownListener = shutdown;
+  } else {
+    const [shutdown] = initializePollingMessageListener(
+      pollingConfig,
+      messagePublisher,
+      logger,
+      {
+        messageProcessingTimeoutStrategy: (message: TransactionalMessage) =>
+          message.messageType === 'ABC' ? 10_000 : 2_000,
+      },
+    );
+    shutdownListener = shutdown;
+  }
 
   // Initialize the message storage function to store outbox messages. It will
   // be called to insert the outgoing message into the outbox table as part of
   // the DB transaction that is responsible for this event.
-  const storeOutboxMessage = initializeMessageStorage(config, logger);
+  const storeOutboxMessage = initializeMessageStorage(
+    replicationConfig,
+    logger,
+  );
 
   // The actual business logic generates in this example a new movie in the DB
   // and wants to reliably send a "movie_created" message.
   const pool = new Pool({
     host: 'localhost',
     port: 5432,
-    user: 'db_login_outbox',
-    password: 'db_login_outbox_password',
+    user: 'db_outbox_handler',
+    password: 'db_outbox_handler_password',
     database: 'pg_transactional_outbox',
   });
   const client = await pool.connect();
@@ -475,7 +747,7 @@ import {
     client.release(true);
     throw err;
   }
-  await shutdown();
+  await shutdownListener();
 })();
 ```
 
@@ -487,30 +759,30 @@ import {
 ### Outbox Storage
 
 The outbox storage is used to store the message that should later be sent into
-the `outbox` database table. It comes in two flavors:
+the `outbox` database table. The `initializeMessageStorage` is initialized to
+store outbox messages:
 
-The `initializeMessageStorage` is initialized to store outbox messages. In the
-above example, it is used to store outbox messages for the aggregate type
-`movie` and the message type `movie_created`. The storage function accepts the
-following parameters:
-
-- `message`: the outbox message with a unique message ID, aggregate type,
-  message type, the ID of the aggregate, and the create date. It contains the
-  message payload that is used on the receiving side to act on such a message.
-  And optional metadata that can be used for the actual message transport like
-  routing keys and the target queue.
-- `client`: the database client with an open database transaction to both handle
+- `message`: the outbox message with a unique message ID and other relevant
+  data. It contains the message payload that is used on the receiving side to
+  act on such a message.
+- `client`: the database client with an open database transaction to handle both
   the business logic database changes as well as store the outgoing message
   within that transaction.
 
 ### Outbox Listener
 
-The `initializeReplicationMessageListener` is used to create and start the WAL
-listener that gets notified when a new outbox message is written to the outbox
-table. It takes the message publisher instance as an input parameter and calls
-it to send out messages. Other parameters are the `config` object, a `logger`
-instance and an optional strategies object to fine-tune and customize specific
-aspects of the outbox listener.
+The `initializeReplicationMessageListener` is used to create and start the
+logical replication-based listener that gets notified when a new outbox message
+is written to the outbox table. It takes the message publisher instance as an
+input parameter and calls it to send out messages. Other parameters are the
+`config` object, a `logger` instance and an optional strategies object to
+fine-tune and customize specific aspects of the outbox listener.
+
+The second option is to use the `initializePollingMessageListener` to use the
+database polling approach to query for unprocessed outbox messages. It uses the
+same handler to send out the message and the same logger. It has a (partly)
+different configuration object and can optionally define also different
+strategies.
 
 ### Message Publisher
 
@@ -524,28 +796,36 @@ implementation in the examples folder.
 ## Implementing the transactional inbox consumer
 
 A minimalistic example code for the consumer of the published message using the
-transactional inbox pattern. The main functions are the
+transactional inbox pattern is included below. The main functions are the
 `initializeInboxMessageStorage` function that is used by the actual message
 receiver like a RabbitMQ-based message handler to store the incoming message
-(which was based on an outbox message) in the inbox table. The other central
-function is `initializeInboxListener`. It uses one database connection based on
-a user with replication permission to receive notifications when a new inbox
-message is created. It uses a second database connection to open a transaction,
-load the inbox message from the database and lock it, execute the message
-handler queries/mutations, and finally mark the inbox message as processed in
-the database.
+(which was based on an outbox message) in the inbox table.
+
+The other central functions are the `initializeReplicationMessageListener` or
+the `initializePollingMessageListener`. The replication listener uses one
+database connection based on a user with replication permission to receive
+notifications when a new inbox message is created. The polling listener queries
+the database regularly for new inbox messages.
+
+The code uses a second database connection to open a transaction, load the inbox
+message from the database and lock it, execute the message handler
+queries/mutations, and finally mark the inbox message as processed in the
+database.
 
 ```TypeScript
 import { Pool, PoolClient } from 'pg';
 import {
   IsolationLevel,
+  PollingConfig,
   ReplicationConfig,
   TransactionalMessage,
-  createMultiConcurrencyController,
+  TransactionalMessageHandler,
+  createReplicationMultiConcurrencyController,
   ensureExtendedError,
   executeTransaction,
   getDefaultLogger,
   initializeMessageStorage,
+  initializePollingMessageListener,
   initializeReplicationMessageListener,
 } from 'pg-transactional-outbox';
 
@@ -554,46 +834,62 @@ import {
   const logger = getDefaultLogger('outbox');
 
   // Configuration settings for the replication and inbox table configurations
-  const config: ReplicationConfig = {
+
+  // This configuration is used to start a transaction that locks and updates
+  // the row in the inbox table that was found from the inbox table. This connection
+  // will also be used in the message handler so every select and data change is
+  // part of the same database transaction. The inbox database row is then
+  // marked as "processed" when everything went fine.
+  const dbHandlerConfig = {
+    host: 'localhost',
+    port: 5432,
+    user: 'db_inbox_handler',
+    password: 'db_inbox_handler_password',
+    database: 'pg_transactional_inbox',
+  };
+  // Configure the replication role to receive notifications when a new inbox
+  // row was added to the inbox table. This role must have the replication
+  // permission.
+  const dbListenerConfig = {
+    host: 'localhost',
+    port: 5432,
+    user: 'db_inbox_listener',
+    password: 'db_inbox_listener_password',
+    database: 'pg_transactional_inbox',
+  };
+  const baseSettings = {
+    dbSchema: 'public',
+    dbTable: 'outbox',
+  };
+  const replicationConfig: ReplicationConfig = {
     outboxOrInbox: 'inbox',
-    // This configuration is used to start a transaction that locks and updates
-    // the row in the inbox table that was found from the WAL log. This connection
-    // will also be used in the message handler so every select and data change is
-    // part of the same database transaction. The inbox database row is then
-    // marked as "processed" when everything went fine.
-    dbHandlerConfig: {
-      host: 'localhost',
-      port: 5432,
-      user: 'db_login_inbox',
-      password: 'db_login_inbox_password',
-      database: 'pg_transactional_inbox',
-    },
-    // Configure the replication role to receive notifications when a new inbox
-    // row was added to the inbox table. This role must have the replication
-    // permission.
-    dbListenerConfig: {
-      host: 'localhost',
-      port: 5432,
-      user: 'db_inbox',
-      password: 'db_inbox_password',
-      database: 'pg_transactional_inbox',
-    },
+    dbHandlerConfig,
+    dbListenerConfig,
     settings: {
-      dbSchema: 'public',
-      dbTable: 'outbox',
+      ...baseSettings,
       postgresPub: 'pg_transactional_inbox_pub',
       postgresSlot: 'pg_transactional_outbox_slot',
     },
   };
+  const pollingConfig: PollingConfig = {
+    outboxOrInbox: 'inbox',
+    dbListenerConfig,
+    settings: {
+      ...baseSettings,
+      nextMessagesBatchSize: 5,
+      nextMessagesFunctionName: 'next_inbox_messages',
+      nextMessagesPollingInterval: 250,
+    },
+  };
 
   // Create the database pool to store the incoming inbox messages
-  const pool = new Pool(config.dbHandlerConfig);
+  const pool = new Pool(replicationConfig.dbHandlerConfig);
   pool.on('error', (err) => {
     logger.error(ensureExtendedError(err, 'DB_ERROR'), 'PostgreSQL pool error');
   });
 
   // Initialize the inbox message storage to store incoming messages in the inbox
-  const storeInboxMessage = initializeMessageStorage(config, logger);
+  const storeInboxMessage = initializeMessageStorage(replicationConfig, logger);
 
   // Initialize the message receiver e.g. based on RabbitMQ
   // In the simplest scenario use the inter process communication:
@@ -610,7 +906,7 @@ import {
   // Define an optional concurrency strategy to handle messages with the message
   // type "ABC" in parallel while handling other messages sequentially per
   // aggregate type and message type combination.
-  const concurrencyStrategy = createMultiConcurrencyController(
+  const concurrencyStrategy = createReplicationMultiConcurrencyController(
     (message) => {
       switch (message.messageType) {
         case 'ABC':
@@ -625,66 +921,86 @@ import {
     },
   );
 
-  // Initialize and start the inbox subscription
-  const [shutdown] = initializeReplicationMessageListener(
-    config,
-    // This array holds a list of all message handlers for all the aggregate
-    // and message types.
-    [
-      {
-        aggregateType: 'movie',
-        messageType: 'movie_created',
-        handle: async (
-          message: TransactionalMessage,
-          client: PoolClient,
-        ): Promise<void> => {
-          // Executes the message handler logic using the same database
-          // transaction as the inbox message acknowledgement.
-          const { payload } = message;
-          if (
-            typeof payload === 'object' &&
-            payload !== null &&
-            'id' in payload &&
-            typeof payload.id === 'string' &&
-            'title' in payload &&
-            typeof payload.title === 'string'
-          ) {
-            await client.query(
-              `INSERT INTO public.published_movies (id, title) VALUES ($1, $2)`,
-              [payload.id, payload.title],
-            );
-          }
-        },
-        handleError: async (
-          error: Error,
-          message: TransactionalMessage,
-          _client: PoolClient,
-          retry: boolean,
-        ): Promise<void> => {
-          if (!retry) {
-            // Potentially send a compensating message to adjust other services e.g. via the Saga Pattern
-            logger.error(
-              error,
-              `Giving up processing message with ID ${message.id}.`,
-            );
-          }
-        },
-      },
-    ],
-    logger,
-    {
-      concurrencyStrategy,
-      messageProcessingTimeoutStrategy: (message: TransactionalMessage) =>
-        message.messageType === 'ABC' ? 10_000 : 2_000,
-      messageProcessingTransactionLevelStrategy: (
-        message: TransactionalMessage,
-      ) =>
-        message.messageType === 'ABC'
-          ? IsolationLevel.ReadCommitted
-          : IsolationLevel.RepeatableRead,
+  // Declare the message handler
+  const movieCreatedHandler: TransactionalMessageHandler = {
+    aggregateType: 'movie',
+    messageType: 'movie_created',
+    handle: async (
+      message: TransactionalMessage,
+      client: PoolClient,
+    ): Promise<void> => {
+      // Executes the message handler logic using the same database
+      // transaction as the inbox message acknowledgement.
+      const { payload } = message;
+      if (
+        typeof payload === 'object' &&
+        payload !== null &&
+        'id' in payload &&
+        typeof payload.id === 'string' &&
+        'title' in payload &&
+        typeof payload.title === 'string'
+      ) {
+        await client.query(
+          `INSERT INTO public.published_movies (id, title) VALUES ($1, $2)`,
+          [payload.id, payload.title],
+        );
+      }
     },
-  );
-  await shutdown();
+    handleError: async (
+      error: Error,
+      message: TransactionalMessage,
+      _client: PoolClient,
+      retry: boolean,
+    ): Promise<void> => {
+      if (!retry) {
+        // Potentially send a compensating message to adjust other services e.g. via the Saga Pattern
+        logger.error(
+          error,
+          `Giving up processing message with ID ${message.id}.`,
+        );
+      }
+    },
+  };
+
+  // Initialize and start the inbox listener
+  let shutdownListener: () => Promise<void>;
+  if (process.env.listenerType === 'replication') {
+    const [shutdown] = initializeReplicationMessageListener(
+      replicationConfig,
+      [movieCreatedHandler],
+      logger,
+      {
+        concurrencyStrategy,
+        messageProcessingTimeoutStrategy: (message: TransactionalMessage) =>
+          message.messageType === 'ABC' ? 10_000 : 2_000,
+        messageProcessingTransactionLevelStrategy: (
+          message: TransactionalMessage,
+        ) =>
+          message.messageType === 'ABC'
+            ? IsolationLevel.ReadCommitted
+            : IsolationLevel.RepeatableRead,
+      },
+    );
+    shutdownListener = shutdown;
+  } else {
+    const [shutdown] = initializePollingMessageListener(
+      pollingConfig,
+      [movieCreatedHandler],
+      logger,
+      {
+        messageProcessingTimeoutStrategy: (message: TransactionalMessage) =>
+          message.messageType === 'ABC' ? 10_000 : 2_000,
+        messageProcessingTransactionLevelStrategy: (
+          message: TransactionalMessage,
+        ) =>
+          message.messageType === 'ABC'
+            ? IsolationLevel.ReadCommitted
+            : IsolationLevel.RepeatableRead,
+      },
+    );
+    shutdownListener = shutdown;
+  }
+  await shutdownListener();
 })();
 ```
 
@@ -698,7 +1014,7 @@ import {
 ### Message receiver
 
 The message receiver is the counterpart to the message publisher. It receives
-the transferred message and has to store it in the inbox table. It is the
+the transferred outbox message and has to store it in the inbox table. It is the
 responsibility of the receiver to guarantee that the message is written to the
 inbox table via the inbox storage functionality. It can try it multiple times if
 needed. You can find a RabbitMQ-based implementation in the examples folder.
@@ -706,36 +1022,32 @@ needed. You can find a RabbitMQ-based implementation in the examples folder.
 ### Message Storage
 
 When a message is received it must use the inbox storage functionality to store
-the message. The `initializeInboxMessageStorage` is used to create to create an
-inbox storage instance. The inbox storage takes the incoming message and stores
-it in the inbox table.
+the message. The `initializeInboxMessageStorage` is used to create an inbox
+storage instance. The inbox storage takes the incoming message and stores it in
+the inbox table.
 
 ### Inbox Listener
 
-The `initializeInboxListener` initializes the inbox listener which is notified
-whenever a new inbox message is written to the inbox table. It takes a list of
-message handlers and invokes the one that matches the incoming message's
-aggregate type and message type.
+The `initializeReplicationMessageListener` is used to create and start the
+logical replication-based listener that gets notified when a new inbox message
+is written to the inbox table. It takes the message publisher instance as an
+input parameter and calls it to send out messages. Other parameters are the
+`config` object, a `logger` instance and an optional strategies object to
+fine-tune and customize specific aspects of the inbox listener.
 
-The optional `strategies` object can be provided to customize different inbox
-listener scenarios.
+The second option is to use the `initializePollingMessageListener` to use the
+database polling approach to query for unprocessed inbox messages. It uses the
+same handler to send out the message and the same logger. It has a (partly)
+different configuration object and can optionally define also different
+strategies.
 
 ### Message Handler
 
-The message handler is a component that defines how to process messages of a
-specific aggregate type and message type. The message handler is used by the
-transactional inbox service to process messages in a reliable and consistent
-way. The service will invoke the `handle` function of the appropriate handler
-for each message in the inbox, and handle any errors or retries using the
-`handleError` function if provided.
+The message handler is a component that defines how to process messages. You can
+provide a general one (`GeneralMessageHandler`) that handles all messages. This
+is often used for the outbox message handler which sends all messages to the
+same message broker. It has the following interface:
 
-It implements the `InboxMessageHandler` interface, which has the following
-properties:
-
-- `aggregateType`: The name of the aggregate root type that the message belongs
-  to. For example, `movie`, `customer`, `product`, etc.
-- `messageType`: The name of the message type that the handler can handle. For
-  example, `movie_created`, `customer_updated`, `restock_product`, etc.
 - `handle`: A function that contains the custom business logic to handle an
   inbox message. It receives two parameters: `message` and `client`. The
   `message` parameter is an object that contains the message id, payload, and
@@ -755,6 +1067,20 @@ properties:
   promise that resolves to a flag that defines if the message should be retried
   (`transient_error`) or not (`permanent_error`).
 
+You can also provide specific handlers (`TransactionalMessageHandler`) where
+each handles a specific aggregate type and message type. In addition to the
+above interface it includes the following properties:
+
+- `aggregateType`: The name of the aggregate root type that the message belongs
+  to. For example, `movie`, `customer`, `product`, etc.
+- `messageType`: The name of the message type that the handler can handle. For
+  example, `movie_created`, `customer_updated`, `restock_product`, etc.
+
+The message handler is used by the transactional outbox and inbox listeners to
+process messages in a reliable and consistent way. The service will invoke the
+`handle` function of the appropriate handler for each message in the inbox, and
+handle any errors or retries using the `handleError` function if provided.
+
 ## Message format
 
 Messages are the means to transport information in a structured way from the
@@ -762,18 +1088,22 @@ message producer to the message consumer.
 
 Both the outbox and inbox message have the following properties:
 
-| Field Name        | Field Type | Description                                                                            |
-| ----------------- | ---------- | -------------------------------------------------------------------------------------- |
-| id                | string     | The unique identifier of the message. Used to ensure a message is only processed once. |
-| aggregateType     | string     | The type of the aggregate root (in DDD context) to which this message is related.      |
-| aggregateId       | string     | The unique identifier of the aggregate.                                                |
-| messageType       | string     | The type name of the event or command.                                                 |
-| payload           | object     | The message payload with the details for an event or instructions for a command.       |
-| metadata          | object     | Optional metadata used for the actual message transfer.                                |
-| createdAt         | string     | The date and time in ISO 8601 UTC format when the message was created.                 |
-| started_attempts  | number     | The number of times a message was attempted to be processed.                           |
-| finished_attempts | number     | The number of times a message was processed (successfully or with a caught error).     |
-| processedAt       | string     | The date and time in ISO 8601 UTC format when the message was processed.               |
+| Field Name       | Field Type | Description                                                                            |
+| ---------------- | ---------- | -------------------------------------------------------------------------------------- |
+| id               | string     | The unique identifier of the message. Used to ensure a message is only processed once. |
+| aggregateType    | string     | The type of the aggregate root (in DDD context) to which this message is related.      |
+| aggregateId      | string     | The unique identifier of the aggregate.                                                |
+| messageType      | string     | The type name of the event or command.                                                 |
+| segment          | string     | Way to group messages for parallel message execution.                                  |
+| concurrency      | string     | Cane be 'sequential' or 'parallel' for message processing                              |
+| payload          | object     | The message payload with the details for an event or instructions for a command.       |
+| metadata         | object     | Optional metadata used for the actual message transfer.                                |
+| lockedUntil      | string     | The date and time in ISO 8601 UTC format until the message is locked (polling only).   |
+| createdAt        | string     | The date and time in ISO 8601 UTC format when the message was created.                 |
+| startedAttempts  | number     | The number of times a message was attempted to be processed.                           |
+| finishedAttempts | number     | The number of times a message was processed (successfully or with a caught error).     |
+| processedAt      | string     | The date and time in ISO 8601 UTC format when the message was processed.               |
+| abandonedAt      | string     | The date and time in ISO 8601 UTC format when the message was abandoned.               |
 
 # Strategies
 
@@ -785,29 +1115,6 @@ concurrency, retries, poisonous message handling, etc. By defining a common
 interface for different scenarios you can use either existing code or write your
 custom implementations.
 
-## Concurrency strategy
-
-The outbox and inbox listeners process messages that are stored in their
-corresponding tables. When they process the messages, you can influence the
-level of concurrency of the listeners. The default concurrency controller will
-use a mutex to guarantee sequential message processing. There are the following
-pre-build ones but you can also write your own:
-
-- `createFullConcurrencyController` - this controller allows the parallel
-  processing of messages without guarantees on the processing order.
-- `createMutexConcurrencyController` - this controller guarantees sequential
-  message processing across all messages.
-- `createSemaphoreConcurrencyController` - this controller allows the processing
-  of messages in parallel up to a configurable number.
-- `createDiscriminatingMutexConcurrencyController` - this controller enables
-  sequential message processing based on a specified discriminator. This could
-  be the message type or some other (calculated) value. The controller still
-  guarantees sequential message processing but only across messages with the
-  same discriminator.
-- `createMultiConcurrencyController` - this is a combined concurrency
-  controller. You can define which of the above controllers should be used for
-  different kinds of messages.
-
 ## Message processing client strategy
 
 Messages are processed in a database transaction that verifies from the
@@ -815,7 +1122,7 @@ outbox/inbox table if the message was not processed already and loads the
 retry-specific data. It handles also the business-logic related database work
 (especially for the inbox).
 
-Some message handlers may require a database login with elevated permissions
+Some message handlers may require a database role with elevated permissions
 while others can use more restricted users. With this strategy, you can return a
 database client from your desired Pool in the `getClient` function. When the
 replication listener is shut down it will call the `shutdown` function where you
@@ -866,7 +1173,7 @@ You can customize the behavior of the service by changing the following options:
   you can implement your own logic and pass it as an argument to the service
   constructor.
 
-## Listener restart time strategy
+## Replication listener restart time strategy
 
 When the outbox or inbox listener fails due to an error it is restarted. The
 `listenerRestartStrategy` is used to define how long it should wait before it
@@ -885,6 +1192,52 @@ is about the replication slot not existing (e.g. after a DB failover). Then it
 tries to create the replication slot with the connection details of the
 replication user slot and waits for the configured `restartDelay` (default:
 250ms) to restart the listener.
+
+## Replication listener concurrency strategy
+
+The outbox and inbox listeners process messages that are stored in their
+corresponding tables. When they process the messages, you can influence the
+level of concurrency of the listeners. The default concurrency controller will
+use a mutex to guarantee sequential message processing. Concurrency strategies
+are only used for the replication listener. The polling listener solves this on
+the polling query side.
+
+There are the following pre-build ones but you can also write your own:
+
+- `createFullConcurrencyController` - this controller allows the parallel
+  processing of messages without guarantees on the processing order.
+- `createMutexConcurrencyController` - this controller guarantees sequential
+  message processing across all messages.
+- `createSemaphoreConcurrencyController` - this controller allows the processing
+  of messages in parallel up to a configurable number.
+- `createDiscriminatingMutexConcurrencyController` - this controller enables
+  sequential message processing based on a specified discriminator. This could
+  be the message type or some other (calculated) value. The controller still
+  guarantees sequential message processing but only across messages with the
+  same discriminator.
+- `createMultiConcurrencyController` - this is a combined concurrency
+  controller. You can define which of the above controllers should be used for
+  different kinds of messages.
+
+## Polling listener scheduling strategy
+
+The `PollingListenerSchedulingStrategy` defines the scheduling strategy how
+often the database should be polled for new messages.
+
+The default strategy `defaultPollingListenerSchedulingStrategy` polls once per
+500ms.
+
+## Polling listener batch size strategy
+
+The `PollingListenerBatchSizeStrategy` defines the batch size strategy how many
+messages should be loaded at once.
+
+When using the default `defaultPollingListenerBatchSizeStrategy` batch size
+strategy it returns the configured value from the `nextMessagesBatchSize`. The
+default is 5. But the first few times until the batch size is reached it will
+respond to return only one message. This protects against poisonous messages: if
+5 messages would be taken during startup all those 5 would be marked as
+poisonous if one of them fails.
 
 # Testing
 

@@ -18,7 +18,7 @@ export const MovieCreatedMessageType = 'movie_created';
  * register an outbox message "movie_created" for every inserted movie.
  * It uses a small timeout to insert a movie and an outbox message every
  * second.
- * @param config The configuration object with details on how to connect to the database with the login role.
+ * @param config The configuration object with details on how to connect to the database with the handler role.
  * @param listenerConfig The outbox related configuration settings
  * @param logger A logger instance for logging trace up to error logs
  */
@@ -30,8 +30,8 @@ export const addMovies = async (
   const pool = new Pool({
     host: config.postgresHost,
     port: config.postgresPort,
-    user: config.postgresLoginRole,
-    password: config.postgresLoginRolePassword,
+    user: config.postgresHandlerRole,
+    password: config.postgresHandlerRolePassword,
     database: config.postgresDatabase,
   });
   pool.on('error', (err) => {
@@ -54,6 +54,7 @@ export const addMovies = async (
             messageType: MovieCreatedMessageType,
             payload,
             createdAt: new Date().toISOString(),
+            concurrency: 'parallel', // the RabbitMQ publisher uses a mutex internally
           };
           await storeOutboxMessage(message, client);
           return payload;
@@ -63,7 +64,7 @@ export const addMovies = async (
     } catch (error) {
       logger.error(error, 'Could not create a movie');
     }
-  }, 3000);
+  }, 300);
 };
 
 let index = 1;

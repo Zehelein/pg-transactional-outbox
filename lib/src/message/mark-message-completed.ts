@@ -15,7 +15,7 @@ export const markMessageCompleted = async (
   { settings }: Pick<ListenerConfig, 'settings'>,
 ): Promise<void> => {
   await client.query(
-    /* sql */ `UPDATE ${settings.dbSchema}.${settings.dbTable} SET processed_at = $1, finished_attempts = finished_attempts + 1 WHERE id = $2`,
-    [new Date().toISOString(), id],
+    /* sql */ `UPDATE ${settings.dbSchema}.${settings.dbTable} SET processed_at = NOW(), finished_attempts = finished_attempts + 1 WHERE id = $1`,
+    [id],
   );
 };

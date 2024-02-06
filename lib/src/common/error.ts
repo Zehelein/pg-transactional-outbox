@@ -13,7 +13,8 @@ export type ErrorCode =
   | 'LSN_NOT_PROCESSING'
   | 'LISTENER_STOPPED'
   | 'TIMEOUT'
-  | 'MESSAGE_STORAGE_FAILED';
+  | 'MESSAGE_STORAGE_FAILED'
+  | 'BATCH_PROCESSING_ERROR';
 
 export interface ExtendedError extends Error {
   errorCode: ErrorCode;

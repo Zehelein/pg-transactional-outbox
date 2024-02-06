@@ -3,31 +3,31 @@ import { ReplicationConfig } from 'pg-transactional-outbox';
 import { TestConfigs } from './configs';
 
 export const setupTestDb = async ({
-  loginConnection,
+  handlerConnection: handlerConnection,
   outboxConfig,
   inboxConfig,
 }: TestConfigs): Promise<void> => {
-  await dbmsSetup(loginConnection, outboxConfig, inboxConfig);
-  await outboxSetup(loginConnection, outboxConfig);
-  await inboxSetup(loginConnection, inboxConfig);
+  await dbmsSetup(handlerConnection, outboxConfig, inboxConfig);
+  await outboxSetup(handlerConnection, outboxConfig);
+  await inboxSetup(handlerConnection, inboxConfig);
 };
 
 export const resetReplication = async ({
-  loginConnection,
+  handlerConnection: handlerConnection,
   outboxConfig,
   inboxConfig,
 }: TestConfigs): Promise<void> => {
-  await outboxSetup(loginConnection, outboxConfig);
-  await inboxSetup(loginConnection, inboxConfig);
+  await outboxSetup(handlerConnection, outboxConfig);
+  await inboxSetup(handlerConnection, inboxConfig);
 };
 
 /** Setup on the PostgreSQL server level (and not within a DB) */
 const dbmsSetup = async (
-  defaultLoginConnection: ClientConfig,
+  defaultHandlerConnection: ClientConfig,
   outSrvConfig: ReplicationConfig,
   inSrvConfig: ReplicationConfig,
 ): Promise<void> => {
-  const { host, port, database, user, password } = defaultLoginConnection;
+  const { host, port, database, user, password } = defaultHandlerConnection;
   const rootClient = new Client({
     host,
     port,
@@ -65,12 +65,12 @@ const dbmsSetup = async (
 };
 
 const outboxSetup = async (
-  defaultLoginConnection: ClientConfig,
+  defaultHandlerConnection: ClientConfig,
   {
     settings: { dbSchema, dbTable, postgresPub, postgresSlot },
   }: ReplicationConfig,
 ): Promise<void> => {
-  const { host, port, database, user } = defaultLoginConnection;
+  const { host, port, database, user } = defaultHandlerConnection;
   const dbClient = new Client({
     host,
     port,
@@ -81,7 +81,8 @@ const outboxSetup = async (
   await dbClient.connect();
 
   await dbClient.query(/* sql */ `
-      CREATE SCHEMA IF NOT EXISTS ${dbSchema}
+      CREATE SCHEMA IF NOT EXISTS ${dbSchema};
+      GRANT USAGE ON SCHEMA ${dbSchema} TO ${user};
     `);
   await dbClient.query(/* sql */ `
       DROP TABLE IF EXISTS ${dbSchema}.${dbTable} CASCADE;
@@ -90,14 +91,19 @@ const outboxSetup = async (
         aggregate_type TEXT NOT NULL,
         aggregate_id TEXT NOT NULL,
         message_type TEXT NOT NULL,
+        segment TEXT,
+        concurrency TEXT NOT NULL DEFAULT 'sequential',
         payload JSONB NOT NULL,
         metadata JSONB,
+        locked_until TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0),
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         processed_at TIMESTAMPTZ,
+        abandoned_at TIMESTAMPTZ,
         started_attempts smallint NOT NULL DEFAULT 0,
         finished_attempts smallint NOT NULL DEFAULT 0
       );
-      GRANT USAGE ON SCHEMA ${dbSchema} TO ${user} ;
+      ALTER TABLE ${dbSchema}.${dbTable} ADD CONSTRAINT outbox_concurrency_check
+        CHECK (concurrency IN ('sequential', 'parallel'));
       GRANT SELECT, INSERT, UPDATE, DELETE ON ${dbSchema}.${dbTable} TO ${user};
     `);
   await dbClient.query(/* sql */ `
@@ -120,12 +126,12 @@ const outboxSetup = async (
 
 /** All the changes related to the inbox implementation in the database */
 const inboxSetup = async (
-  defaultLoginConnection: ClientConfig,
+  defaultHandlerConnection: ClientConfig,
   {
     settings: { dbSchema, dbTable, postgresPub, postgresSlot },
   }: ReplicationConfig,
 ): Promise<void> => {
-  const { host, port, database, user } = defaultLoginConnection;
+  const { host, port, database, user } = defaultHandlerConnection;
   const dbClient = new Client({
     host,
     port,
@@ -136,7 +142,8 @@ const inboxSetup = async (
   await dbClient.connect();
 
   await dbClient.query(/* sql */ `
-      CREATE SCHEMA IF NOT EXISTS ${dbSchema}
+      CREATE SCHEMA IF NOT EXISTS ${dbSchema};
+      GRANT USAGE ON SCHEMA ${dbSchema} TO ${user} ;
     `);
   await dbClient.query(/* sql */ `
       DROP TABLE IF EXISTS ${dbSchema}.${dbTable} CASCADE;
@@ -145,14 +152,19 @@ const inboxSetup = async (
         aggregate_type TEXT NOT NULL,
         aggregate_id TEXT NOT NULL,
         message_type TEXT NOT NULL,
+        segment TEXT,
+        concurrency TEXT NOT NULL DEFAULT 'sequential',
         payload JSONB NOT NULL,
         metadata JSONB,
-        created_at TIMESTAMPTZ NOT NULL,
+        locked_until TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         processed_at TIMESTAMPTZ,
+        abandoned_at TIMESTAMPTZ,
         started_attempts smallint NOT NULL DEFAULT 0,
         finished_attempts smallint NOT NULL DEFAULT 0
       );
-      GRANT USAGE ON SCHEMA ${dbSchema} TO ${user} ;
+      ALTER TABLE ${dbSchema}.${dbTable} ADD CONSTRAINT inbox_concurrency_check
+        CHECK (concurrency IN ('sequential', 'parallel'));      
       GRANT SELECT, INSERT, UPDATE, DELETE ON ${dbSchema}.${dbTable} TO ${user};
     `);
   await dbClient.query(/* sql */ `

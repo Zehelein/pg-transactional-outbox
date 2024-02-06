@@ -26,6 +26,9 @@ export {
   StoredTransactionalMessage,
   TransactionalMessage,
 } from './message/transactional-message';
+export { PollingConfig, PollingListenerConfig } from './polling/config';
+export { initializePollingMessageListener } from './polling/polling-message-listener';
+export { PollingMessageStrategies } from './polling/polling-strategies';
 export { ReplicationConcurrencyController } from './replication/concurrency-controller/concurrency-controller';
 export { createReplicationDiscriminatingMutexConcurrencyController } from './replication/concurrency-controller/create-discriminating-mutex-concurrency-controller';
 export { createReplicationFullConcurrencyController } from './replication/concurrency-controller/create-full-concurrency-controller';
@@ -40,10 +43,7 @@ export {
   ReplicationListenerConfig,
 } from './replication/config';
 export { initializeReplicationMessageListener } from './replication/replication-message-listener';
-export {
-  ReplicationMessageStrategies,
-  ReplicationStrategies,
-} from './replication/replication-strategies';
+export { ReplicationMessageStrategies } from './replication/replication-strategies';
 export { defaultReplicationConcurrencyStrategy } from './replication/strategies/concurrency-strategy';
 export {
   ReplicationListenerRestartStrategy,

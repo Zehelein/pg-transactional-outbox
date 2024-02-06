@@ -16,6 +16,7 @@ const message: StoredTransactionalMessage = {
   payload: { test: true },
   lockedUntil: new Date().toISOString(),
   processedAt: null,
+  abandonedAt: null,
   startedAttempts: 1,
   finishedAttempts: 0,
 };
@@ -38,6 +39,7 @@ function getClient({
 }: ClientArgs) {
   const client = {
     increaseMessageFinishedAttempts: 0,
+    abandonedMessage: 0,
     query(sql: string, params: [any]) {
       if (
         sql.includes(
@@ -53,10 +55,28 @@ function getClient({
                 started_attempts,
                 finished_attempts,
                 processed_at: null,
+                abandoned_at: null,
               },
             ],
           }
         );
+      } else if (
+        sql.includes(
+          'UPDATE test_schema.test_table SET abandoned_at = NOW(), finished_attempts = finished_attempts + 1 WHERE id = $1;',
+        )
+      ) {
+        client.abandonedMessage++;
+        return {
+          rowCount: 1,
+          rows: [
+            {
+              started_attempts,
+              finished_attempts,
+              processed_at: null,
+              abandoned_at: null,
+            },
+          ],
+        };
       } else {
         return { rowCount: 0, rows: [] }; // BEGIN, COMMIT, ...
       }
@@ -64,6 +84,7 @@ function getClient({
     release() {},
   } as unknown as PoolClient & {
     increaseMessageFinishedAttempts: number;
+    abandonedMessage: number;
   };
   return client;
 }
@@ -121,7 +142,8 @@ describe('createErrorHandler', () => {
         client,
         shouldRetry,
       );
-      expect(client.increaseMessageFinishedAttempts).toBe(1);
+      expect(client.increaseMessageFinishedAttempts).toBe(shouldRetry ? 1 : 0);
+      expect(client.abandonedMessage).toBe(shouldRetry ? 0 : 1);
       expect(retryAnswer).toBe(shouldRetry);
       expect(mockMessage).toStrictEqual({ ...message, finishedAttempts: 1 });
       expect(

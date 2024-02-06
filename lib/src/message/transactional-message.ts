@@ -34,4 +34,6 @@ export interface StoredTransactionalMessage extends TransactionalMessage {
   lockedUntil: string | null;
   /** The date and time in ISO 8601 "internet time" UTC format (e.g. "2023-10-17T11:48:14Z") when the message was processed */
   processedAt: string | null;
+  /** The date and time in ISO 8601 "internet time" UTC format (e.g. "2023-10-17T11:48:14Z") when the message was abandoned due too many failed handling attempts */
+  abandonedAt: string | null;
 }

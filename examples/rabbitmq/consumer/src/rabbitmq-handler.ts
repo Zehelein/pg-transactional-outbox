@@ -2,25 +2,15 @@ import { Mutex } from 'async-mutex';
 import { Pool, PoolClient } from 'pg';
 import {
   IsolationLevel,
-  ReplicationConfig,
+  ListenerConfig,
   TransactionalLogger,
+  TransactionalMessage,
   ensureExtendedError,
   executeTransaction,
 } from 'pg-transactional-outbox';
 import { BrokerAsPromised } from 'rascal';
 import { Config } from './config';
 import { getMessagingConfig } from './rabbitmq-config';
-
-/** The received message as it was sent by the producer */
-export interface ReceivedMessage {
-  id: string;
-  aggregateType: string;
-  aggregateId: string;
-  messageType: string;
-  payload: unknown;
-  metadata: Record<string, unknown>;
-  createdAt: string;
-}
 
 /**
  * Initialize the message handler and receive a list of message types that should be consumed.
@@ -31,9 +21,9 @@ export interface ReceivedMessage {
  */
 export const initializeRabbitMqHandler = async (
   config: Config,
-  inboxConfig: ReplicationConfig,
+  inboxConfig: ListenerConfig,
   storeInboxMessage: (
-    message: ReceivedMessage,
+    message: TransactionalMessage,
     client: PoolClient,
   ) => Promise<void>,
   messageTypes: string[],
@@ -57,53 +47,57 @@ export const initializeRabbitMqHandler = async (
   messageTypes.map(async (messageType) => {
     const subscription = await broker.subscribe(messageType);
     subscription
-      .on('message', async (_rmqMsg, content: ReceivedMessage, ackOrNack) => {
-        if (
-          content.id &&
-          content.aggregateType &&
-          content.messageType &&
-          content.createdAt
-        ) {
-          // Using a mutex to ensure that each message is completely inserted
-          // in the original sort order to be then also processed in this order.
-          const release = await mutex.acquire();
-          try {
-            logger.trace(
-              content,
-              'Started to add the incoming message to the inbox',
-            );
-            await executeTransaction(
-              await pool.connect(),
-              async (client): Promise<void> => {
-                await storeInboxMessage(content, client);
-              },
-              IsolationLevel.ReadCommitted,
-            );
+      .on(
+        'message',
+        async (_rmqMsg, message: TransactionalMessage, ackOrNack) => {
+          if (
+            message.id &&
+            message.aggregateType &&
+            message.messageType &&
+            message.createdAt
+          ) {
+            // Using a mutex to ensure that each message is completely inserted
+            // in the original sort order to be then also processed in this order.
+            const release = await mutex.acquire();
+            try {
+              message.concurrency = 'parallel';
+              logger.trace(
+                message,
+                'Started to add the incoming message to the inbox',
+              );
+              await executeTransaction(
+                await pool.connect(),
+                async (client): Promise<void> => {
+                  await storeInboxMessage(message, client);
+                },
+                IsolationLevel.ReadCommitted,
+              );
 
-            ackOrNack();
-            logger.trace(content, 'Added the incoming message to the inbox');
-          } catch (error) {
-            const err =
-              error instanceof Error ? error : new Error(String(error));
-            ackOrNack(err);
-            logger.error(
-              {
-                ...content,
-                err,
-              },
-              'Could not save the incoming message to the inbox',
+              ackOrNack();
+              logger.trace(message, 'Added the incoming message to the inbox');
+            } catch (error) {
+              const err =
+                error instanceof Error ? error : new Error(String(error));
+              ackOrNack(err);
+              logger.error(
+                {
+                  ...message,
+                  err,
+                },
+                'Could not save the incoming message to the inbox',
+              );
+            } finally {
+              release();
+            }
+          } else {
+            logger.warn(
+              message,
+              'Received a message that was not a message with the required "TransactionalMessage" fields - skipping it',
             );
-          } finally {
-            release();
+            ackOrNack();
           }
-        } else {
-          logger.warn(
-            content,
-            'Received a message that was not a message with the required "ReceivedMessage" fields - skipping it',
-          );
-          ackOrNack();
-        }
-      })
+        },
+      )
       .on('error', (e) => logger.error(e, 'RabbitMQ subscription error.'))
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- rascal types don't include the subscribed event
       .on('subscribed' as any, () =>

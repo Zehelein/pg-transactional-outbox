@@ -17,6 +17,7 @@ const message: StoredTransactionalMessage = {
   concurrency: 'sequential',
   lockedUntil: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
   processedAt: null,
+  abandonedAt: null,
   startedAttempts: 0,
   finishedAttempts: 0,
 };
@@ -43,6 +44,7 @@ function getClient({
     startedAttemptsIncrement: 0,
     initiateMessageProcessing: 0,
     markMessageCompleted: 0,
+    markMessageAbandoned: 0,
     query(sql: string, params: [any]) {
       if (
         sql.includes(
@@ -58,13 +60,14 @@ function getClient({
                 started_attempts,
                 finished_attempts,
                 processed_at: null,
+                abandoned_at: null,
               },
             ],
           }
         );
       } else if (
         sql.includes(
-          'SELECT started_attempts, finished_attempts, processed_at, locked_until FROM test_schema.test_table WHERE id = $1 FOR NO KEY UPDATE NOWAIT;',
+          'SELECT started_attempts, finished_attempts, processed_at, abandoned_at, locked_until FROM test_schema.test_table WHERE id = $1 FOR NO KEY UPDATE NOWAIT;',
         )
       ) {
         client.initiateMessageProcessing++;
@@ -80,10 +83,17 @@ function getClient({
         };
       } else if (
         sql.includes(
-          'UPDATE test_schema.test_table SET processed_at = $1, finished_attempts = finished_attempts + 1 WHERE id = $2',
+          'UPDATE test_schema.test_table SET processed_at = NOW(), finished_attempts = finished_attempts + 1 WHERE id = $1',
         )
       ) {
         client.markMessageCompleted++;
+        return { rowCount: 0, rows: [] };
+      } else if (
+        sql.includes(
+          'UPDATE test_schema.test_table SET SET abandoned_at = NOW(), finished_attempts = finished_attempts + 1 WHERE id = $1',
+        )
+      ) {
+        client.markMessageAbandoned++;
         return { rowCount: 0, rows: [] };
       } else {
         return { rowCount: 0, rows: [] }; // BEGIN, COMMIT, ...
@@ -94,6 +104,7 @@ function getClient({
     startedAttemptsIncrement: number;
     initiateMessageProcessing: number;
     markMessageCompleted: number;
+    markMessageAbandoned: number;
   };
   return client;
 }

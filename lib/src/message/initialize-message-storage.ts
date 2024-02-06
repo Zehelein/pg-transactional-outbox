@@ -48,7 +48,7 @@ export const initializeMessageStorage = (
 const insertMessage = async (
   message: TransactionalMessage,
   client: PoolClient,
-  settings: ListenerSettings,
+  { dbSchema, dbTable }: ListenerSettings,
   logger: TransactionalLogger,
 ) => {
   const {
@@ -65,8 +65,8 @@ const insertMessage = async (
   } = message;
   const messageResult = await client.query(
     /* sql */ `
-    INSERT INTO ${settings.dbSchema}.${settings.dbTable}
-      (id, aggregate_type, aggregate_id, message_type, segment, concurrency, payload, metadata, created_at, locked_until)
+    INSERT INTO ${dbSchema}.${dbTable}
+      (id, aggregate_type, aggregate_id, message_type, segment, concurrency, payload, metadata, locked_until, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (id) DO NOTHING`,
     [
@@ -75,11 +75,11 @@ const insertMessage = async (
       aggregateId,
       messageType,
       segment,
-      concurrency,
+      concurrency ?? 'sequential',
       payload,
       metadata,
+      lockedUntil ?? '1970-01-01T00:00:00.000Z',
       createdAt,
-      lockedUntil,
     ],
   );
   if (!messageResult.rowCount || messageResult.rowCount < 1) {

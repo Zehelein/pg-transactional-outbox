@@ -15,6 +15,7 @@ const message: StoredTransactionalMessage = {
   startedAttempts: 0,
   finishedAttempts: 0,
   processedAt: null,
+  abandonedAt: null,
 };
 
 describe('messageHandlerSelector', () => {
@@ -62,12 +63,14 @@ describe('messageHandlerSelector', () => {
         handle: jest.fn(),
       },
     ];
-    expect(() =>
-      messageHandlerSelector(messageHandlersWithConflict),
-    ).toThrowErrorMatchingSnapshot();
+    expect(() => messageHandlerSelector(messageHandlersWithConflict)).toThrow(
+      'Only one message handler can handle one aggregate and message type. Multiple message handlers try to handle the aggregate type "movie" with the message type "movie_created".',
+    );
   });
 
   it('should throw an error if no message handler is provided', () => {
-    expect(() => messageHandlerSelector([])).toThrowErrorMatchingSnapshot();
+    expect(() => messageHandlerSelector([])).toThrow(
+      'At least one message handler must be provided.',
+    );
   });
 });

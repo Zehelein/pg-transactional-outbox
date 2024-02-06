@@ -32,6 +32,7 @@ const storedMessage: StoredTransactionalMessage = {
   concurrency: 'sequential',
   lockedUntil: '2023-01-18T21:05:27.000Z',
   processedAt: null,
+  abandonedAt: null,
 };
 
 const settings = {
@@ -86,36 +87,50 @@ describe('initiateMessageProcessing', () => {
     expect(result).toBe(true);
   });
 
-  test('it verifies that it updates the message properties when it was processed', async () => {
-    // Arrange
-    const client = getTestClient({
-      rowCount: 1,
-      rows: [
-        {
-          started_attempts: 4,
-          finished_attempts: 3,
-          processed_at: new Date('2023-01-18T21:02:27.000Z'),
-        },
-      ],
-    });
-    const msg = { ...storedMessage };
+  test.each([
+    ['2023-01-18T21:02:27.000Z', null],
+    [null, '2023-01-18T21:02:27.000Z'],
+  ])(
+    'it verifies that it updates the message properties when it was processed',
+    async (processed, abandoned) => {
+      // Arrange
+      const client = getTestClient({
+        rowCount: 1,
+        rows: [
+          {
+            started_attempts: 4,
+            finished_attempts: 3,
+            processed_at: processed
+              ? new Date('2023-01-18T21:02:27.000Z')
+              : null,
+            abandoned_at: abandoned
+              ? new Date('2023-01-18T21:02:27.000Z')
+              : null,
+          },
+        ],
+      });
+      const msg = { ...storedMessage };
 
-    // Act
-    const result = await initiateMessageProcessing(msg, client, settings);
+      // Act
+      const result = await initiateMessageProcessing(msg, client, settings);
 
-    // Assert
-    expect(result).toBe('ALREADY_PROCESSED');
-    expect(msg).toMatchObject<
-      Pick<
-        StoredTransactionalMessage,
-        'startedAttempts' | 'finishedAttempts' | 'processedAt'
-      >
-    >({
-      startedAttempts: 4,
-      finishedAttempts: 3,
-      processedAt: '2023-01-18T21:02:27.000Z',
-    });
-  });
+      // Assert
+      expect(result).toBe(
+        processed ? 'ALREADY_PROCESSED' : 'ABANDONED_MESSAGE',
+      );
+      expect(msg).toMatchObject<
+        Pick<
+          StoredTransactionalMessage,
+          'startedAttempts' | 'finishedAttempts' | 'processedAt' | 'abandonedAt'
+        >
+      >({
+        startedAttempts: 4,
+        finishedAttempts: 3,
+        processedAt: processed ? '2023-01-18T21:02:27.000Z' : null,
+        abandonedAt: abandoned ? '2023-01-18T21:02:27.000Z' : null,
+      });
+    },
+  );
 
   test('it verifies that it updates the message properties when it was not processed', async () => {
     // Arrange
@@ -126,6 +141,7 @@ describe('initiateMessageProcessing', () => {
           started_attempts: 4,
           finished_attempts: 3,
           processed_at: null,
+          abandoned_at: null,
         },
       ],
     });
@@ -139,12 +155,13 @@ describe('initiateMessageProcessing', () => {
     expect(msg).toMatchObject<
       Pick<
         StoredTransactionalMessage,
-        'startedAttempts' | 'finishedAttempts' | 'processedAt'
+        'startedAttempts' | 'finishedAttempts' | 'processedAt' | 'abandonedAt'
       >
     >({
       startedAttempts: 4,
       finishedAttempts: 3,
       processedAt: null,
+      abandonedAt: null,
     });
   });
 });

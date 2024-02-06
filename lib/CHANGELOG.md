@@ -9,28 +9,30 @@ this file.
 
 - Support for a polling subscriber was added as an alternative to the logical
   replication listener.
-- The following fields have to be added in the inbox table:
+- The following fields have to be added to the inbox table:
 
   ```sql
   ALTER TABLE public.inbox ADD COLUMN segment TEXT;
   ALTER TABLE public.inbox ADD COLUMN locked_until TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0);
   ALTER TABLE public.inbox ADD COLUMN concurrency TEXT NOT NULL DEFAULT 'sequential';
+  ALTER TABLE public.inbox ADD COLUMN abandoned_at TIMESTAMPTZ;
   ALTER TABLE public.inbox ADD CONSTRAINT inbox_concurrency_check
     CHECK (concurrency IN ('sequential', 'parallel'));
 
-  GRANT UPDATE (started_attempts, finished_attempts, processed_at, locked_until) ON public.inbox TO db_login_inbox;
+  GRANT UPDATE (started_attempts, finished_attempts, processed_at, abandoned_at, locked_until) ON public.inbox TO db_inbox_handler;
   ```
 
-- These fields must also be added in the outbox table:
+- These fields must also be added to the outbox table:
 
   ```sql
   ALTER TABLE public.outbox ADD COLUMN segment TEXT;
   ALTER TABLE public.outbox ADD COLUMN locked_until TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0);
   ALTER TABLE public.outbox ADD COLUMN concurrency TEXT NOT NULL DEFAULT 'sequential';
+  ALTER TABLE public.outbox ADD COLUMN abandoned_at TIMESTAMPTZ;
   ALTER TABLE public.outbox ADD CONSTRAINT outbox_concurrency_check
     CHECK (concurrency IN ('sequential', 'parallel'));
 
-  GRANT UPDATE (started_attempts, finished_attempts, processed_at, locked_until) ON public.outbox TO db_login_outbox;
+  GRANT UPDATE (started_attempts, finished_attempts, processed_at, abandoned_at, locked_until) ON public.outbox TO db_outbox_handler;
   ```
 
 ### Changed
@@ -43,7 +45,6 @@ this file.
   ALTER TABLE public.outbox ADD COLUMN started_attempts smallint NOT NULL DEFAULT 0;
   ALTER TABLE public.outbox ADD COLUMN finished_attempts smallint NOT NULL DEFAULT 0;
   ALTER TABLE public.outbox ADD COLUMN processed_at TIMESTAMPTZ;
-  GRANT UPDATE (started_attempts, finished_attempts, processed_at) ON public.outbox TO db_login_outbox;
   ```
 - Function names were renamed to not include "inbox" or "outbox" specifically
   anymore but both use the same underlying concept now. To get (close) to the
@@ -68,7 +69,7 @@ this file.
   ```sql
   ALTER TABLE public.inbox RENAME COLUMN attempts TO finished_attempts;
   ALTER TABLE public.inbox ADD COLUMN started_attempts smallint NOT NULL DEFAULT 0;
-  GRANT UPDATE (started_attempts, finished_attempts, processed_at) ON public.inbox TO db_login_inbox;
+  GRANT UPDATE (started_attempts, finished_attempts, processed_at) ON public.inbox TO db_inbox_handler;
   ```
 
 ### Added
@@ -94,7 +95,7 @@ this file.
     controller. You can define for every message which from the above
     controllers the message should use.
 - Messages are processed via message handlers as part of a database transaction.
-  Some handlers may require a different database login user. In this case, you
+  Some handlers may require a different database handler user. In this case, you
   can use the `messageProcessingDbClientStrategy` to return a database client
   from the desired database pool.
 - The `messageProcessingTimeoutStrategy` allows you to define a message-based

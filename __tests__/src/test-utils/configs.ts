@@ -3,20 +3,20 @@ import { ReplicationConfig } from 'pg-transactional-outbox';
 
 // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
 export const getConfigs = (port: number) => {
-  const loginConnection: ClientConfig = {
+  const handlerConnection: ClientConfig = {
     host: 'localhost',
     port,
     database: 'pg_transactional_outbox_inbox_tests',
-    user: 'db_login_tests',
-    password: 'db_login_tests_password',
+    user: 'db_handler_tests',
+    password: 'db_handler_tests_password',
   };
   const inboxConfig: ReplicationConfig = {
     outboxOrInbox: 'inbox',
-    dbHandlerConfig: loginConnection,
+    dbHandlerConfig: handlerConnection,
     dbListenerConfig: {
-      ...loginConnection,
-      user: 'db_inbox_tests',
-      password: 'db_inbox_tests_password',
+      ...handlerConnection,
+      user: 'db_inbox_listener_tests',
+      password: 'db_inbox_listener_tests_password',
     },
     settings: {
       dbSchema: 'inbox',
@@ -31,11 +31,11 @@ export const getConfigs = (port: number) => {
 
   const outboxConfig: ReplicationConfig = {
     outboxOrInbox: 'outbox',
-    dbHandlerConfig: loginConnection,
+    dbHandlerConfig: handlerConnection,
     dbListenerConfig: {
-      ...loginConnection,
-      user: 'db_outbox_tests',
-      password: 'db_outbox_tests_password',
+      ...handlerConnection,
+      user: 'db_outbox_listener_tests',
+      password: 'db_outbox_listener_tests_password',
     },
     settings: {
       dbSchema: 'outbox',
@@ -46,7 +46,7 @@ export const getConfigs = (port: number) => {
   };
 
   return {
-    loginConnection,
+    handlerConnection: handlerConnection,
     outboxConfig,
     inboxConfig,
   };

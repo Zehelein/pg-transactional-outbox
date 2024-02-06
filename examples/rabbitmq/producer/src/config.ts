@@ -1,4 +1,4 @@
-import { ReplicationConfig } from 'pg-transactional-outbox';
+import { PollingConfig, ReplicationConfig } from 'pg-transactional-outbox';
 
 /**
  * Parses the environment or provided settings and ensures all the fields are
@@ -37,27 +37,33 @@ export const getConfig = (env: Env = process.env) => {
       'POSTGRESQL_OUTBOX_PUB',
       'pg_transactional_outbox_pub',
     ),
-    postgresOutboxRole: getEnvVariableString(
+    postgresOutboxListenerRole: getEnvVariableString(
       env,
-      'POSTGRESQL_OUTBOX_ROLE',
-      'db_outbox',
+      'POSTGRESQL_OUTBOX_LISTENER_ROLE',
+      'db_outbox_listener',
     ),
-    postgresOutboxRolePassword: getEnvVariableString(
+    postgresOutboxListenerRolePassword: getEnvVariableString(
       env,
-      'POSTGRESQL_OUTBOX_ROLE_PASSWORD',
-      'db_outbox_password',
+      'POSTGRESQL_OUTBOX_LISTENER_ROLE_PASSWORD',
+      'db_outbox_listener_password',
     ),
 
-    postgresLoginRole: getEnvVariableString(
+    postgresHandlerRole: getEnvVariableString(
       env,
-      'POSTGRESQL_LOGIN_ROLE',
-      'db_login_outbox',
+      'POSTGRESQL_OUTBOX_HANDLER_ROLE',
+      'db_outbox_handler',
     ),
-    postgresLoginRolePassword: getEnvVariableString(
+    postgresHandlerRolePassword: getEnvVariableString(
       env,
-      'POSTGRESQL_LOGIN_ROLE_PASSWORD',
-      'db_login_outbox_password',
+      'POSTGRESQL_OUTBOX_HANDLER_ROLE_PASSWORD',
+      'db_outbox_handler_password',
     ),
+    nextOutboxMessagesFunctionName: getEnvVariableString(
+      env,
+      'NEXT_OUTBOX_MESSAGES_FUNCTION_NAME',
+      'next_outbox_messages',
+    ),
+    listenerType: getEnvVariableString(env, 'LISTENER_TYPE', 'replication'),
 
     rmqProtocol: getEnvVariableString(env, 'RABBITMQ_PROTOCOL', 'amqp'),
     rmqHost: getEnvVariableString(env, 'RABBITMQ_HOST', 'localhost'),
@@ -81,21 +87,23 @@ export const getConfig = (env: Env = process.env) => {
 /** The configuration object type with parsed environment variables. */
 export type Config = ReturnType<typeof getConfig>;
 
-export const getOutboxConfig = (config: Config): ReplicationConfig => {
+export const getReplicationOutboxConfig = (
+  config: Config,
+): ReplicationConfig => {
   return {
     outboxOrInbox: 'outbox',
     dbHandlerConfig: {
       host: config.postgresHost,
       port: config.postgresPort,
-      user: config.postgresLoginRole,
-      password: config.postgresLoginRolePassword,
+      user: config.postgresHandlerRole,
+      password: config.postgresHandlerRolePassword,
       database: config.postgresDatabase,
     },
     dbListenerConfig: {
       host: config.postgresHost,
       port: config.postgresPort,
-      user: config.postgresOutboxRole,
-      password: config.postgresOutboxRolePassword,
+      user: config.postgresOutboxListenerRole,
+      password: config.postgresOutboxListenerRolePassword,
       database: config.postgresDatabase,
     },
     settings: {
@@ -106,6 +114,25 @@ export const getOutboxConfig = (config: Config): ReplicationConfig => {
       // For the outbox we skip those settings as we assume sending the message will succeed (once RabbitMQ is up again)
       enableMaxAttemptsProtection: false,
       enablePoisonousMessageProtection: false,
+    },
+  };
+};
+
+export const getPollingOutboxConfig = (config: Config): PollingConfig => {
+  const repConfig = getReplicationOutboxConfig(config);
+  return {
+    outboxOrInbox: 'outbox',
+    dbHandlerConfig: repConfig.dbHandlerConfig,
+    dbListenerConfig: repConfig.dbListenerConfig,
+    settings: {
+      dbSchema: config.postgresOutboxSchema,
+      dbTable: config.postgresOutboxTable,
+      // For the outbox we skip those settings as we assume sending the message will succeed (once RabbitMQ is up again)
+      enableMaxAttemptsProtection: false,
+      enablePoisonousMessageProtection: false,
+      nextMessagesBatchSize: 5,
+      nextMessagesFunctionName: config.nextOutboxMessagesFunctionName,
+      nextMessagesPollingInterval: 500,
     },
   };
 };
