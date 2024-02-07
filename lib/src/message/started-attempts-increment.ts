@@ -33,7 +33,7 @@ export const startedAttemptsIncrement = async (
     /* sql */ `
       UPDATE ${settings.dbSchema}.${settings.dbTable} SET started_attempts = started_attempts + 1 WHERE id IN
         (SELECT id FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR UPDATE NOWAIT)
-        RETURNING started_attempts, finished_attempts, processed_at, abandoned_at, locked_until;`,
+        RETURNING started_attempts, finished_attempts, locked_until, processed_at, abandoned_at;`,
     [message.id],
   );
   if (updateResult.rowCount === 0) {
@@ -42,9 +42,9 @@ export const startedAttemptsIncrement = async (
   const {
     started_attempts,
     finished_attempts,
+    locked_until,
     processed_at,
     abandoned_at,
-    locked_until,
   } = updateResult.rows[0];
   if (processed_at) {
     return 'ALREADY_PROCESSED';
@@ -55,8 +55,9 @@ export const startedAttemptsIncrement = async (
   // set the values for the poisonous message strategy
   message.startedAttempts = started_attempts;
   message.finishedAttempts = finished_attempts;
-  message.lockedUntil = locked_until?.toISOString();
-  message.processedAt = processed_at?.toISOString() ?? null;
-  message.abandonedAt = abandoned_at?.toISOString() ?? null;
+  message.lockedUntil = locked_until?.toISOString() ?? null;
+  // If we get here the message is neither processed nor abandoned
+  message.processedAt = null;
+  message.abandonedAt = null;
   return true;
 };

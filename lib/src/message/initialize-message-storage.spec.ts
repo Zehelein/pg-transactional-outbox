@@ -15,10 +15,11 @@ if (isDebugMode()) {
 
 const message: TransactionalMessage = {
   id: 'message_id',
-  aggregateType: 'test_type',
+  aggregateType: 'test_aggregate_type',
   messageType: 'test_message_type',
   aggregateId: 'test_aggregate_id',
   payload: { result: 'success' },
+  segment: 'test_segment',
   metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
   createdAt: '2023-01-18T21:02:27.000Z',
 };
@@ -83,11 +84,52 @@ describe('initializeMessageStorage', () => {
   test('it initializes the message storage and stores a message without an error', async () => {
     // Act
     const storeMessage = initializeMessageStorage(config, getDisabledLogger());
+    const msg: TransactionalMessage = {
+      ...message,
+      segment: 'provided_segment',
+      concurrency: 'parallel',
+      lockedUntil: '2023-01-18T21:04:27.000Z',
+    };
 
-    // Assert
+    // Act + Assert
+    await expect(
+      storeMessage(msg, await pool.connect()),
+    ).resolves.not.toThrow();
+    expect(client.query).toHaveBeenCalledWith(expect.any(String), [
+      'message_id',
+      'test_aggregate_type',
+      'test_aggregate_id',
+      'test_message_type',
+      'provided_segment',
+      'parallel',
+      { result: 'success' },
+      { routingKey: 'test.route', exchange: 'test-exchange' },
+      '2023-01-18T21:04:27.000Z',
+      '2023-01-18T21:02:27.000Z',
+    ]);
+  });
+
+  test('it initializes the message storage and stores a message without an error and provides defaults', async () => {
+    // Arrange
+    client.query = jest.fn(() => ({ rowCount: 1 })) as any;
+    const storeMessage = initializeMessageStorage(config, getDisabledLogger());
+
+    // Act + Assert
     await expect(
       storeMessage(message, await pool.connect()),
     ).resolves.not.toThrow();
+    expect(client.query).toHaveBeenCalledWith(expect.any(String), [
+      'message_id',
+      'test_aggregate_type',
+      'test_aggregate_id',
+      'test_message_type',
+      'test_segment',
+      'sequential',
+      { result: 'success' },
+      { routingKey: 'test.route', exchange: 'test-exchange' },
+      '1970-01-01T00:00:00.000Z',
+      '2023-01-18T21:02:27.000Z',
+    ]);
   });
 
   test('it initializes the message storage and catches an error and logs it', async () => {

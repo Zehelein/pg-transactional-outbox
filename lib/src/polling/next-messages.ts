@@ -47,9 +47,9 @@ const mapInbox = (i: any): StoredTransactionalMessage => ({
   createdAt: i.created_at.toISOString(),
   concurrency: i.concurrency,
   finishedAttempts: i.finished_attempts,
-  lockedUntil: i.locked_until?.toISOString(),
+  lockedUntil: i.locked_until?.toISOString() ?? null,
   startedAttempts: i.started_attempts,
-  processedAt: i.processed_at?.toISOString(),
-  abandonedAt: i.abandoned_at?.toISOString(),
+  processedAt: i.processed_at?.toISOString() ?? null,
+  abandonedAt: i.abandoned_at?.toISOString() ?? null,
   segment: i.segment,
 });

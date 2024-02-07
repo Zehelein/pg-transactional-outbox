@@ -14,17 +14,7 @@ const config = {
 describe('startedAttemptsIncrement', () => {
   let message: StoredTransactionalMessage;
   const client = {
-    query: jest.fn().mockResolvedValue({
-      rowCount: 1,
-      rows: [
-        {
-          started_attempts: 1,
-          finished_attempts: 0,
-          processed_at: null,
-          abandoned_at: null,
-        },
-      ],
-    }),
+    query: jest.fn(),
   } as unknown as PoolClient;
 
   beforeEach(() => {
@@ -37,7 +27,7 @@ describe('startedAttemptsIncrement', () => {
       payload: { result: 'success' },
       metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
       createdAt: '2023-01-18T21:02:27.000Z',
-      // Not yet filled: startedAttempts, finishedAttempts, abandonedAt, and processedAt
+      // Not yet filled: startedAttempts, finishedAttempts, lockedUntil, processedAt, and abandonedAt
     } as unknown as StoredTransactionalMessage;
   });
 
@@ -49,6 +39,7 @@ describe('startedAttemptsIncrement', () => {
         {
           started_attempts: 1,
           finished_attempts: 0,
+          locked_until: null,
           processed_at: null,
           abandoned_at: null,
         },
@@ -62,6 +53,7 @@ describe('startedAttemptsIncrement', () => {
     expect(result).toBe(true);
     expect(message.startedAttempts).toBe(1);
     expect(message.finishedAttempts).toBe(0);
+    expect(message.lockedUntil).toBeNull();
     expect(message.processedAt).toBeNull();
     expect(message.abandonedAt).toBeNull();
   });
@@ -76,6 +68,7 @@ describe('startedAttemptsIncrement', () => {
           {
             finished_attempts,
             started_attempts: finished_attempts + 1,
+            locked_until: null,
             processed_at: null,
             abandoned_at: null,
           },
@@ -89,6 +82,7 @@ describe('startedAttemptsIncrement', () => {
       expect(result).toBe(true);
       expect(message.finishedAttempts).toBe(finished_attempts);
       expect(message.startedAttempts).toBe(finished_attempts + 1);
+      expect(message.lockedUntil).toBeNull();
       expect(message.processedAt).toBeNull();
       expect(message.abandonedAt).toBeNull();
     },
@@ -113,6 +107,7 @@ describe('startedAttemptsIncrement', () => {
         {
           started_attempts: 1,
           finished_attempts: 1,
+          locked_until: null,
           processed_at: new Date(),
           abandoned_at: null,
         },
@@ -134,6 +129,7 @@ describe('startedAttemptsIncrement', () => {
         {
           started_attempts: 1,
           finished_attempts: 1,
+          locked_until: null,
           processed_at: null,
           abandoned_at: new Date(),
         },

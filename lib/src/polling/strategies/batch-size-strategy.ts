@@ -25,7 +25,7 @@ export const defaultPollingListenerBatchSizeStrategy = (
   let callsSinceStart = 1;
   return () => {
     let batchSize = max;
-    if (callsSinceStart < max) {
+    if (callsSinceStart <= max) {
       batchSize = 1;
       callsSinceStart++;
     }
