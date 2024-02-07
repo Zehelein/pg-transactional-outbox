@@ -4,6 +4,7 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 // eslint-disable-next-line prettier/prettier
 import {
   IsolationLevel,
+  createReplicationMutexConcurrencyController,
   initializeMessageStorage,
   initializePollingMessageListener,
   initializeReplicationMessageListener,
@@ -50,7 +51,7 @@ void (async () => {
   // Initialize and start the inbox subscription
   const storePublishedMovie = getStorePublishedMovie(logger);
   let shutdownListener: () => Promise<void>;
-  if (process.env.listenerType === 'replication') {
+  if (config.listenerType === 'replication') {
     const [shutdown] = initializeReplicationMessageListener(
       replicationConfig,
       [
@@ -62,7 +63,7 @@ void (async () => {
       ],
       logger,
       {
-        concurrencyStrategy: createMutexConcurrencyController(),
+        concurrencyStrategy: createReplicationMutexConcurrencyController(),
         messageProcessingTimeoutStrategy: () => 2000,
         messageProcessingTransactionLevelStrategy: () =>
           IsolationLevel.RepeatableRead,
@@ -91,8 +92,3 @@ void (async () => {
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
 })();
-function createMutexConcurrencyController():
-  | import('pg-transactional-outbox').ReplicationConcurrencyController
-  | undefined {
-  throw new Error('Function not implemented.');
-}

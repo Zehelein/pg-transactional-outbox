@@ -50,6 +50,8 @@ export {
   defaultReplicationListenerAndSlotRestartStrategy,
   defaultReplicationListenerRestartStrategy,
 } from './replication/strategies/listener-restart-strategy';
+export { DatabaseSetup } from './setup/database-setup';
+export { DatabaseSetupExporter } from './setup/database-setup-exporter';
 export {
   MessageProcessingDbClientStrategy,
   defaultMessageProcessingDbClientStrategy,

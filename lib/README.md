@@ -31,20 +31,18 @@ yarn add pg-transactional-outbox
 - [The patterns](#the-patterns)
   - [What is the transactional outbox pattern](#what-is-the-transactional-outbox-pattern)
   - [What is the transactional inbox pattern](#what-is-the-transactional-inbox-pattern)
-  - [What is the PostgreSQL Logical Replication](#what-is-the-postgresql-logical-replication)
-- [The pg-transactional-outbox library usage](#the-pg-transactional-outbox-library-overview)
+  - [Using PostgreSQL Logical Replication](#using-postgresql-logical-replication)
+  - [Using database polling](#using-database-polling)
+- [The pg-transactional-outbox library overview](#the-pg-transactional-outbox-library-overview)
   - [Database server](#database-server)
-  - [Database setup for the producer](#database-setup-for-the-producer)
-  - [Database setup for the consumer](#database-setup-for-the-consumer)
+  - [Database setup](#database-setup)
   - [Implementing the transactional outbox producer](#implementing-the-transactional-outbox-producer)
   - [Implementing the transactional inbox consumer](#implementing-the-transactional-inbox-consumer)
   - [Message format](#message-format)
 - [Strategies](#strategies)
-  - [Concurrency strategy](#concurrency-strategy)
-  - [Message retries strategy](#message-retries-strategy)
-  - [Poisonous message retries strategy](#poisonous-message-retries-strategy)
-  - [Message processing timeouts strategy](#message-processing-timeouts-strategy)
-  - [Message processing Transaction level strategy](#message-processing-transaction-level-strategy)
+  - [Message handler strategies](#message-handler-strategies)
+  - [Replication listener strategies](#replication-listener-strategies)
+  - [Polling listener strategies](#polling-listener-strategies)
 - [Testing](#testing)
 
 # Context
@@ -107,7 +105,7 @@ This diagram shows the involved components to implement both the transactional
 outbox and the transactional inbox pattern. The following chapters explain the
 components and the interactions in detail.
 
-![postgresql_outbox_pattern](https://user-images.githubusercontent.com/9946441/286744183-7b616f46-e4d8-4d6f-88c1-6ceae5207997.png)
+![postgresql_outbox_pattern](https://github.com/Zehelein/pg-transactional-outbox/assets/9946441/ebb31b5e-519f-4ef6-9fa8-4c790d75ba20)
 _Components involved in the transactional outbox and inbox pattern
 implementation_
 
@@ -184,7 +182,7 @@ exactly-once processing (in combination with the transactional outbox pattern):
 Step three can be implemented again as a Polling-Publisher or via the
 Transactional Log Tailing approach like for the outbox pattern.
 
-## What is the PostgreSQL Logical Replication
+## Using PostgreSQL Logical Replication
 
 PostgreSQL logical replication is a method that offers the possibility of
 replicating data from one PostgreSQL server to another PostgreSQL server or
@@ -232,6 +230,25 @@ In this way, the publisher and subscriber can maintain a consistent position in
 the replication stream, allowing the subscriber to catch up with any changes
 that may have occurred while it was disconnected.
 
+![postgresql_outbox_pattern](https://github.com/Zehelein/pg-transactional-outbox/assets/9946441/afcdcd08-5586-4a9d-85d6-9aeadca594d2)
+_Components involved in the transactional outbox and inbox logical replication
+implementation_
+
+## Using database polling
+
+The second approach handle messages when they were added to the transactional
+inbox or outbox is to use database polling. Your node.js application will query
+those tables on a regular interval to see if new messages arrived. When
+unprocessed outbox messages are found they can be sent via e.g. a message
+broker. For inbox messages a message handler will be executed to handle the
+message.
+
+This setup is purely based on the database and does not use logical replication:
+
+![postgresql_outbox_pattern](https://github.com/Zehelein/pg-transactional-outbox/assets/9946441/1591248b-fac1-4a02-82af-adf28b27e0a8)
+_Components involved in the transactional outbox and inbox logical replication
+implementation_
+
 # The pg-transactional-outbox library overview
 
 This library implements the transactional outbox and inbox pattern using a
@@ -269,149 +286,76 @@ This plugin is included directly in PostgreSQL since version 9.4. Other
 alternatives would be wal2json or decoding-json but those are not used in this
 library.
 
-## Database setup for the producer
+## Database setup
 
-The outbox table in the producer service must have the following structure. You
-can decide to put this table in the `public` or some separate database schema
-(recommended). You can set this schema in the configuration settings of the
-library.
+To support the transactional outbox and inbox implementation you need to create
+an outbox and an inbox table in your PostgreSQL database. You should create two
+database roles: one for the message handler and one for the message listener.
+You must grant those roles the permission to the tables.
 
-You can follow the steps below or use the
-`examples/rabbitmq/producer/setup/init-db.ts` script as an example to generate
-the database, roles, and other settings for you.
+The inbox and the outbox tables and the corresponding structure are identical.
+They can reside in the same database if your service uses both the outbox and
+the inbox pattern which is often the case for distributed services.
 
-```sql
-CREATE TABLE public.outbox (
-  id uuid PRIMARY KEY,
-  aggregate_type TEXT NOT NULL,
-  aggregate_id TEXT NOT NULL,
-  message_type TEXT NOT NULL,
-  segment TEXT,
-  concurrency TEXT NOT NULL DEFAULT 'sequential',
-  payload JSONB NOT NULL,
-  metadata JSONB,
-  locked_until TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  processed_at TIMESTAMPTZ,
-  abandoned_at TIMESTAMPTZ,
-  started_attempts smallint NOT NULL DEFAULT 0,
-  finished_attempts smallint NOT NULL DEFAULT 0
-);
-ALTER TABLE public.outbox ADD CONSTRAINT outbox_concurrency_check
-  CHECK (concurrency IN ('sequential', 'parallel'));
-```
+You can manually create the required database structure or (suggested) use this
+library to help you with this task. It offers you a `DatabaseSetup` helper to
+create the required structure from code base on the configuration settings that
+you provide. Both the inbox and outbox structure is created in the same way so
+you call the same functions but with different configurations.
 
-The database role that is used to mutate the business-relevant data and handle
-the outbox message must be granted the select and insert permissions for the
-outbox table and the update permission for processing relevant rows.
+You can find example usage in the following two files. Please notice that they
+create both the logical replication AND the polling based structure as an
+example. In your code you should only create one of the two.
 
-```sql
-GRANT SELECT, INSERT ON public.outbox TO db_outbox_handler;
-GRANT UPDATE (locked_until, processed_at, abandoned_at, started_attempts, finished_attempts)
-  ON public.outbox TO db_outbox_handler;
-```
+- `examples/rabbitmq/producer/setup/init-db.ts`
+- `examples/rabbitmq/consumer/setup/init-db.ts`
 
-### Polling Listener Setup
+You can also use the `DatabaseSetupExporter` which writes an SQL script for you
+that you can execute or include into your application database migration files.
+You can create the SQL scripts with the following code (please check the
+RabbitMQ example on how to create the configurations).
 
-The role that is used to poll for unprocessed outbox messages should have
-permission to update any row and potentially be able to delete it. It should not
-have the `REPLICATION` permission.
+```TypeScript
+import fs from 'node:fs/promises';
+import { DatabaseSetupExporter } from 'pg-transactional-outbox';
+const { createReplicationScript, createPollingScript } = DatabaseSetupExporter;
 
-```sql
-GRANT SELECT, UPDATE, DELETE ON public.outbox TO db_outbox_listener;
-```
+(async () => {
+  try {
+    console.log(
+      'Creating SQL setup scripts for the replication or polling based approach',
+    );
 
-The following function is used in the polling listener to get the next messages.
+    // Use those two sections to create SQL scripts for the replication based approach
+    const inboxReplConfig = {/* see RabbitMQ example project */};
+    const inboxReplSql = createReplicationScript(inboxReplConfig);
+    const inboxReplFile = './create-inbox-replication.sql';
+    await fs.writeFile(inboxReplFile, inboxReplSql);
+    console.log(`Created the ${inboxReplFile}`);
 
-```sql
-DROP FUNCTION IF EXISTS public.next_outbox_messages(integer);
-CREATE OR REPLACE FUNCTION public.next_outbox_messages(
-  max_size integer)
-    RETURNS SETOF public.outbox
-    LANGUAGE 'plpgsql'
+    const outboxReplConfig = {/* see RabbitMQ example project */};
+    const outboxReplSql = createReplicationScript(outboxReplConfig);
+    const outboxReplFile = './create-outbox-replication.sql';
+    await fs.writeFile(outboxReplFile, outboxReplSql);
+    console.log(`Created the ${outboxReplFile}`);
 
-AS $BODY$
-DECLARE
-  loop_row public.outbox%ROWTYPE;
-  message_row public.outbox%ROWTYPE;
-  ids uuid[] := '{}';
-BEGIN
+    // Use those two sections to create SQL scripts for the polling based approach
+    const inboxPollConfig = {/* see RabbitMQ example project */};
+    const inboxPollSql = createPollingScript(inboxPollConfig);
+    const inboxPollFile = './setup/example-create-polling-inbox.sql';
+    await fs.writeFile(inboxPollFile, inboxPollSql);
+    console.log(`Created the ${inboxPollFile}`);
 
-  IF max_size < 1 THEN
-    RAISE EXCEPTION 'The max_size for the next messages batch must be at least one.' using errcode = 'MAXNR';
-  END IF;
-
-  -- get (only) the oldest message of every segment but only return it if it is not locked
-  FOR loop_row IN
-    SELECT * FROM public.outbox m WHERE m.id in (SELECT DISTINCT ON (segment) id
-      FROM public.outbox
-      WHERE processed_at IS NULL AND abandoned_at IS NULL
-      ORDER BY segment, created_at) order by created_at
-  LOOP
-    BEGIN
-      EXIT WHEN cardinality(ids) >= max_size;
-
-      SELECT id, locked_until
-        INTO message_row
-        FROM public.outbox
-        WHERE id = loop_row.id
-        FOR NO KEY UPDATE NOWAIT;
-
-      IF message_row.locked_until > NOW() THEN
-        CONTINUE;
-      END IF;
-
-      ids := array_append(ids, message_row.id);
-    EXCEPTION WHEN lock_not_available THEN
-      CONTINUE;
-    END;
-  END LOOP;
-
-  -- if max_size not reached: get the oldest parallelizable message independent of segment
-  IF cardinality(ids) < max_size THEN
-    FOR loop_row IN
-      SELECT * FROM public.outbox
-        WHERE concurrency = 'parallel' AND processed_at IS NULL AND abandoned_at IS NULL AND locked_until < NOW()
-          AND id NOT IN (SELECT UNNEST(ids))
-        order by created_at
-    LOOP
-      BEGIN
-        EXIT WHEN cardinality(ids) >= max_size;
-
-        SELECT *
-          INTO message_row
-          FROM public.outbox
-          WHERE id = loop_row.id
-          FOR NO KEY UPDATE NOWAIT;
-
-        ids := array_append(ids, message_row.id);
-      EXCEPTION WHEN lock_not_available THEN
-        CONTINUE;
-      END;
-    END LOOP;
-  END IF;
-
-  -- set a short lock value so the the workers can each process a message
-  IF cardinality(ids) > 0 THEN
-
-    RETURN QUERY
-      UPDATE public.outbox
-        SET locked_until = NOW() + INTERVAL '10 seconds', started_attempts = started_attempts + 1
-        WHERE ID = ANY(ids)
-        RETURNING *;
-
-  END IF;
-END;
-$BODY$;
-```
-
-For the polling approach the following indexes should be created:
-
-```sql
-CREATE INDEX outbox_segment_idx ON public.outbox (segment);
-CREATE INDEX outbox_created_at_idx ON public.outbox (created_at);
-CREATE INDEX outbox_processed_at_idx ON public.outbox (processed_at);
-CREATE INDEX outbox_abandoned_at_idx ON public.outbox (abandoned_at);
+    const outboxPollConfig = {/* see RabbitMQ example project */};
+    const outboxPollSql = createPollingScript(outboxPollConfig);
+    const outboxPollFile = './setup/example-create-polling-outbox.sql';
+    await fs.writeFile(outboxPollFile, outboxPollSql);
+    console.log(`Created the ${outboxPollFile}`);
+  } catch (err) {
+    logger.error(err);
+    process.exit(1);
+  }
+})();
 ```
 
 ### Logical Replication Setup
@@ -421,205 +365,17 @@ the replication permission. As this role has a lot of rights it is not advised
 to give the replication permission to the same role that reads and mutates the
 business-relevant data.
 
-The following statement can be used to create the listener role (you need to run
-the scripts in different transactions):
-
-```sql
-CREATE ROLE db_outbox_listener WITH REPLICATION LOGIN PASSWORD 'db_outbox_listener_password';
-```
-
-Create the publication:
-
-```sql
-CREATE PUBLICATION pg_transactional_outbox_pub FOR TABLE public.outbox WITH (publish = 'insert');
-```
-
-And the replication:
-
-```sql
-SELECT pg_create_logical_replication_slot('pg_transactional_outbox_slot', 'pgoutput');
-```
-
 > **NOTE**: the replication slot name is database **server** unique! This means
 > if you use the transactional inbox pattern on multiple databases within the
 > same PostgreSQL server instance you must use different replication slot names
-> for each of them.
-
-## Database setup for the consumer
-
-Corresponding to the outbox table, the consumer service must have the inbox
-table. You can also decide to put it in a separate database schema
-(recommended). The table structure, roles, grants, etc. are identical to the
-outbox service approach.
-
-You can follow again the steps below or use the
-`examples/rabbitmq/consumer/setup/init-db.ts` script as an example to generate
-the database, roles, and other settings for you.
-
-```sql
-CREATE TABLE public.inbox (
-  id uuid PRIMARY KEY,
-  aggregate_type TEXT NOT NULL,
-  aggregate_id TEXT NOT NULL,
-  message_type TEXT NOT NULL,
-  segment TEXT,
-  concurrency TEXT NOT NULL DEFAULT 'sequential',
-  payload JSONB NOT NULL,
-  metadata JSONB,
-  locked_until TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  processed_at TIMESTAMPTZ,
-  abandoned_at TIMESTAMPTZ,
-  started_attempts smallint NOT NULL DEFAULT 0,
-  finished_attempts smallint NOT NULL DEFAULT 0
-);
-ALTER TABLE public.inbox ADD CONSTRAINT inbox_concurrency_check
-  CHECK (concurrency IN ('sequential', 'parallel'));
-```
-
-The database role that is used to mutate the business-relevant data and handle
-the inbox message must be granted the select and insert permissions for the
-inbox table and the update permission for processing relevant rows.
-
-```sql
-GRANT SELECT, INSERT ON public.inbox TO db_inbox_handler;
-GRANT UPDATE (locked_until, processed_at, abandoned_at, started_attempts, finished_attempts)
-  ON public.inbox TO db_inbox_handler;
-```
+> for each of them. When creating a new replication slot you must run that SQL
+> script in its own database transaction.
 
 ### Polling Listener Setup
 
-The role that is used to poll for unprocessed inbox messages should have
-permission to update any row and potentially be able to delete it. It should not
-have the `REPLICATION` permission.
-
-```sql
-GRANT SELECT, UPDATE, DELETE ON public.inbox TO db_inbox_listener;
-```
-
-The following function is used in the polling listener to get the next messages.
-
-```sql
-DROP FUNCTION IF EXISTS public.next_inbox_messages(integer);
-CREATE OR REPLACE FUNCTION public.next_inbox_messages(
-  max_size integer)
-    RETURNS SETOF public.inbox
-    LANGUAGE 'plpgsql'
-
-AS $BODY$
-DECLARE
-  loop_row public.inbox%ROWTYPE;
-  message_row public.inbox%ROWTYPE;
-  ids uuid[] := '{}';
-BEGIN
-
-  IF max_size < 1 THEN
-    RAISE EXCEPTION 'The max_size for the next messages batch must be at least one.' using errcode = 'MAXNR';
-  END IF;
-
-  -- get (only) the oldest message of every segment but only return it if it is not locked
-  FOR loop_row IN
-    SELECT * FROM public.inbox m WHERE m.id in (SELECT DISTINCT ON (segment) id
-      FROM public.inbox
-      WHERE processed_at IS NULL AND abandoned_at IS NULL
-      ORDER BY segment, created_at) order by created_at
-  LOOP
-    BEGIN
-      EXIT WHEN cardinality(ids) >= max_size;
-
-      SELECT id, locked_until
-        INTO message_row
-        FROM public.inbox
-        WHERE id = loop_row.id
-        FOR NO KEY UPDATE NOWAIT;
-
-      IF message_row.locked_until > NOW() THEN
-        CONTINUE;
-      END IF;
-
-      ids := array_append(ids, message_row.id);
-    EXCEPTION WHEN lock_not_available THEN
-      CONTINUE;
-    END;
-  END LOOP;
-
-  -- if max_size not reached: get the oldest parallelizable message independent of segment
-  IF cardinality(ids) < max_size THEN
-    FOR loop_row IN
-      SELECT * FROM public.inbox
-        WHERE concurrency = 'parallel' AND processed_at IS NULL AND abandoned_at IS NULL AND locked_until < NOW()
-          AND id NOT IN (SELECT UNNEST(ids))
-        order by created_at
-    LOOP
-      BEGIN
-        EXIT WHEN cardinality(ids) >= max_size;
-
-        SELECT *
-          INTO message_row
-          FROM public.inbox
-          WHERE id = loop_row.id
-          FOR NO KEY UPDATE NOWAIT;
-
-        ids := array_append(ids, message_row.id);
-      EXCEPTION WHEN lock_not_available THEN
-        CONTINUE;
-      END;
-    END LOOP;
-  END IF;
-
-  -- set a short lock value so the the workers can each process a message
-  IF cardinality(ids) > 0 THEN
-
-    RETURN QUERY
-      UPDATE public.inbox
-        SET locked_until = NOW() + INTERVAL '10 seconds', started_attempts = started_attempts + 1
-        WHERE ID = ANY(ids)
-        RETURNING *;
-
-  END IF;
-END;
-$BODY$;
-```
-
-For the polling approach the following indexes should be created:
-
-```sql
-CREATE INDEX inbox_segment_idx ON public.inbox (segment);
-CREATE INDEX inbox_created_at_idx ON public.inbox (created_at);
-CREATE INDEX inbox_processed_at_idx ON public.inbox (processed_at);
-CREATE INDEX inbox_abandoned_at_idx ON public.inbox (abandoned_at);
-```
-
-### Logical Replication Setup
-
-If you use the logical replication approach, the database listener role needs
-the replication permission. As this role has a lot of rights it is not advised
-to give the replication permission to the same role that reads and mutates the
-business-relevant data.
-
-The following statement can be used to create the listener role (you need to run
-the scripts in different transactions):
-
-```sql
-CREATE ROLE db_inbox_listener WITH REPLICATION LOGIN PASSWORD 'db_inbox_listener_password';
-```
-
-Create the publication:
-
-```sql
-CREATE PUBLICATION pg_transactional_inbox_pub FOR TABLE public.inbox WITH (publish = 'insert');
-```
-
-And the replication:
-
-```sql
-SELECT pg_create_logical_replication_slot('pg_transactional_inbox_slot', 'pgoutput');
-```
-
-> **NOTE**: the replication slot name is database **server** unique! This means
-> if you use the transactional inbox pattern on multiple databases within the
-> same PostgreSQL server instance you must use different replication slot names
-> for each of them.
+For the polling approach you could use a single database role but it is still
+advised to use two separate database roles. The roles should not have the
+`REPLICATION` permission.
 
 ## Implementing the transactional outbox producer
 
@@ -693,7 +449,7 @@ import {
   // executes the messagePublisher handle function with every received outbox
   // message. It cares for the at least once delivery.
   let shutdownListener: () => Promise<void>;
-  if (process.env.listenerType === 'replication') {
+  if (process.env.LISTENER_TYPE === 'replication') {
     const [shutdown] = initializeReplicationMessageListener(
       replicationConfig,
       messagePublisher,
@@ -982,7 +738,7 @@ import {
 
   // Initialize and start the inbox listener
   let shutdownListener: () => Promise<void>;
-  if (process.env.listenerType === 'replication') {
+  if (process.env.LISTENER_TYPE === 'replication') {
     const [shutdown] = initializeReplicationMessageListener(
       replicationConfig,
       [movieCreatedHandler],
@@ -1133,7 +889,24 @@ concurrency, retries, poisonous message handling, etc. By defining a common
 interface for different scenarios you can use either existing code or write your
 custom implementations.
 
-## Message processing client strategy
+## Message handler strategies
+
+### Message processing timeout strategy
+
+The `messageProcessingTimeoutStrategy` allows you to define a message-based
+timeout on how long the message is allowed to be processed (in milliseconds).
+This allows you to give more time to process "expensive" messages while still
+processing others on a short timeout. By default, it uses the configured
+`messageProcessingTimeout` or falls back to a 15-second timeout.
+
+### Message processing Transaction level strategy
+
+The replication listener lets you define the `messageProcessingTransactionLevel`
+per message. Some message processing may have higher isolation level
+requirements than others. If no custom strategy is provided it uses the default
+database transaction level via `BEGIN`.
+
+### Message processing DB client strategy
 
 Messages are processed in a database transaction that verifies from the
 outbox/inbox table if the message was not processed already and loads the
@@ -1146,22 +919,7 @@ database client from your desired Pool in the `getClient` function. When the
 replication listener is shut down it will call the `shutdown` function where you
 can close your database pool and run other cleanup logic.
 
-## Message processing timeout strategy
-
-The `messageProcessingTimeoutStrategy` allows you to define a message-based
-timeout on how long the message is allowed to be processed (in milliseconds).
-This allows you to give more time to process "expensive" messages while still
-processing others on a short timeout. By default, it uses the configured
-`messageProcessingTimeout` or falls back to a 15-second timeout.
-
-## Message processing Transaction level strategy
-
-The replication listener lets you define the `messageProcessingTransactionLevel`
-per message. Some message processing may have higher isolation level
-requirements than others. If no custom strategy is provided it uses the default
-database transaction level via `BEGIN`.
-
-## Message retry strategy
+### Message retry strategy
 
 When processing a message an error can be thrown. The transactional listener
 catches that error and needs to decide if the message should be processed
@@ -1171,7 +929,7 @@ the decision if a message should be retried or not. By default, the
 configured value in the `maxAttempts` setting or as a fallback five times
 (including the initial attempt).
 
-## Poisonous message retry strategy
+### Poisonous message retry strategy
 
 A poisonous message is a message that causes the service to crash repeatedly and
 prevents other messages from being processed. To avoid this situation, the
@@ -1191,27 +949,9 @@ You can customize the behavior of the service by changing the following options:
   you can implement your own logic and pass it as an argument to the service
   constructor.
 
-## Replication listener restart time strategy
+## Replication listener strategies
 
-When the outbox or inbox listener fails due to an error it is restarted. The
-`listenerRestartStrategy` is used to define how long it should wait before it
-attempts to start again. It allows you to decide (based on the error) to log or
-track the caught error.
-
-The `defaultListenerRestartStrategy` checks if the error message is a PostgreSQL
-error. If the PostgreSQL error is about the replication slot being in use, it
-logs a trace entry and waits for the configured `restartDelaySlotInUse`
-(default: 10sec) time. Otherwise, it logs an error entry and waits for the
-configured `restartDelay` (default: 250ms).
-
-The `defaultListenerAndSlotRestartStrategy` uses the same logic as the
-`defaultListenerRestartStrategy`. In addition, it checks if a PostgreSQL error
-is about the replication slot not existing (e.g. after a DB failover). Then it
-tries to create the replication slot with the connection details of the
-replication user slot and waits for the configured `restartDelay` (default:
-250ms) to restart the listener.
-
-## Replication listener concurrency strategy
+### Replication listener concurrency strategy
 
 The outbox and inbox listeners process messages that are stored in their
 corresponding tables. When they process the messages, you can influence the
@@ -1237,7 +977,29 @@ There are the following pre-build ones but you can also write your own:
   controller. You can define which of the above controllers should be used for
   different kinds of messages.
 
-## Polling listener scheduling strategy
+### Replication listener restart time strategy
+
+When the outbox or inbox listener fails due to an error it is restarted. The
+`listenerRestartStrategy` is used to define how long it should wait before it
+attempts to start again. It allows you to decide (based on the error) to log or
+track the caught error.
+
+The `defaultListenerRestartStrategy` checks if the error message is a PostgreSQL
+error. If the PostgreSQL error is about the replication slot being in use, it
+logs a trace entry and waits for the configured `restartDelaySlotInUse`
+(default: 10sec) time. Otherwise, it logs an error entry and waits for the
+configured `restartDelay` (default: 250ms).
+
+The `defaultListenerAndSlotRestartStrategy` uses the same logic as the
+`defaultListenerRestartStrategy`. In addition, it checks if a PostgreSQL error
+is about the replication slot not existing (e.g. after a DB failover). Then it
+tries to create the replication slot with the connection details of the
+replication user slot and waits for the configured `restartDelay` (default:
+250ms) to restart the listener.
+
+## Polling listener strategies
+
+### Polling listener scheduling strategy
 
 The `PollingListenerSchedulingStrategy` defines the scheduling strategy how
 often the database should be polled for new messages.
@@ -1245,7 +1007,7 @@ often the database should be polled for new messages.
 The default strategy `defaultPollingListenerSchedulingStrategy` polls once per
 500ms.
 
-## Polling listener batch size strategy
+### Polling listener batch size strategy
 
 The `PollingListenerBatchSizeStrategy` defines the batch size strategy how many
 messages should be loaded at once.
@@ -1259,8 +1021,20 @@ poisonous if one of them fails.
 
 # Testing
 
+The library has a large set of unit tests alongside the files that implement the
+actual logic. You can run the unit tests from the `lib` folder via `yarn test`
+and `yarn test:coverage`.
+
 The `__tests__` folder contains integration tests that test the functionality of
 the outbox and inbox listener implementation. The tests are using the
-`testcontainers` library to start up a new docker PostgreSQL server.
+`testcontainers` library to start up an actual PostgreSQL server. The tests
+include tests to test the functionality against an actual database and for
+resilience tests where the test container is stopped and restarted to test the
+library against an unreliable database instance. You can simply run the `test`
+script to execute the tests.
 
-You can simply run the `test` script to execute the tests.
+And you can manually test the implementation using the `examples/rabbitmq`
+producer and consumer implementations. Copy the `.env.template` files as `.env`
+files and adjust these files if needed. Especially the `LISTENER_TYPE` is useful
+to test the replication vs. polling listener approach. To test the two example
+applications you can use `yarn dev:watch`.

@@ -38,7 +38,7 @@ process.on('unhandledRejection', (err, promise) => {
 
   // Initialize and start the outbox subscription
   let shutdownListener: () => Promise<void>;
-  if (process.env.listenerType === 'replication') {
+  if (config.listenerType === 'replication') {
     const [shutdown] = initializeReplicationMessageListener(
       replicationConfig,
       {

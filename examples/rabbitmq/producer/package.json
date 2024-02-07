@@ -12,7 +12,8 @@
     "start": "node dist/index.js",
     "dev:watch": "tsc-watch --onSuccess \"node dist/index.js\"",
     "debug:watch": "tsc-watch --onSuccess \"node --inspect dist/index.js\"",
-    "setup:db": "ts-node ./setup/init-db.ts"
+    "setup:db": "ts-node ./setup/init-db.ts",
+    "export:db": "ts-node ./setup/export-db-scripts.ts"
   },
   "dependencies": {
     "amqplib": "^0.10.3",
