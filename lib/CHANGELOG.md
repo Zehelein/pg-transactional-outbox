@@ -47,9 +47,13 @@ this file.
   ALTER TABLE public.outbox ADD COLUMN processed_at TIMESTAMPTZ;
   ```
 - Function names were renamed to not include "inbox" or "outbox" specifically
-  anymore but both use the same underlying concept now. To get (close) to the
-  prior outbox handling logic you can set the settings fields
-  `enableMaxAttemptsProtection` and `enablePoisonousMessageProtection` to
+  anymore as both use the same underlying concept now. Generally the methods and
+  type names reflect now more their roles:
+  - "replication" is used for the logical replication based listener approach
+  - "polling" on the other hand is used now for the polling listener approach
+  - "handler" is used for code that is handling the outbox or inbox message
+- To get (close) to the prior outbox handling logic you can set the settings
+  fields `enableMaxAttemptsProtection` and `enablePoisonousMessageProtection` to
   `false`.
 
 ## [0.4.0] - 2024-02-01

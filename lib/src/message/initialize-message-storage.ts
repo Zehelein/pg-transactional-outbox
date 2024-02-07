@@ -57,30 +57,52 @@ const insertMessage = async (
     aggregateId,
     messageType,
     segment,
-    concurrency,
     payload,
     metadata,
+    concurrency,
     createdAt,
     lockedUntil,
   } = message;
+
+  const insertValues = [
+    id,
+    aggregateType,
+    aggregateId,
+    messageType,
+    segment,
+    payload,
+    metadata,
+  ];
+
+  let optionalPlaceholders = '';
+  const addPlaceholder = () =>
+    (optionalPlaceholders += `, $${insertValues.length}`);
+
+  let optionalFields = '';
+  const addOptionalFields = (name: string) => (optionalFields += `, ${name}`);
+  if (concurrency) {
+    insertValues.push(concurrency);
+    addOptionalFields('concurrency');
+    addPlaceholder();
+  }
+  if (createdAt) {
+    insertValues.push(createdAt);
+    addOptionalFields('created_at');
+    addPlaceholder();
+  }
+  if (lockedUntil) {
+    insertValues.push(lockedUntil);
+    addOptionalFields('locked_until');
+    addPlaceholder();
+  }
+
   const messageResult = await client.query(
     /* sql */ `
     INSERT INTO ${dbSchema}.${dbTable}
-      (id, aggregate_type, aggregate_id, message_type, segment, concurrency, payload, metadata, locked_until, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      (id, aggregate_type, aggregate_id, message_type, segment, payload, metadata${optionalFields})
+      VALUES ($1, $2, $3, $4, $5, $6, $7${optionalPlaceholders})
       ON CONFLICT (id) DO NOTHING`,
-    [
-      id,
-      aggregateType,
-      aggregateId,
-      messageType,
-      segment,
-      concurrency ?? 'sequential',
-      payload,
-      metadata,
-      lockedUntil ?? '1970-01-01T00:00:00.000Z',
-      createdAt,
-    ],
+    insertValues,
   );
   if (!messageResult.rowCount || messageResult.rowCount < 1) {
     logger.warn(message, `The message with id ${id} already existed`);

@@ -22,7 +22,6 @@ const message: TransactionalMessage = {
   aggregateId: 'test_aggregate_id',
   payload: { result: 'success' },
   metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
-  createdAt: '2023-01-18T21:02:27.000Z',
 };
 
 const storedMessage: StoredTransactionalMessage = {
@@ -30,6 +29,7 @@ const storedMessage: StoredTransactionalMessage = {
   startedAttempts: 1,
   finishedAttempts: 0,
   concurrency: 'sequential',
+  createdAt: '2023-01-18T21:02:27.000Z',
   lockedUntil: '2023-01-18T21:05:27.000Z',
   processedAt: null,
   abandonedAt: null,

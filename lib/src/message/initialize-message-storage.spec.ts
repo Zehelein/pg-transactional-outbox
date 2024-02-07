@@ -21,7 +21,6 @@ const message: TransactionalMessage = {
   payload: { result: 'success' },
   segment: 'test_segment',
   metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
-  createdAt: '2023-01-18T21:02:27.000Z',
 };
 
 const config: ListenerConfig = {
@@ -81,13 +80,14 @@ describe('initializeMessageStorage', () => {
     } as unknown as Pool;
   });
 
-  test('it initializes the message storage and stores a message without an error', async () => {
+  test('it stores the message with all provided values without an error', async () => {
     // Act
     const storeMessage = initializeMessageStorage(config, getDisabledLogger());
     const msg: TransactionalMessage = {
       ...message,
       segment: 'provided_segment',
       concurrency: 'parallel',
+      createdAt: '2023-01-18T21:02:27.000Z',
       lockedUntil: '2023-01-18T21:04:27.000Z',
     };
 
@@ -95,21 +95,60 @@ describe('initializeMessageStorage', () => {
     await expect(
       storeMessage(msg, await pool.connect()),
     ).resolves.not.toThrow();
-    expect(client.query).toHaveBeenCalledWith(expect.any(String), [
-      'message_id',
-      'test_aggregate_type',
-      'test_aggregate_id',
-      'test_message_type',
-      'provided_segment',
-      'parallel',
-      { result: 'success' },
-      { routingKey: 'test.route', exchange: 'test-exchange' },
-      '2023-01-18T21:04:27.000Z',
-      '2023-01-18T21:02:27.000Z',
-    ]);
+    expect(client.query).toHaveBeenCalledWith(
+      `
+    INSERT INTO test_schema.test_table
+      (id, aggregate_type, aggregate_id, message_type, segment, payload, metadata, concurrency, created_at, locked_until)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      ON CONFLICT (id) DO NOTHING`,
+      [
+        'message_id',
+        'test_aggregate_type',
+        'test_aggregate_id',
+        'test_message_type',
+        'provided_segment',
+        { result: 'success' },
+        { routingKey: 'test.route', exchange: 'test-exchange' },
+        'parallel',
+        '2023-01-18T21:02:27.000Z',
+        '2023-01-18T21:04:27.000Z',
+      ],
+    );
   });
 
-  test('it initializes the message storage and stores a message without an error and provides defaults', async () => {
+  test('it stores the message with some missing values without an error', async () => {
+    // Act
+    const storeMessage = initializeMessageStorage(config, getDisabledLogger());
+    const msg: TransactionalMessage = {
+      ...message,
+      segment: 'provided_segment',
+      lockedUntil: '2023-01-18T21:04:27.000Z',
+    };
+
+    // Act + Assert
+    await expect(
+      storeMessage(msg, await pool.connect()),
+    ).resolves.not.toThrow();
+    expect(client.query).toHaveBeenCalledWith(
+      `
+    INSERT INTO test_schema.test_table
+      (id, aggregate_type, aggregate_id, message_type, segment, payload, metadata, locked_until)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (id) DO NOTHING`,
+      [
+        'message_id',
+        'test_aggregate_type',
+        'test_aggregate_id',
+        'test_message_type',
+        'provided_segment',
+        { result: 'success' },
+        { routingKey: 'test.route', exchange: 'test-exchange' },
+        '2023-01-18T21:04:27.000Z',
+      ],
+    );
+  });
+
+  test('it stores a message without an error when optional values are skipped', async () => {
     // Arrange
     client.query = jest.fn(() => ({ rowCount: 1 })) as any;
     const storeMessage = initializeMessageStorage(config, getDisabledLogger());
@@ -118,18 +157,22 @@ describe('initializeMessageStorage', () => {
     await expect(
       storeMessage(message, await pool.connect()),
     ).resolves.not.toThrow();
-    expect(client.query).toHaveBeenCalledWith(expect.any(String), [
-      'message_id',
-      'test_aggregate_type',
-      'test_aggregate_id',
-      'test_message_type',
-      'test_segment',
-      'sequential',
-      { result: 'success' },
-      { routingKey: 'test.route', exchange: 'test-exchange' },
-      '1970-01-01T00:00:00.000Z',
-      '2023-01-18T21:02:27.000Z',
-    ]);
+    expect(client.query).toHaveBeenCalledWith(
+      `
+    INSERT INTO test_schema.test_table
+      (id, aggregate_type, aggregate_id, message_type, segment, payload, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (id) DO NOTHING`,
+      [
+        'message_id',
+        'test_aggregate_type',
+        'test_aggregate_id',
+        'test_message_type',
+        'test_segment',
+        { result: 'success' },
+        { routingKey: 'test.route', exchange: 'test-exchange' },
+      ],
+    );
   });
 
   test('it initializes the message storage and catches an error and logs it', async () => {

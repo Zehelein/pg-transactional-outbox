@@ -53,7 +53,6 @@ export const addMovies = async (
             aggregateType: MovieAggregateType,
             messageType: MovieCreatedMessageType,
             payload,
-            createdAt: new Date().toISOString(),
             concurrency: 'parallel', // the RabbitMQ publisher uses a mutex internally
           };
           await storeOutboxMessage(message, client);
