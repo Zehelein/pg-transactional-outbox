@@ -405,6 +405,15 @@ END;
 $BODY$;
 ```
 
+For the polling approach the following indexes should be created:
+
+```sql
+CREATE INDEX outbox_segment_idx ON public.outbox (segment);
+CREATE INDEX outbox_created_at_idx ON public.outbox (created_at);
+CREATE INDEX outbox_processed_at_idx ON public.outbox (processed_at);
+CREATE INDEX outbox_abandoned_at_idx ON public.outbox (abandoned_at);
+```
+
 ### Logical Replication Setup
 
 If you use the logical replication approach, the database listener role needs
@@ -570,6 +579,15 @@ BEGIN
   END IF;
 END;
 $BODY$;
+```
+
+For the polling approach the following indexes should be created:
+
+```sql
+CREATE INDEX inbox_segment_idx ON public.inbox (segment);
+CREATE INDEX inbox_created_at_idx ON public.inbox (created_at);
+CREATE INDEX inbox_processed_at_idx ON public.inbox (processed_at);
+CREATE INDEX inbox_abandoned_at_idx ON public.inbox (abandoned_at);
 ```
 
 ### Logical Replication Setup

@@ -193,6 +193,13 @@ const outboxSetup = async (config: Config): Promise<void> => {
       END;
       $BODY$;
     `);
+    logger.debug('Create indexes');
+    await dbClient.query(/* sql */ `
+      CREATE INDEX inbox_segment_idx ON ${config.postgresOutboxSchema}.${config.postgresOutboxTable} (segment);
+      CREATE INDEX inbox_created_at_idx ON ${config.postgresOutboxSchema}.${config.postgresOutboxTable} (created_at);
+      CREATE INDEX inbox_processed_at_idx ON ${config.postgresOutboxSchema}.${config.postgresOutboxTable} (processed_at);
+      CREATE INDEX inbox_abandoned_at_idx ON ${config.postgresOutboxSchema}.${config.postgresOutboxTable} (abandoned_at);
+    `);
 
     dbClient.end();
     logger.info(

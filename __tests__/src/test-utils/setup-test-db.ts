@@ -121,6 +121,13 @@ const outboxSetup = async (
       );
       GRANT SELECT, INSERT, UPDATE, DELETE ON public.source_entities TO ${user};
     `);
+  await dbClient.query(/* sql */ `
+    CREATE INDEX ${dbTable}_segment_idx ON ${dbSchema}.${dbTable} (segment);
+    CREATE INDEX ${dbTable}_created_at_idx ON ${dbSchema}.${dbTable} (created_at);
+    CREATE INDEX ${dbTable}_processed_at_idx ON ${dbSchema}.${dbTable} (processed_at);
+    CREATE INDEX ${dbTable}_abandoned_at_idx ON ${dbSchema}.${dbTable} (abandoned_at);
+`);
+
   await dbClient.end();
 };
 
@@ -182,5 +189,11 @@ const inboxSetup = async (
       );
       GRANT SELECT, INSERT, UPDATE, DELETE ON public.received_entities TO ${user};
     `);
+  await dbClient.query(/* sql */ `
+    CREATE INDEX ${dbTable}_segment_idx ON ${dbSchema}.${dbTable} (segment);
+    CREATE INDEX ${dbTable}_created_at_idx ON ${dbSchema}.${dbTable} (created_at);
+    CREATE INDEX ${dbTable}_processed_at_idx ON ${dbSchema}.${dbTable} (processed_at);
+    CREATE INDEX ${dbTable}_abandoned_at_idx ON ${dbSchema}.${dbTable} (abandoned_at);
+`);
   await dbClient.end();
 };
