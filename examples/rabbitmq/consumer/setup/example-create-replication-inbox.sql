@@ -39,12 +39,12 @@ ALTER TABLE inbox.inbox ADD CONSTRAINT inbox_concurrency_check
 
 -- Grant permissions for the handler and listener role 
 
+GRANT USAGE ON SCHEMA inbox TO db_inbox_handler;
+GRANT USAGE ON SCHEMA inbox TO db_inbox_listener;
+
 GRANT SELECT, INSERT, DELETE ON inbox.inbox TO db_inbox_handler;
 GRANT UPDATE (locked_until, processed_at, abandoned_at, started_attempts, finished_attempts) ON inbox.inbox TO db_inbox_handler;
 GRANT SELECT, INSERT, UPDATE, DELETE ON inbox.inbox TO db_inbox_listener;
-
-GRANT USAGE ON SCHEMA inbox TO db_inbox_handler;
-GRANT USAGE ON SCHEMA inbox TO db_inbox_listener;
 
 
 -- Assign replication role and create publication

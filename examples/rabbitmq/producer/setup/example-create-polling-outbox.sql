@@ -39,19 +39,19 @@ ALTER TABLE outbox.outbox ADD CONSTRAINT outbox_concurrency_check
 
 -- Grant permissions for the handler and listener role 
 
+GRANT USAGE ON SCHEMA outbox TO db_outbox_handler;
+GRANT USAGE ON SCHEMA outbox TO db_outbox_listener;
+
 GRANT SELECT, INSERT, DELETE ON outbox.outbox TO db_outbox_handler;
 GRANT UPDATE (locked_until, processed_at, abandoned_at, started_attempts, finished_attempts) ON outbox.outbox TO db_outbox_handler;
 GRANT SELECT, INSERT, UPDATE, DELETE ON outbox.outbox TO db_outbox_listener;
 
-GRANT USAGE ON SCHEMA outbox TO db_outbox_handler;
-GRANT USAGE ON SCHEMA outbox TO db_outbox_listener;
-
 
 -- Create the function to get the next batch of messages from the outbox or inbox table.
 
-DROP FUNCTION IF EXISTS outbox.next_outbox_messages(integer);
+DROP FUNCTION IF EXISTS outbox.next_outbox_messages(integer, integer);
 CREATE OR REPLACE FUNCTION outbox.next_outbox_messages(
-  max_size integer)
+  max_size integer, lock_ms integer)
     RETURNS SETOF outbox.outbox 
     LANGUAGE 'plpgsql'
 
@@ -121,7 +121,7 @@ BEGIN
 
     RETURN QUERY 
       UPDATE outbox.outbox
-        SET locked_until = NOW() + INTERVAL '10 seconds', started_attempts = started_attempts + 1
+        SET locked_until = NOW() + (lock_ms || ' milliseconds')::INTERVAL, started_attempts = started_attempts + 1
         WHERE ID = ANY(ids)
         RETURNING *;
 

@@ -39,19 +39,19 @@ ALTER TABLE inbox.inbox ADD CONSTRAINT inbox_concurrency_check
 
 -- Grant permissions for the handler and listener role 
 
+GRANT USAGE ON SCHEMA inbox TO db_inbox_handler;
+GRANT USAGE ON SCHEMA inbox TO db_inbox_listener;
+
 GRANT SELECT, INSERT, DELETE ON inbox.inbox TO db_inbox_handler;
 GRANT UPDATE (locked_until, processed_at, abandoned_at, started_attempts, finished_attempts) ON inbox.inbox TO db_inbox_handler;
 GRANT SELECT, INSERT, UPDATE, DELETE ON inbox.inbox TO db_inbox_listener;
 
-GRANT USAGE ON SCHEMA inbox TO db_inbox_handler;
-GRANT USAGE ON SCHEMA inbox TO db_inbox_listener;
-
 
 -- Create the function to get the next batch of messages from the outbox or inbox table.
 
-DROP FUNCTION IF EXISTS inbox.next_inbox_messages(integer);
+DROP FUNCTION IF EXISTS inbox.next_inbox_messages(integer, integer);
 CREATE OR REPLACE FUNCTION inbox.next_inbox_messages(
-  max_size integer)
+  max_size integer, lock_ms integer)
     RETURNS SETOF inbox.inbox 
     LANGUAGE 'plpgsql'
 
@@ -121,7 +121,7 @@ BEGIN
 
     RETURN QUERY 
       UPDATE inbox.inbox
-        SET locked_until = NOW() + INTERVAL '10 seconds', started_attempts = started_attempts + 1
+        SET locked_until = NOW() + (lock_ms || ' milliseconds')::INTERVAL, started_attempts = started_attempts + 1
         WHERE ID = ANY(ids)
         RETURNING *;
 

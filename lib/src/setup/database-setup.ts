@@ -104,9 +104,9 @@ SELECT pg_create_logical_replication_slot('${settings.postgresSlot}', 'pgoutput'
 const createPollingFunction = ({ settings }: PollingConfig): string => {
   const schema = settings.nextMessagesFunctionSchema ?? settings.dbSchema;
   return /* sql */ `
-DROP FUNCTION IF EXISTS ${schema}.${settings.nextMessagesFunctionName}(integer);
+DROP FUNCTION IF EXISTS ${schema}.${settings.nextMessagesFunctionName}(integer, integer);
 CREATE OR REPLACE FUNCTION ${schema}.${settings.nextMessagesFunctionName}(
-  max_size integer)
+  max_size integer, lock_ms integer)
     RETURNS SETOF ${settings.dbSchema}.${settings.dbTable} 
     LANGUAGE 'plpgsql'
 
@@ -176,7 +176,7 @@ BEGIN
 
     RETURN QUERY 
       UPDATE ${settings.dbSchema}.${settings.dbTable}
-        SET locked_until = NOW() + INTERVAL '10 seconds', started_attempts = started_attempts + 1
+        SET locked_until = NOW() + (lock_ms || ' milliseconds')::INTERVAL, started_attempts = started_attempts + 1
         WHERE ID = ANY(ids)
         RETURNING *;
 

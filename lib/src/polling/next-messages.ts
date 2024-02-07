@@ -20,16 +20,19 @@ interface Queryable {
  * @returns A promise that resolves to the query result object.
  */
 export const getNextInboxMessages = async (
-  maxMessages: number, // TODO: make the locked until time increment an input parameter?
+  maxMessages: number,
   client: Queryable,
   settings: PollingListenerConfig,
   logger: TransactionalLogger,
 ): Promise<StoredTransactionalMessage[]> => {
+  const schema = settings.nextMessagesFunctionSchema ?? settings.dbSchema;
+  const func = settings.nextMessagesFunctionName;
+  const lock = settings.nextMessagesLockMs ?? 5000;
+
   const messagesResult = await client.query(
-    /* sql */ `SELECT * FROM ${
-      settings.nextMessagesFunctionSchema ?? settings.dbSchema
-    }.${settings.nextMessagesFunctionName}(${maxMessages});`,
+    /* sql */ `SELECT * FROM ${schema}.${func}(${maxMessages}, ${lock});`,
   );
+
   logger.debug(
     messagesResult.rows.map((m) => m.id),
     `Found ${messagesResult.rowCount}`,

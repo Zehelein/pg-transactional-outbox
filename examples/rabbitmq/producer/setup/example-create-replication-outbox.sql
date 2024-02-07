@@ -39,12 +39,12 @@ ALTER TABLE outbox.outbox ADD CONSTRAINT outbox_concurrency_check
 
 -- Grant permissions for the handler and listener role 
 
+GRANT USAGE ON SCHEMA outbox TO db_outbox_handler;
+GRANT USAGE ON SCHEMA outbox TO db_outbox_listener;
+
 GRANT SELECT, INSERT, DELETE ON outbox.outbox TO db_outbox_handler;
 GRANT UPDATE (locked_until, processed_at, abandoned_at, started_attempts, finished_attempts) ON outbox.outbox TO db_outbox_handler;
 GRANT SELECT, INSERT, UPDATE, DELETE ON outbox.outbox TO db_outbox_listener;
-
-GRANT USAGE ON SCHEMA outbox TO db_outbox_handler;
-GRANT USAGE ON SCHEMA outbox TO db_outbox_listener;
 
 
 -- Assign replication role and create publication
