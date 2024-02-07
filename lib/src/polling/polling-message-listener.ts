@@ -1,6 +1,6 @@
 import EventEmitter from 'events';
 import { Pool } from 'pg';
-import { ensureExtendedError } from '../common/error';
+import { ExtendedError, ensureExtendedError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { awaitWithTimeout } from '../common/utils';
 import { createErrorHandler } from '../handler/create-error-handler';
@@ -123,7 +123,7 @@ const processBatch = (
   ) => Promise<void>,
   errorHandler: (
     message: StoredTransactionalMessage,
-    error: import('/Users/frank/Projects/pg-transactional-outbox/lib/src/common/error').ExtendedError,
+    error: ExtendedError,
   ) => Promise<boolean>,
   allStrategies: PollingMessageStrategies,
   logger: TransactionalLogger,

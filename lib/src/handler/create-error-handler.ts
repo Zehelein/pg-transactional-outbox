@@ -103,7 +103,8 @@ export const createErrorHandler = (
           bestEffortError,
         );
         logger.warn(e, e.message);
-        // If everything fails do not retry the message to allow continuing with other messages
+        // If everything fails do not retry the message for logical replication to allow continuing with other messages
+        // For polling it is unlikely that `markMessageAbandoned` would work now so just retry the message again is fine
         return false;
       }
     }

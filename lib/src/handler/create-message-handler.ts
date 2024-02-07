@@ -1,8 +1,10 @@
 import EventEmitter from 'events';
+import { ListenerConfig } from '../common/base-config';
 import { TransactionalOutboxInboxError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { executeTransaction } from '../common/utils';
 import { initiateMessageProcessing } from '../message/initiate-message-processing';
+import { markMessageAbandoned } from '../message/mark-message-abandoned';
 import { markMessageCompleted } from '../message/mark-message-completed';
 import { startedAttemptsIncrement } from '../message/started-attempts-increment';
 import { StoredTransactionalMessage } from '../message/transactional-message';
@@ -66,6 +68,7 @@ export const createMessageHandler = (
             new TransactionalOutboxInboxError(msg, 'POISONOUS_MESSAGE'),
             msg,
           );
+          await abandonPoisonousMessage(message, strategies, config);
           return;
         }
       }
@@ -114,6 +117,25 @@ const applyReplicationPoisonousMessageProtection = async (
   );
 };
 
+/**
+ * Mark the message as abandoned if it is found to be (likely) a poisonous message
+ */
+const abandonPoisonousMessage = async (
+  message: StoredTransactionalMessage,
+  strategies: HandlerStrategies,
+  config: ListenerConfig,
+) => {
+  const transactionLevel =
+    strategies.messageProcessingTransactionLevelStrategy(message);
+  return await executeTransaction(
+    await strategies.messageProcessingDbClientStrategy.getClient(message),
+    async (client) => {
+      await markMessageAbandoned(message, client, config);
+    },
+    transactionLevel,
+  );
+};
+
 /** Lock the message and execute the handler (if there is any) and mark the message as completed */
 const processMessage = async (
   message: StoredTransactionalMessage,
@@ -128,8 +150,10 @@ const processMessage = async (
   await executeTransaction(
     await strategies.messageProcessingDbClientStrategy.getClient(message),
     async (client) => {
+      let timedOut = false;
       if (handler) {
         cancellation.on('timeout', async () => {
+          timedOut = true;
           await client.query('ROLLBACK');
           client.release();
         });
@@ -155,11 +179,14 @@ const processMessage = async (
             message,
             `The received ${config.outboxOrInbox} message should not be retried`,
           );
+          await markMessageAbandoned(message, client, config);
           return;
         }
         await handler.handle(message, client);
       }
-      await markMessageCompleted(message, client, config);
+      if (!timedOut) {
+        await markMessageCompleted(message, client, config);
+      }
     },
     transactionLevel,
   );

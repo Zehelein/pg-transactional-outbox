@@ -24,7 +24,7 @@ import { ReplicationMessageStrategies } from './replication-strategies';
 type MessageIdType =
   | 'not_processed_id'
   | 'processed_id'
-  | 'attempts_exceeded'
+  | 'last_attempt'
   | 'poisonous_message_exceeded';
 
 const isDebugMode = (): boolean => inspector.url() !== undefined;
@@ -92,7 +92,7 @@ const sendReplicationChunk = (id: MessageIdType) => {
     case 'not_processed_id':
       data[25] = 1;
       break;
-    case 'attempts_exceeded':
+    case 'last_attempt':
       data[25] = 2;
       break;
     case 'poisonous_message_exceeded':
@@ -171,7 +171,7 @@ const storedDbMessages = [
     abandoned_at: null,
   },
   {
-    id: 'attempts_exceeded' as MessageIdType,
+    id: 'last_attempt' as MessageIdType,
     aggregate_type,
     message_type,
     aggregate_id: 'test_aggregate_id',
@@ -231,7 +231,7 @@ const messageByFlag = (buffer: Buffer) => {
     case 1:
       return storedMessageById('not_processed_id');
     case 2:
-      return storedMessageById('attempts_exceeded');
+      return storedMessageById('last_attempt');
     case 3:
       return storedMessageById('poisonous_message_exceeded');
   }
@@ -330,6 +330,13 @@ describe('Replication message listener unit tests - initializeReplicationMessage
                 ]
               : [],
           };
+        } else if (
+          sql.includes(
+            'UPDATE test_schema.test_table SET abandoned_at = NOW(), finished_attempts = finished_attempts + 1 WHERE id = $1;',
+          )
+        ) {
+          // markMessageAbandoned
+          return { rowCount: 0 };
         } else if (sql === 'ROLLBACK') {
           return { rowCount: 0 };
         } else {
@@ -833,7 +840,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     // Arrange
     const unusedMessageHandler = jest.fn(() => Promise.resolve());
     const message: StoredTransactionalMessage = {
-      id: 'attempts_exceeded',
+      id: 'last_attempt',
       aggregateType: aggregate_type,
       messageType: message_type,
       aggregateId: 'test_aggregate_id',
@@ -867,7 +874,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     );
 
     // Act
-    sendReplicationChunk('attempts_exceeded');
+    sendReplicationChunk('last_attempt');
     await continueEventLoop();
 
     // Assert
@@ -905,7 +912,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     );
 
     // Act
-    sendReplicationChunk('attempts_exceeded');
+    sendReplicationChunk('last_attempt');
     await continueEventLoop();
 
     // Assert
