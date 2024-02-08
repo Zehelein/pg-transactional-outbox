@@ -6,11 +6,7 @@ dotenv.config({ path: path.join(__dirname, '../.env'), override: true });
 // eslint-disable-next-line prettier/prettier
 import fs from 'node:fs/promises';
 import { DatabaseSetupExporter } from 'pg-transactional-outbox';
-import {
-  getConfig,
-  getPollingOutboxConfig,
-  getReplicationOutboxConfig,
-} from '../src/config';
+import { getConfig, getDatabaseSetupConfig } from '../src/config';
 import { getLogger } from '../src/logger';
 
 const logger = getLogger();
@@ -22,15 +18,14 @@ const { createReplicationScript, createPollingScript } = DatabaseSetupExporter;
       'Creating SQL setup scripts for the replication or polling based transactional outbox using the .env file',
     );
     const config = getConfig();
+    const setupConfig = getDatabaseSetupConfig(config);
 
-    const replicationConfig = getReplicationOutboxConfig(config);
-    const replicationSql = createReplicationScript(replicationConfig);
+    const replicationSql = createReplicationScript(setupConfig);
     const replicationFile = './setup/example-create-replication-outbox.sql';
     await fs.writeFile(replicationFile, replicationSql);
     logger.info(`Created the ${replicationFile}`);
 
-    const pollingConfig = getPollingOutboxConfig(config);
-    const pollingSql = createPollingScript(pollingConfig);
+    const pollingSql = createPollingScript(setupConfig);
     const pollingFile = './setup/example-create-polling-outbox.sql';
     await fs.writeFile(pollingFile, pollingSql);
     logger.info(`Created the ${pollingFile}`);

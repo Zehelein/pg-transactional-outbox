@@ -1,16 +1,16 @@
 -- Create script for the inbox database with replication
 
--- Drop and create the handler and listener roles
+-- Manually create the roles if they do not exist:
 
-DROP OWNED BY db_outbox_listener;
-DROP ROLE IF EXISTS db_outbox_listener;
-CREATE ROLE db_outbox_listener WITH LOGIN PASSWORD 'db_outbox_listener_password';  
-GRANT CONNECT ON DATABASE pg_transactional_outbox TO db_outbox_listener;  
+-- DROP OWNED BY db_outbox_listener;
+-- DROP ROLE IF EXISTS db_outbox_listener;
+-- CREATE ROLE db_outbox_listener WITH LOGIN PASSWORD 'secret-password';  
+-- GRANT CONNECT ON DATABASE pg_transactional_outbox TO db_outbox_listener;  
 
-DROP OWNED BY db_outbox_handler;
-DROP ROLE IF EXISTS db_outbox_handler;
-CREATE ROLE db_outbox_handler WITH LOGIN PASSWORD 'db_outbox_handler_password';
-GRANT CONNECT ON DATABASE pg_transactional_outbox TO db_outbox_handler;  
+-- DROP OWNED BY db_outbox_handler;
+-- DROP ROLE IF EXISTS db_outbox_handler;
+-- CREATE ROLE db_outbox_handler WITH LOGIN PASSWORD 'secret-password';
+-- GRANT CONNECT ON DATABASE pg_transactional_outbox TO db_outbox_handler;  
 
 
 -- Drop and create the inbox table and ensure the schema exists

@@ -6,21 +6,15 @@ dotenv.config({ path: path.join(__dirname, '../.env'), override: true });
 // eslint-disable-next-line prettier/prettier
 import { Client } from 'pg';
 import {
+  DatabasePollingSetupConfig,
+  DatabaseReplicationSetupConfig,
   DatabaseSetup,
-  PollingConfig,
-  ReplicationConfig,
 } from 'pg-transactional-outbox';
-import {
-  Config,
-  getConfig,
-  getPollingInboxConfig,
-  getReplicationInboxConfig,
-} from '../src/config';
+import { Config, getConfig, getDatabaseSetupConfig } from '../src/config';
 import { getLogger } from '../src/logger';
 
 const logger = getLogger();
 const {
-  dropAndCreateHandlerAndListenerRoles,
   dropAndCreateTable,
   grantPermissions,
   setupReplicationCore,
@@ -30,10 +24,7 @@ const {
 } = DatabaseSetup;
 
 /** Setup on the PostgreSQL server level (and not within a DB) */
-const dbmsSetup = async (
-  config: Config,
-  replicationConfig: ReplicationConfig,
-): Promise<void> => {
+const dbmsSetup = async (config: Config): Promise<void> => {
   const rootClient = new Client({
     host: config.postgresHost,
     port: config.postgresPort,
@@ -59,10 +50,18 @@ const dbmsSetup = async (
       CREATE DATABASE ${config.postgresDatabase};
     `);
 
-    logger.debug('Create the database inbox listener and handler role');
-    await rootClient.query(
-      dropAndCreateHandlerAndListenerRoles(replicationConfig),
-    );
+    logger.debug('Create the database inbox role');
+    await rootClient.query(/* sql */ `
+      DROP ROLE IF EXISTS ${config.postgresInboxListenerRole};
+      CREATE ROLE ${config.postgresInboxListenerRole} WITH REPLICATION LOGIN PASSWORD '${config.postgresInboxListenerRolePassword}';
+    `);
+
+    logger.debug('Create the database login role');
+    await rootClient.query(/* sql */ `
+      DROP ROLE IF EXISTS ${config.postgresHandlerRole};
+      CREATE ROLE ${config.postgresHandlerRole} WITH LOGIN PASSWORD '${config.postgresHandlerRolePassword}';
+      GRANT CONNECT ON DATABASE ${config.postgresDatabase} TO ${config.postgresHandlerRole};
+    `);
 
     rootClient.end();
     logger.info('Created the database and the inbox and handler roles');
@@ -75,34 +74,35 @@ const dbmsSetup = async (
 /** All the changes related to the inbox implementation in the database */
 const inboxSetup = async (
   config: Config,
-  replicationConfig: ReplicationConfig,
-  pollingConfig: PollingConfig,
+  setupConfig: DatabaseReplicationSetupConfig & DatabasePollingSetupConfig,
 ): Promise<void> => {
   const dbClient = new Client({
-    ...replicationConfig.dbListenerConfig,
+    host: config.postgresHost,
+    port: config.postgresPort,
+    database: config.postgresDatabase,
     user: process.env.POSTGRESQL_ROOT_ROLE,
     password: process.env.POSTGRESQL_ROOT_ROLE_PASSWORD,
   });
   dbClient.connect();
   try {
     logger.debug('Create the inbox table and make sure the DB schema exists');
-    await dbClient.query(dropAndCreateTable(replicationConfig));
+    await dbClient.query(dropAndCreateTable(setupConfig));
 
     logger.debug(
       'Grant table and scheme permissions to the handler and listener role',
     );
-    await dbClient.query(grantPermissions(replicationConfig));
+    await dbClient.query(grantPermissions(setupConfig));
 
     // Normally you would only create replication OR polling functionality
     logger.debug('Create the inbox publication and replication slot');
-    await dbClient.query(setupReplicationCore(replicationConfig));
-    await dbClient.query(setupReplicationSlot(replicationConfig));
+    await dbClient.query(setupReplicationCore(setupConfig));
+    await dbClient.query(setupReplicationSlot(setupConfig));
 
     logger.debug('Create the inbox polling function');
-    await dbClient.query(createPollingFunction(pollingConfig));
+    await dbClient.query(createPollingFunction(setupConfig));
 
     logger.debug('Create polling indexes');
-    await dbClient.query(setupPollingIndexes(pollingConfig));
+    await dbClient.query(setupPollingIndexes(setupConfig));
 
     dbClient.end();
     logger.info(
@@ -154,10 +154,9 @@ const testDataSetup = async (config: Config): Promise<void> => {
 (async () => {
   try {
     const config = getConfig();
-    const replicationConfig = getReplicationInboxConfig(config);
-    const pollingConfig = getPollingInboxConfig(config);
-    await dbmsSetup(config, replicationConfig);
-    await inboxSetup(config, replicationConfig, pollingConfig);
+    const setupConfig = getDatabaseSetupConfig(config);
+    await dbmsSetup(config);
+    await inboxSetup(config, setupConfig);
     await testDataSetup(config);
   } catch (err) {
     logger.error(err);

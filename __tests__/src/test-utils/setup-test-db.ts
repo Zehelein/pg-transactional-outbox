@@ -1,24 +1,59 @@
 import { Client, ClientConfig } from 'pg';
-import { ReplicationConfig } from 'pg-transactional-outbox';
+import {
+  DatabasePollingSetupConfig,
+  DatabaseReplicationSetupConfig,
+  DatabaseSetup,
+  PollingConfig,
+  ReplicationConfig,
+} from 'pg-transactional-outbox';
 import { TestConfigs } from './configs';
 
-export const setupTestDb = async ({
-  handlerConnection: handlerConnection,
-  outboxConfig,
-  inboxConfig,
-}: TestConfigs): Promise<void> => {
+const {
+  dropAndCreateTable,
+  grantPermissions,
+  setupReplicationCore,
+  setupReplicationSlot,
+  createPollingFunction,
+  setupPollingIndexes,
+} = DatabaseSetup;
+
+export const getDatabaseSetupConfig = ({
+  dbListenerConfig,
+  settings,
+  dbHandlerConfig,
+}: ReplicationConfig & PollingConfig): DatabaseReplicationSetupConfig &
+  DatabasePollingSetupConfig => {
+  return {
+    outboxOrInbox: 'outbox',
+    database: dbListenerConfig.database!,
+    schema: settings.dbSchema,
+    table: settings.dbTable,
+    listenerRole: dbListenerConfig.user!,
+    handlerRole: dbHandlerConfig?.user,
+    // Replication
+    replicationSlot: settings.postgresSlot,
+    publication: settings.postgresPub,
+    // Polling
+    nextMessagesName: settings.nextMessagesFunctionName,
+    nextMessagesSchema: settings.nextMessagesFunctionSchema,
+  };
+};
+
+export const setupTestDb = async (configs: TestConfigs): Promise<void> => {
+  const { handlerConnection, outboxConfig, inboxConfig } = configs;
   await dbmsSetup(handlerConnection, outboxConfig, inboxConfig);
-  await outboxSetup(handlerConnection, outboxConfig);
-  await inboxSetup(handlerConnection, inboxConfig);
+  await resetReplication(configs);
 };
 
 export const resetReplication = async ({
-  handlerConnection: handlerConnection,
+  handlerConnection,
   outboxConfig,
   inboxConfig,
 }: TestConfigs): Promise<void> => {
-  await outboxSetup(handlerConnection, outboxConfig);
-  await inboxSetup(handlerConnection, inboxConfig);
+  await trxSetup(handlerConnection, getDatabaseSetupConfig(outboxConfig));
+  await trxSetup(handlerConnection, getDatabaseSetupConfig(inboxConfig));
+  await outboxSetup(handlerConnection);
+  await inboxSetup(handlerConnection);
 };
 
 /** Setup on the PostgreSQL server level (and not within a DB) */
@@ -64,11 +99,9 @@ const dbmsSetup = async (
   await rootClient.end();
 };
 
-const outboxSetup = async (
+const trxSetup = async (
   defaultHandlerConnection: ClientConfig,
-  {
-    settings: { dbSchema, dbTable, postgresPub, postgresSlot },
-  }: ReplicationConfig,
+  setupConfig: DatabaseReplicationSetupConfig & DatabasePollingSetupConfig,
 ): Promise<void> => {
   const { host, port, database, user } = defaultHandlerConnection;
   const dbClient = new Client({
@@ -80,39 +113,28 @@ const outboxSetup = async (
   });
   await dbClient.connect();
 
-  await dbClient.query(/* sql */ `
-      CREATE SCHEMA IF NOT EXISTS ${dbSchema};
-      GRANT USAGE ON SCHEMA ${dbSchema} TO ${user};
-    `);
-  await dbClient.query(/* sql */ `
-      DROP TABLE IF EXISTS ${dbSchema}.${dbTable} CASCADE;
-      CREATE TABLE ${dbSchema}.${dbTable} (
-        id uuid PRIMARY KEY,
-        aggregate_type TEXT NOT NULL,
-        aggregate_id TEXT NOT NULL,
-        message_type TEXT NOT NULL,
-        segment TEXT,
-        concurrency TEXT NOT NULL DEFAULT 'sequential',
-        payload JSONB NOT NULL,
-        metadata JSONB,
-        locked_until TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0),
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        processed_at TIMESTAMPTZ,
-        abandoned_at TIMESTAMPTZ,
-        started_attempts smallint NOT NULL DEFAULT 0,
-        finished_attempts smallint NOT NULL DEFAULT 0
-      );
-      ALTER TABLE ${dbSchema}.${dbTable} ADD CONSTRAINT outbox_concurrency_check
-        CHECK (concurrency IN ('sequential', 'parallel'));
-      GRANT SELECT, INSERT, UPDATE, DELETE ON ${dbSchema}.${dbTable} TO ${user};
-    `);
-  await dbClient.query(/* sql */ `
-      DROP PUBLICATION IF EXISTS ${postgresPub};
-      CREATE PUBLICATION ${postgresPub} FOR TABLE ${dbSchema}.${dbTable} WITH (publish = 'insert')
-    `);
-  await dbClient.query(/* sql */ `
-      select pg_create_logical_replication_slot('${postgresSlot}', 'pgoutput');
-    `);
+  await dbClient.query(dropAndCreateTable(setupConfig));
+  await dbClient.query(grantPermissions(setupConfig));
+  await dbClient.query(setupReplicationCore(setupConfig));
+  await dbClient.query(setupReplicationSlot(setupConfig));
+  await dbClient.query(createPollingFunction(setupConfig));
+  await dbClient.query(setupPollingIndexes(setupConfig));
+
+  await dbClient.end();
+};
+
+const outboxSetup = async (
+  defaultHandlerConnection: ClientConfig,
+): Promise<void> => {
+  const { host, port, database, user } = defaultHandlerConnection;
+  const dbClient = new Client({
+    host,
+    port,
+    database,
+    user: 'postgres',
+    password: 'postgres',
+  });
+  await dbClient.connect();
   await dbClient.query(/* sql */ `
       DROP TABLE IF EXISTS public.source_entities CASCADE;
       CREATE TABLE IF NOT EXISTS public.source_entities (
@@ -121,12 +143,6 @@ const outboxSetup = async (
       );
       GRANT SELECT, INSERT, UPDATE, DELETE ON public.source_entities TO ${user};
     `);
-  await dbClient.query(/* sql */ `
-    CREATE INDEX ${dbTable}_segment_idx ON ${dbSchema}.${dbTable} (segment);
-    CREATE INDEX ${dbTable}_created_at_idx ON ${dbSchema}.${dbTable} (created_at);
-    CREATE INDEX ${dbTable}_processed_at_idx ON ${dbSchema}.${dbTable} (processed_at);
-    CREATE INDEX ${dbTable}_abandoned_at_idx ON ${dbSchema}.${dbTable} (abandoned_at);
-`);
 
   await dbClient.end();
 };
@@ -134,9 +150,6 @@ const outboxSetup = async (
 /** All the changes related to the inbox implementation in the database */
 const inboxSetup = async (
   defaultHandlerConnection: ClientConfig,
-  {
-    settings: { dbSchema, dbTable, postgresPub, postgresSlot },
-  }: ReplicationConfig,
 ): Promise<void> => {
   const { host, port, database, user } = defaultHandlerConnection;
   const dbClient = new Client({
@@ -149,39 +162,6 @@ const inboxSetup = async (
   await dbClient.connect();
 
   await dbClient.query(/* sql */ `
-      CREATE SCHEMA IF NOT EXISTS ${dbSchema};
-      GRANT USAGE ON SCHEMA ${dbSchema} TO ${user} ;
-    `);
-  await dbClient.query(/* sql */ `
-      DROP TABLE IF EXISTS ${dbSchema}.${dbTable} CASCADE;
-      CREATE TABLE ${dbSchema}.${dbTable} (
-        id uuid PRIMARY KEY,
-        aggregate_type TEXT NOT NULL,
-        aggregate_id TEXT NOT NULL,
-        message_type TEXT NOT NULL,
-        segment TEXT,
-        concurrency TEXT NOT NULL DEFAULT 'sequential',
-        payload JSONB NOT NULL,
-        metadata JSONB,
-        locked_until TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0),
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        processed_at TIMESTAMPTZ,
-        abandoned_at TIMESTAMPTZ,
-        started_attempts smallint NOT NULL DEFAULT 0,
-        finished_attempts smallint NOT NULL DEFAULT 0
-      );
-      ALTER TABLE ${dbSchema}.${dbTable} ADD CONSTRAINT inbox_concurrency_check
-        CHECK (concurrency IN ('sequential', 'parallel'));      
-      GRANT SELECT, INSERT, UPDATE, DELETE ON ${dbSchema}.${dbTable} TO ${user};
-    `);
-  await dbClient.query(/* sql */ `
-      DROP PUBLICATION IF EXISTS ${postgresPub};
-      CREATE PUBLICATION ${postgresPub} FOR TABLE ${dbSchema}.${dbTable} WITH (publish = 'insert')
-    `);
-  await dbClient.query(/* sql */ `
-      select pg_create_logical_replication_slot('${postgresSlot}', 'pgoutput');
-    `);
-  await dbClient.query(/* sql */ `
       DROP TABLE IF EXISTS public.received_entities CASCADE;
       CREATE TABLE IF NOT EXISTS public.received_entities (
         id uuid PRIMARY KEY,
@@ -189,11 +169,6 @@ const inboxSetup = async (
       );
       GRANT SELECT, INSERT, UPDATE, DELETE ON public.received_entities TO ${user};
     `);
-  await dbClient.query(/* sql */ `
-    CREATE INDEX ${dbTable}_segment_idx ON ${dbSchema}.${dbTable} (segment);
-    CREATE INDEX ${dbTable}_created_at_idx ON ${dbSchema}.${dbTable} (created_at);
-    CREATE INDEX ${dbTable}_processed_at_idx ON ${dbSchema}.${dbTable} (processed_at);
-    CREATE INDEX ${dbTable}_abandoned_at_idx ON ${dbSchema}.${dbTable} (abandoned_at);
-`);
+
   await dbClient.end();
 };

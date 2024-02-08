@@ -1,6 +1,8 @@
-import { PollingConfig } from '../polling/config';
-import { ReplicationConfig } from '../replication/config';
-import { DatabaseSetup } from './database-setup';
+import {
+  DatabasePollingSetupConfig,
+  DatabaseReplicationSetupConfig,
+  DatabaseSetup,
+} from './database-setup';
 const {
   dropAndCreateHandlerAndListenerRoles,
   dropAndCreateTable,
@@ -11,10 +13,12 @@ const {
   setupPollingIndexes,
 } = DatabaseSetup;
 
-const createReplicationScript = (config: ReplicationConfig): string => {
+const createReplicationScript = (
+  config: DatabaseReplicationSetupConfig,
+): string => {
   return `-- Create script for the inbox database with replication
 
--- Drop and create the handler and listener roles
+-- Manually create the roles if they do not exist:
 ${dropAndCreateHandlerAndListenerRoles(config)}
 
 -- Drop and create the inbox table and ensure the schema exists
@@ -31,10 +35,10 @@ ${setupReplicationSlot(config)}
 `;
 };
 
-const createPollingScript = (config: PollingConfig): string => {
+const createPollingScript = (config: DatabasePollingSetupConfig): string => {
   return `-- Create script for the inbox database with polling
 
--- Drop and create the handler and listener roles
+-- Manually create the roles if they do not exist:
 ${dropAndCreateHandlerAndListenerRoles(config)}
 
 -- Drop and create the inbox table and ensure the schema exists

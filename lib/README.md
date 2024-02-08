@@ -236,11 +236,11 @@ implementation_
 
 ## Using database polling
 
-The second approach handle messages when they were added to the transactional
+The second approach handles messages when they are added to the transactional
 inbox or outbox is to use database polling. Your node.js application will query
-those tables on a regular interval to see if new messages arrived. When
+those tables at regular intervals to see if new messages arrived. When
 unprocessed outbox messages are found they can be sent via e.g. a message
-broker. For inbox messages a message handler will be executed to handle the
+broker. For inbox messages, a message handler will be executed to handle the
 message.
 
 This setup is purely based on the database and does not use logical replication:
@@ -282,16 +282,15 @@ up a PostgreSQL server with these default values (and a RabbitMQ instance for
 running the examples).
 
 This library uses the standard PostgreSQL logical decoding plugin `pgoutput`.
-This plugin is included directly in PostgreSQL since version 9.4. Other
-alternatives would be wal2json or decoding-json but those are not used in this
-library.
+This plugin is directly part of PostgreSQL since version 9.4. Other alternatives
+would be `wal2json` or `decoding-json` but those are not used in this library.
 
 ## Database setup
 
 To support the transactional outbox and inbox implementation you need to create
 an outbox and an inbox table in your PostgreSQL database. You should create two
 database roles: one for the message handler and one for the message listener.
-You must grant those roles the permission to the tables.
+You must grant those roles permission to the tables.
 
 The inbox and the outbox tables and the corresponding structure are identical.
 They can reside in the same database if your service uses both the outbox and
@@ -299,25 +298,29 @@ the inbox pattern which is often the case for distributed services.
 
 You can manually create the required database structure or (suggested) use this
 library to help you with this task. It offers you a `DatabaseSetup` helper to
-create the required structure from code base on the configuration settings that
-you provide. Both the inbox and outbox structure is created in the same way so
-you call the same functions but with different configurations.
+create the required structure from your codebase based on the configuration
+settings that you provide. Both the inbox and outbox structure are created in
+the same way so you call the same functions but with different configurations.
 
-You can find example usage in the following two files. Please notice that they
-create both the logical replication AND the polling based structure as an
-example. In your code you should only create one of the two.
+You can find the example usage in the following two files. Please notice that
+they create both the logical replication AND the polling-based structure as an
+example. In your code, you should only create one of the two.
 
 - `examples/rabbitmq/producer/setup/init-db.ts`
 - `examples/rabbitmq/consumer/setup/init-db.ts`
 
 You can also use the `DatabaseSetupExporter` which writes an SQL script for you
-that you can execute or include into your application database migration files.
-You can create the SQL scripts with the following code (please check the
-RabbitMQ example on how to create the configurations).
+that you can execute or include in your application database migration files.
+You can create the SQL scripts with the following code:
 
 ```TypeScript
 import fs from 'node:fs/promises';
-import { DatabaseSetupExporter } from 'pg-transactional-outbox';
+import {
+  DatabasePollingSetupConfig,
+  DatabaseReplicationSetupConfig,
+  DatabaseSetupConfig,
+  DatabaseSetupExporter,
+} from 'pg-transactional-outbox';
 const { createReplicationScript, createPollingScript } = DatabaseSetupExporter;
 
 (async () => {
@@ -326,33 +329,62 @@ const { createReplicationScript, createPollingScript } = DatabaseSetupExporter;
       'Creating SQL setup scripts for the replication or polling based approach',
     );
 
+    const baseConfig: Omit<DatabaseSetupConfig, 'outboxOrInbox' | 'table'> = {
+      database: 'my_database',
+      schema: 'trx',
+      listenerRole: 'my_transactional_listener',
+      handlerRole: 'my_transactional_handler',
+    };
+
     // Use those two sections to create SQL scripts for the replication based approach
-    const inboxReplConfig = {/* see RabbitMQ example project */};
+    const inboxReplConfig: DatabaseReplicationSetupConfig = {
+      ...baseConfig,
+      outboxOrInbox: 'inbox',
+      table: 'inbox',
+      publication: 'my_inbox_publication',
+      replicationSlot: 'my_inbox_replication_slot',
+    };
     const inboxReplSql = createReplicationScript(inboxReplConfig);
     const inboxReplFile = './create-inbox-replication.sql';
     await fs.writeFile(inboxReplFile, inboxReplSql);
     console.log(`Created the ${inboxReplFile}`);
 
-    const outboxReplConfig = {/* see RabbitMQ example project */};
+    const outboxReplConfig: DatabaseReplicationSetupConfig = {
+      ...baseConfig,
+      outboxOrInbox: 'outbox',
+      table: 'outbox',
+      publication: 'my_outbox_publication',
+      replicationSlot: 'my_outbox_replication_slot',
+    };
     const outboxReplSql = createReplicationScript(outboxReplConfig);
     const outboxReplFile = './create-outbox-replication.sql';
     await fs.writeFile(outboxReplFile, outboxReplSql);
     console.log(`Created the ${outboxReplFile}`);
 
     // Use those two sections to create SQL scripts for the polling based approach
-    const inboxPollConfig = {/* see RabbitMQ example project */};
+    const inboxPollConfig: DatabasePollingSetupConfig = {
+      ...baseConfig,
+      outboxOrInbox: 'inbox',
+      table: 'inbox',
+      nextMessagesName: 'my_inbox_get_messages',
+    };
     const inboxPollSql = createPollingScript(inboxPollConfig);
     const inboxPollFile = './setup/example-create-polling-inbox.sql';
     await fs.writeFile(inboxPollFile, inboxPollSql);
     console.log(`Created the ${inboxPollFile}`);
 
-    const outboxPollConfig = {/* see RabbitMQ example project */};
+    const outboxPollConfig: DatabasePollingSetupConfig = {
+      ...baseConfig,
+      outboxOrInbox: 'outbox',
+      table: 'outbox',
+      nextMessagesName: 'my_outbox_get_messages',
+    };
     const outboxPollSql = createPollingScript(outboxPollConfig);
     const outboxPollFile = './setup/example-create-polling-outbox.sql';
     await fs.writeFile(outboxPollFile, outboxPollSql);
     console.log(`Created the ${outboxPollFile}`);
   } catch (err) {
-    logger.error(err);
+    console.error(err);
     process.exit(1);
   }
 })();
@@ -373,7 +405,7 @@ business-relevant data.
 
 ### Polling Listener Setup
 
-For the polling approach you could use a single database role but it is still
+For the polling approach, you could use a single database role but it is still
 advised to use two separate database roles. The roles should not have the
 `REPLICATION` permission.
 
@@ -810,10 +842,9 @@ input parameter and calls it to send out messages. Other parameters are the
 fine-tune and customize specific aspects of the inbox listener.
 
 The second option is to use the `initializePollingMessageListener` to use the
-database polling approach to query for unprocessed inbox messages. It uses the
-same handler to send out the message and the same logger. It has a (partly)
-different configuration object and can optionally define also different
-strategies.
+database polling approach to query unprocessed inbox messages. It uses the same
+handler to send out the message and the same logger. It has a (partly) different
+configuration object and can optionally define also different strategies.
 
 ### Message Handler
 
@@ -1018,15 +1049,14 @@ actual logic. You can run the unit tests from the `lib` folder via `yarn test`
 and `yarn test:coverage`.
 
 The `__tests__` folder contains integration tests that test the functionality of
-the outbox and inbox listener implementation. The tests are using the
-`testcontainers` library to start up an actual PostgreSQL server. The tests
-include tests to test the functionality against an actual database and for
-resilience tests where the test container is stopped and restarted to test the
-library against an unreliable database instance. You can simply run the `test`
-script to execute the tests.
+the outbox and inbox listener implementation. The tests use the `testcontainers`
+library to start up an actual PostgreSQL server. They test the functionality
+against an actual database and for resilience tests where the test container is
+stopped and restarted to test the library against an unreliable database
+instance. You can simply run the `test` script to execute the tests.
 
-And you can manually test the implementation using the `examples/rabbitmq`
-producer and consumer implementations. Copy the `.env.template` files as `.env`
-files and adjust these files if needed. Especially the `LISTENER_TYPE` is useful
-to test the replication vs. polling listener approach. To test the two example
+You can manually test the implementation using the `examples/rabbitmq` producer
+and consumer implementations. Copy the `.env.template` files as `.env` files and
+adjust these files if needed. Especially the `LISTENER_TYPE` is useful to test
+the replication vs. polling listener approach. To test the two example
 applications you can use `yarn dev:watch`.

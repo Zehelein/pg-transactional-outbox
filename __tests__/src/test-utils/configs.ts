@@ -1,5 +1,5 @@
 import { ClientConfig } from 'pg';
-import { ReplicationConfig } from 'pg-transactional-outbox';
+import { PollingConfig, ReplicationConfig } from 'pg-transactional-outbox';
 
 // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
 export const getConfigs = (port: number) => {
@@ -10,7 +10,7 @@ export const getConfigs = (port: number) => {
     user: 'db_handler_tests',
     password: 'db_handler_tests_password',
   };
-  const inboxConfig: ReplicationConfig = {
+  const inboxConfig: ReplicationConfig & PollingConfig = {
     outboxOrInbox: 'inbox',
     dbHandlerConfig: handlerConnection,
     dbListenerConfig: {
@@ -21,15 +21,20 @@ export const getConfigs = (port: number) => {
     settings: {
       dbSchema: 'inbox',
       dbTable: 'inbox',
+      maxAttempts: 5,
+      maxPoisonousAttempts: 3,
+      // Replication
       postgresPub: 'pg_transactional_inbox_tests_pub',
       postgresSlot: 'pg_transactional_inbox_tests_slot',
       restartDelay: 1,
-      maxAttempts: 5,
-      maxPoisonousAttempts: 3,
+      // Polling
+      nextMessagesBatchSize: 2,
+      nextMessagesFunctionName: 'next_test_inbox_messages',
+      nextMessagesPollingInterval: 100,
     },
   };
 
-  const outboxConfig: ReplicationConfig = {
+  const outboxConfig: ReplicationConfig & PollingConfig = {
     outboxOrInbox: 'outbox',
     dbHandlerConfig: handlerConnection,
     dbListenerConfig: {
@@ -40,8 +45,15 @@ export const getConfigs = (port: number) => {
     settings: {
       dbSchema: 'outbox',
       dbTable: 'outbox',
+      enablePoisonousMessageProtection: false,
+      enableMaxAttemptsProtection: false,
+      // Replication
       postgresPub: 'pg_transactional_outbox_tests_pub',
       postgresSlot: 'pg_transactional_outbox_tests_slot',
+      // Polling
+      nextMessagesBatchSize: 2,
+      nextMessagesFunctionName: 'next_test_outbox_messages',
+      nextMessagesPollingInterval: 100,
     },
   };
 

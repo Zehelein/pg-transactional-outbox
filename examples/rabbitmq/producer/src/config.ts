@@ -1,4 +1,9 @@
-import { PollingConfig, ReplicationConfig } from 'pg-transactional-outbox';
+import {
+  DatabasePollingSetupConfig,
+  DatabaseReplicationSetupConfig,
+  PollingConfig,
+  ReplicationConfig,
+} from 'pg-transactional-outbox';
 
 /**
  * Parses the environment or provided settings and ensures all the fields are
@@ -134,6 +139,25 @@ export const getPollingOutboxConfig = (config: Config): PollingConfig => {
       nextMessagesFunctionName: config.nextOutboxMessagesFunctionName,
       nextMessagesPollingInterval: 500,
     },
+  };
+};
+
+export const getDatabaseSetupConfig = (
+  config: Config,
+): DatabaseReplicationSetupConfig & DatabasePollingSetupConfig => {
+  return {
+    outboxOrInbox: 'outbox',
+    database: config.postgresDatabase,
+    schema: config.postgresOutboxSchema,
+    table: config.postgresOutboxTable,
+    listenerRole: config.postgresOutboxListenerRole,
+    handlerRole: config.postgresHandlerRole,
+    // Replication
+    replicationSlot: config.postgresOutboxSlot,
+    publication: config.postgresOutboxPub,
+    // Polling
+    nextMessagesName: config.nextOutboxMessagesFunctionName,
+    nextMessagesSchema: config.postgresOutboxSchema,
   };
 };
 
