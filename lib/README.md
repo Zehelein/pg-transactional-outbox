@@ -999,14 +999,6 @@ replication user slot and waits for the configured `restartDelay` (default:
 
 ## Polling listener strategies
 
-### Polling listener scheduling strategy
-
-The `PollingListenerSchedulingStrategy` defines the scheduling strategy how
-often the database should be polled for new messages.
-
-The default strategy `defaultPollingListenerSchedulingStrategy` polls once per
-500ms.
-
 ### Polling listener batch size strategy
 
 The `PollingListenerBatchSizeStrategy` defines the batch size strategy how many

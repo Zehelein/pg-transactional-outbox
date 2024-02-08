@@ -117,3 +117,58 @@ export const getClient = async (
   }
   return client;
 };
+
+/**
+ * Process incoming promises in a pool with a maximum size. When that size is not
+ * reached it tries to fill the processing pool up to the `getBatchSize`
+ * number. It runs in an endless loop until the signal `stopped` variable is set
+ * to true.
+ * @param processingPool The promise items in the pool which are being worked on
+ * @param getNextBatch Get the next items to fill up the pool. Gets the batch size input parameter from the `getBatchSize` parameter
+ * @param getBatchSize Async function that gets the number of batch items that are currently processed
+ * @param signal A signal object to stop the processing. Setting the stopped property to true will stop the loop
+ * @param maxDelayMs The maximum number of milliseconds to wait before checking if new items are there
+ */
+export const processPool = async (
+  processingPool: Set<Promise<void>>,
+  getNextBatch: (batchSize: number) => Promise<Promise<void>[]>,
+  getBatchSize: (currentlyProcessed: number) => Promise<number>,
+  signal: { stopped: boolean },
+  maxDelayMs: number,
+): Promise<void> => {
+  while (!signal.stopped) {
+    // get the dynamic pool size - and one await is needed to allow event loop to continue
+    const poolSize = await getBatchSize(processingPool.size);
+    const diff = poolSize - processingPool.size;
+    if (diff > 0) {
+      const items = await getNextBatch(diff);
+      items.forEach((item) => {
+        processingPool.add(item);
+        item.then(() => {
+          processingPool.delete(item);
+        });
+      });
+      const awaitItems = Array.from(processingPool);
+      if (awaitItems.length < poolSize) {
+        // If there are not enough items then try again at least after this duration
+        awaitItems.push(sleep(maxDelayMs));
+      }
+      await Promise.race(awaitItems);
+    }
+  }
+};
+
+/**
+ * Execute a function in a safe way e.g. pool.end where multiple callers could
+ * have called it where the second one will throw an error.
+ * @param it the function to execute
+ */
+export const justDoIt = async (
+  it: (() => Promise<void>) | (() => void),
+): Promise<void> => {
+  try {
+    await it();
+  } catch {
+    // noop
+  }
+};

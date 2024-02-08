@@ -2,7 +2,7 @@ import EventEmitter from 'events';
 import { ListenerConfig } from '../common/base-config';
 import { TransactionalOutboxInboxError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
-import { executeTransaction } from '../common/utils';
+import { executeTransaction, justDoIt } from '../common/utils';
 import { initiateMessageProcessing } from '../message/initiate-message-processing';
 import { markMessageAbandoned } from '../message/mark-message-abandoned';
 import { markMessageCompleted } from '../message/mark-message-completed';
@@ -155,7 +155,7 @@ const processMessage = async (
         cancellation.on('timeout', async () => {
           timedOut = true;
           await client.query('ROLLBACK');
-          client.release();
+          await justDoIt(client.release);
         });
 
         // lock the message from further processing

@@ -11,8 +11,10 @@ import { messageHandlerSelector } from './message-handler-selector';
 import { TransactionalMessageHandler } from './transactional-message-handler';
 
 /**
- * Create the error handling orchestration logic to add retry attempts logic
- * and executes the message handler `handleError` function if it exists.
+ * Create a function to execute the error handling orchestration logic for one
+ * message. It executes the retry attempts logic and executes the message
+ * handlers `handleError` function if it exists.
+ * That executor function will not throw an error.
  */
 export const createErrorHandler = (
   messageHandlers: TransactionalMessageHandler[] | GeneralMessageHandler,
@@ -30,6 +32,7 @@ export const createErrorHandler = (
    * resolve the error.
    * @param message: the stored message that failed to be processed
    * @param error: the error that was thrown while processing the message
+   * @returns A boolean value if the message should be retried again in the context of the replication listener
    */
   return async (
     message: StoredTransactionalMessage,

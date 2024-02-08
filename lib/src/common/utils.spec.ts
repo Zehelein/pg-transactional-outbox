@@ -6,6 +6,8 @@ import {
   awaitWithTimeout,
   executeTransaction,
   getClient,
+  justDoIt,
+  processPool,
   sleep,
 } from './utils';
 
@@ -241,6 +243,66 @@ describe('Utils Unit Tests', () => {
       errorCallback?.(error);
       expect(logs[0].args[0]).toBeInstanceOf(Error);
       expect(logs[0].args[1]).toBe('PostgreSQL client error');
+    });
+  });
+
+  describe('processPool', () => {
+    it('should process the items in the pool and get fresh ones when the pool items are finished', async () => {
+      const processingPool = new Set<Promise<void>>();
+      let i = 1;
+      const getItem = (ms: number) => {
+        const item = sleep(ms);
+        (item as any).name = `item${i++} - ${ms}ms`;
+        return item;
+      };
+      let calls = 0;
+      const getNextBatch = jest.fn(async () => {
+        switch (calls++) {
+          case 0: //                              started  | finished after
+            return [getItem(50), getItem(50)]; // 10ms     | 60ms
+          case 1:
+            return [getItem(150)]; //             70ms     | 220ms (this item and a 100ms sleep)
+          case 2:
+            return [getItem(40)]; //              180ms    | 220mx (100ms sleep is done)
+          case 3:
+            return [getItem(50), getItem(50)]; // 230ms    | 280ms
+          case 4:
+            return []; //                         290ms    | 400ms (100ms sleep)
+          case 5:
+            return [getItem(50), getItem(50)]; // 410ms    | 460ms
+          default:
+            return []; //                         should not be started
+        }
+      });
+      const getBatchSize = jest.fn(async () => {
+        // give some time to align processing end times to match
+        await sleep(10);
+        return 2;
+      });
+      const signal = { stopped: false };
+      processPool(processingPool, getNextBatch, getBatchSize, signal, 100);
+      await sleep(420); // wait until the actual items are started
+      signal.stopped = true;
+      await sleep(50); // wait until the last items are finished
+
+      expect(getNextBatch).toHaveBeenCalledTimes(6);
+      expect(getBatchSize).toHaveBeenCalledTimes(6);
+      expect(processingPool.size).toBe(0);
+    });
+  });
+
+  describe('justDoIt', () => {
+    it('should execute the given function when no error is thrown', async () => {
+      const it = jest.fn();
+      await justDoIt(it);
+      expect(it).toHaveBeenCalled();
+    });
+    it('should execute the given function and swallow the error', async () => {
+      const it = jest.fn(() => {
+        throw new Error('it');
+      });
+      await justDoIt(it);
+      expect(it).toHaveBeenCalled();
     });
   });
 });

@@ -243,7 +243,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
 
   it('should call the correct messageHandler and mark the message as processed when no errors are thrown', async () => {
     // Arrange
-    const messageHandler = jest.fn(() => Promise.resolve());
+    const messageHandler = jest.fn(() => Promise.resolve(sleep(50)));
     const unusedMessageHandler = jest.fn(() => Promise.resolve());
     const message = { ...notProcessedMessage };
     const response = getQueryFunction({
@@ -274,7 +274,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
     cleanup = shutdown;
 
     // Act
-    await sleep(250);
+    await sleep(170);
 
     // Assert
     const expectedMessage = {
@@ -294,9 +294,9 @@ describe('Polling message listener unit tests - initializePollingMessageListener
     expect(client.transactionStarts).toBe(1);
     expect(client.commits).toBe(1);
     expect(client.rollbacks).toBe(0);
-    // 100ms schedule and 250ms sleep should allow for 2 or 3 executions
-    expect(getNextInboxMessagesSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
-    expect(getNextInboxMessagesSpy.mock.calls.length).toBeLessThanOrEqual(3);
+    // 100ms max wait time between tests configured. The message takes 50ms
+    // --> first call immediately, second after 50ms, third after 150ms
+    expect(getNextInboxMessagesSpy.mock.calls).toHaveLength(3);
   });
 
   it('should call the correct messageHandler and increase the finished attempts when an error is thrown', async () => {
@@ -334,7 +334,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
     cleanup = shutdown;
 
     // Act
-    await sleep(250);
+    await sleep(50);
 
     // Assert
     const expectedMessage = {
@@ -362,9 +362,6 @@ describe('Polling message listener unit tests - initializePollingMessageListener
     expect(client.transactionStarts).toBe(2); // handler + error handler
     expect(client.commits).toBe(1); // error handler
     expect(client.rollbacks).toBe(1); // handler
-    // 100ms schedule and 250ms sleep should allow for 2 or 3 executions
-    expect(getNextInboxMessagesSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
-    expect(getNextInboxMessagesSpy.mock.calls.length).toBeLessThanOrEqual(3);
   });
 
   it('should return an error if more than one messageHandler is registered for one aggregate/message type combination', () => {
@@ -966,7 +963,6 @@ describe('Polling message listener unit tests - initializePollingMessageListener
       messageRetryStrategy: jest.fn().mockReturnValue(true),
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(true),
       batchSizeStrategy: jest.fn().mockReturnValue(2),
-      schedulingStrategy: jest.fn().mockReturnValue(100),
     };
     const [shutdown] = initializePollingMessageListener(
       config,
@@ -1015,6 +1011,5 @@ describe('Polling message listener unit tests - initializePollingMessageListener
     expect(strategies.messageRetryStrategy).toHaveBeenCalled();
     expect(strategies.poisonousMessageRetryStrategy).not.toHaveBeenCalled();
     expect(strategies.batchSizeStrategy).toHaveBeenCalled();
-    expect(strategies.schedulingStrategy).toHaveBeenCalled();
   });
 });

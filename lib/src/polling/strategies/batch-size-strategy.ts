@@ -6,9 +6,10 @@ import { PollingConfig } from '../config';
 export interface PollingListenerBatchSizeStrategy {
   /**
    * Defines the number of records that should be loaded from the database table.
+   * @param currentlyProcessed The number of currently processed messages
    * @returns The max number of records to load
    */
-  (): Promise<number>;
+  (currentlyProcessed: number): Promise<number>;
 }
 
 /**

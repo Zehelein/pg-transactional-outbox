@@ -12,11 +12,11 @@ describe('defaultPollingListenerBatchSizeStrategy', () => {
     const strategy = defaultPollingListenerBatchSizeStrategy(mockConfig);
 
     // Act and assert
-    expect(await strategy()).toBe(1);
-    expect(await strategy()).toBe(1);
-    expect(await strategy()).toBe(1);
-    expect(await strategy()).toBe(3);
-    expect(await strategy()).toBe(3);
+    expect(await strategy(1)).toBe(1);
+    expect(await strategy(1)).toBe(1);
+    expect(await strategy(1)).toBe(1);
+    expect(await strategy(1)).toBe(3);
+    expect(await strategy(1)).toBe(3);
   });
 
   it('should increment the default size of 5 if not configured', async () => {
@@ -27,12 +27,12 @@ describe('defaultPollingListenerBatchSizeStrategy', () => {
     const strategy = defaultPollingListenerBatchSizeStrategy(mockConfig);
 
     // Act and assert
-    expect(await strategy()).toBe(1);
-    expect(await strategy()).toBe(1);
-    expect(await strategy()).toBe(1);
-    expect(await strategy()).toBe(1);
-    expect(await strategy()).toBe(1);
-    expect(await strategy()).toBe(5);
-    expect(await strategy()).toBe(5);
+    expect(await strategy(1)).toBe(1);
+    expect(await strategy(1)).toBe(1);
+    expect(await strategy(1)).toBe(1);
+    expect(await strategy(1)).toBe(1);
+    expect(await strategy(1)).toBe(1);
+    expect(await strategy(1)).toBe(5);
+    expect(await strategy(1)).toBe(5);
   });
 });
