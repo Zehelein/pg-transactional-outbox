@@ -35,6 +35,10 @@ this file.
   GRANT UPDATE (started_attempts, finished_attempts, processed_at, abandoned_at, locked_until) ON public.outbox TO db_outbox_handler;
   ```
 
+- Added automatic message cleanup. Please check the settings in the
+  configuration to activate it and configure the times in seconds after which
+  processed, abandoned, and in general messages should be deleted.
+
 ### Changed
 
 - Aligned the outbox message handling logic to the inbox table. This allows to

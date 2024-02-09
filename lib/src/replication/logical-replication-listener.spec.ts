@@ -49,8 +49,15 @@ jest.mock('pg-logical-replication', () => {
 
 // Mock the DB client to send data and to check that it was (not) called for acknowledgement
 let client: ReplicationClient;
+let clientEvents: Record<string, (...args: unknown[]) => void> = {};
 jest.mock('pg', () => {
   return {
+    Pool: jest.fn().mockImplementation(() => ({
+      query: jest.fn(),
+      on: jest.fn(),
+      end: jest.fn(() => Promise.resolve()),
+      removeAllListeners: jest.fn(),
+    })),
     Client: jest.fn().mockImplementation(() => {
       return client;
     }),
@@ -187,6 +194,9 @@ const getStrategies = (config?: ReplicationConfig): ReplicationStrategies => {
 };
 
 describe('Local replication listener unit tests', () => {
+  beforeEach(() => {
+    clientEvents = {};
+  });
   describe('getRelevantMessage', () => {
     it('should return undefined if log tag is not "insert"', () => {
       // Arrange
@@ -254,6 +264,8 @@ describe('Local replication listener unit tests', () => {
           payload: { test: 'payload' },
           metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
           created_at: new Date('2023-01-18T21:02:27.000Z'),
+          concurrency: 'parallel',
+          segment: 'test_segment',
         },
       };
 
@@ -269,6 +281,8 @@ describe('Local replication listener unit tests', () => {
         payload: { test: 'payload' },
         metadata: { routingKey: 'test.route', exchange: 'test-exchange' },
         createdAt: '2023-01-18T21:02:27.000Z',
+        concurrency: 'parallel',
+        segment: 'test_segment',
       });
     });
   });
@@ -352,7 +366,7 @@ describe('Local replication listener unit tests', () => {
         connect: jest.fn(),
         connection,
         removeAllListeners: jest.fn(),
-        on: jest.fn(),
+        on: jest.fn((event, callback) => (clientEvents[event] = callback)),
         end: jest.fn(),
       } as unknown as ReplicationClient;
     });
@@ -797,6 +811,33 @@ describe('Local replication listener unit tests', () => {
       );
       await cleanup();
       expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
+    });
+
+    it('should correctly handle database event callbacks', async () => {
+      // Arrange
+      const config: ReplicationConfig = {
+        outboxOrInbox: 'inbox',
+        dbListenerConfig: {},
+        settings,
+      };
+      const [logger, logs] = getInMemoryLogger('test');
+      const [cleanup] = createLogicalReplicationListener(
+        config,
+        messageHandler,
+        errorHandler,
+        logger,
+        getStrategies(),
+      );
+      await continueEventLoop();
+
+      // Assert
+      expect(() =>
+        client.connection.emit('error', new Error('test')),
+      ).not.toThrow();
+      expect(() => client.connection.emit('replicationStart')).not.toThrow();
+      expect(() => clientEvents['error'](new Error('test'))).not.toThrow();
+      expect(() => clientEvents['notice']('some message')).not.toThrow();
+      await cleanup();
     });
   });
 });

@@ -1,5 +1,6 @@
 import EventEmitter from 'events';
 import { Pool } from 'pg';
+import { clearInterval } from 'timers';
 import { ExtendedError, ensureExtendedError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import {
@@ -12,6 +13,7 @@ import { createErrorHandler } from '../handler/create-error-handler';
 import { createMessageHandler } from '../handler/create-message-handler';
 import { GeneralMessageHandler } from '../handler/general-message-handler';
 import { TransactionalMessageHandler } from '../handler/transactional-message-handler';
+import { runScheduledMessageCleanup } from '../message/message-cleanup';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 import { defaultMessageProcessingDbClientStrategy } from '../strategies/message-processing-db-client-strategy';
 import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
@@ -53,6 +55,7 @@ export const initializePollingMessageListener = (
     logger,
   );
   let pool: Pool = undefined as unknown as Pool;
+  let cleanupTimeout: NodeJS.Timeout | undefined;
 
   // Start the asynchronous background polling loop
   // TODO: add an event emitter for a global stop on shutdown
@@ -76,6 +79,9 @@ export const initializePollingMessageListener = (
         logger.trace('raised notice', msg.message);
       });
     });
+
+    cleanupTimeout = runScheduledMessageCleanup(pool, config, logger);
+
     const applyRestart = (promise: Promise<unknown>) => {
       void promise.catch(async (e) => {
         const err = ensureExtendedError(e, 'LISTENER_STOPPED');
@@ -115,6 +121,7 @@ export const initializePollingMessageListener = (
 
   return [
     async () => {
+      clearInterval(cleanupTimeout);
       signal.stopped = true;
       await Promise.all([
         allStrategies.messageProcessingDbClientStrategy?.shutdown(),

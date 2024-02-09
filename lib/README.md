@@ -562,6 +562,15 @@ import {
 > once. Please define your own logic on how long the messages should stay in
 > this table.
 
+> **Please note:** This library offers to automatically delete outbox messages
+> from the outbox table. Keeping them for a while can be good to ensure that a
+> message is only generated once. But most often this is more of a concern on
+> the inbox side. Please configure your duration on how long the messages should
+> stay in this table. This can be seconds but also some minutes. You can define
+> different age thresholds for processed messages, abandoned ones, and a general
+> max age setting. To be safe you can add logic to not send messages anymore
+> that are older than these defined durations.
+
 ### Outbox Storage
 
 The outbox storage is used to store the message that should later be sent into
@@ -810,12 +819,14 @@ import {
 })();
 ```
 
-> **Please note:** This library does not automatically delete inbox messages
-> from the inbox table. Keeping them is required to ensure that a message is
-> only processed once (due to multiple deliveries or replay attacks). Please
-> define your own logic on how long the messages should stay in this table. This
-> can be a few hours but also some days. Messages that are older than this
-> defined duration should not be processed anymore.
+> **Please note:** This library offers to automatically delete inbox messages
+> from the inbox table. Keeping them for a while is required to ensure that a
+> message is only processed once (due to multiple deliveries or replay attacks).
+> Please configure your duration on how long the messages should stay in this
+> table. This can be a few minutes but also some days. You can define different
+> age thresholds for processed messages, abandoned ones, and a general max age
+> setting. To be safe you can add logic to not process messages anymore that are
+> older than these defined durations.
 
 ### Message receiver
 

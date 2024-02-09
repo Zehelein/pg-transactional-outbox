@@ -14,7 +14,8 @@ export type ErrorCode =
   | 'LISTENER_STOPPED'
   | 'TIMEOUT'
   | 'MESSAGE_STORAGE_FAILED'
-  | 'BATCH_PROCESSING_ERROR';
+  | 'BATCH_PROCESSING_ERROR'
+  | 'MESSAGE_CLEANUP_ERROR';
 
 export interface ExtendedError extends Error {
   errorCode: ErrorCode;

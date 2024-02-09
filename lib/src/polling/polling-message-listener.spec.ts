@@ -31,11 +31,13 @@ let client: PoolClient & {
   commits: number;
   rollbacks: number;
 };
+let poolEvents: Record<string, (...args: unknown[]) => void> = {};
+let clientEvents: Record<string, (...args: unknown[]) => void> = {};
 jest.mock('pg', () => {
   return {
     Pool: jest.fn().mockImplementation(() => ({
       connect: jest.fn(() => new Client()),
-      on: jest.fn(),
+      on: jest.fn((event, callback) => (poolEvents[event] = callback)),
       end: jest.fn(() => Promise.resolve()),
       removeAllListeners: jest.fn(),
     })),
@@ -226,11 +228,12 @@ describe('Polling message listener unit tests - initializePollingMessageListener
       query: jest.fn(),
       connect: jest.fn(),
       removeAllListeners: jest.fn(),
-      on: jest.fn(),
+      on: jest.fn((event, callback) => (clientEvents[event] = callback)),
       end: jest.fn(),
       release: jest.fn(),
     } as unknown as typeof client;
-
+    poolEvents = {};
+    clientEvents = {};
     getNextInboxMessagesSpy.mockReset();
   });
 
@@ -1011,5 +1014,61 @@ describe('Polling message listener unit tests - initializePollingMessageListener
     expect(strategies.messageRetryStrategy).toHaveBeenCalled();
     expect(strategies.poisonousMessageRetryStrategy).not.toHaveBeenCalled();
     expect(strategies.batchSizeStrategy).toHaveBeenCalled();
+  });
+
+  it('should correctly handle database event callbacks', async () => {
+    // Arrange
+    const messageHandler = jest.fn(() => Promise.resolve(sleep(50)));
+    getNextInboxMessagesSpy.mockResolvedValue([]);
+    client.query = jest.fn(getQueryFunction({})) as any;
+    const [shutdown] = initializePollingMessageListener(
+      config,
+      {
+        handle: messageHandler,
+      },
+      getDisabledLogger(),
+    );
+    cleanup = shutdown;
+
+    // Assert
+    expect(() => poolEvents['connect'](client)).not.toThrow();
+    expect(() => poolEvents['error'](new Error('test'))).not.toThrow();
+    expect(() => clientEvents['notice']('some message')).not.toThrow();
+  });
+
+  it('should restart the polling functionality in case of an error', async () => {
+    // Arrange
+    const messageHandler = jest.fn(() => Promise.resolve(sleep(50)));
+    // do not resolve the mock --> getNextInboxMessagesSpy.mockResolvedValue([]);
+    client.query = jest.fn(getQueryFunction({})) as any;
+    const logger = getDisabledLogger();
+    logger.error = jest.fn();
+    let once = false;
+    logger.trace = ((_object: unknown, message: string) => {
+      if (message === 'Error when working on a batch of inbox messages.') {
+        if (once) {
+          throw new Error('restart...');
+        } else {
+          once = true;
+        }
+      }
+    }) as any;
+
+    // Act
+    const [shutdown] = initializePollingMessageListener(
+      config,
+      {
+        handle: messageHandler,
+      },
+      logger,
+    );
+    cleanup = shutdown;
+
+    // Assert
+    await sleep(1_200);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.any(Error),
+      'Error polling for inbox messages.',
+    );
   });
 });

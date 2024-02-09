@@ -11,6 +11,7 @@ import {
   getInMemoryLogger,
   initializeMessageStorage,
   initializePollingMessageListener,
+  runScheduledMessageCleanup,
 } from 'pg-transactional-outbox';
 import {
   DockerComposeEnvironment,
@@ -97,7 +98,7 @@ const setupProducerAndConsumer = (
 const createContent = (id: string) => `Content for id ${id}`;
 
 const createMsg = (
-  overrides?: Partial<TransactionalMessage>,
+  overrides?: Partial<StoredTransactionalMessage>,
 ): TransactionalMessage => ({
   id: uuid(),
   aggregateId: uuid(),
@@ -853,6 +854,175 @@ describe('Polling integration tests', () => {
       ]);
       expect(filterMap(cMessages)).toStrictEqual([c5.id]);
       expect(filterMap(dMessages)).toStrictEqual([d1.id]);
+    });
+
+    test('cleanup deletes old processed messages correctly', async () => {
+      // Arrange
+      const cfg = configs.inboxConfig;
+      const settings = configs.inboxConfig.settings;
+      const m1 = createMsg();
+      const m2 = createMsg();
+      const m3 = createMsg();
+      const m4 = createMsg();
+      const storeInboxMessage = initializeMessageStorage(
+        configs.inboxConfig,
+        inboxLogger,
+      );
+      await executeTransaction(await handlerPool.connect(), async (client) => {
+        const sql = /* sql */ `UPDATE ${settings.dbSchema}.${settings.dbTable} SET processed_at = $1 WHERE id = $2;`;
+        const secondsOld = (seconds: number) =>
+          new Date(Date.now() - seconds * 1000).toISOString();
+        await storeInboxMessage(m1, client);
+        client.query(sql, [secondsOld(200), m1.id]);
+        await storeInboxMessage(m2, client);
+        client.query(sql, [secondsOld(300), m2.id]);
+        await storeInboxMessage(m3, client);
+        client.query(sql, [secondsOld(400), m3.id]);
+        await storeInboxMessage(m4, client);
+        client.query(sql, [secondsOld(500), m4.id]);
+      });
+      const listenerPool = new Pool(cfg.dbListenerConfig);
+
+      const timeout = runScheduledMessageCleanup(
+        listenerPool,
+        {
+          ...cfg,
+          settings: {
+            ...settings,
+            messageCleanupInterval: 1, // seconds
+            messageCleanupProcessed: 250,
+            messageCleanupAbandoned: undefined,
+            messageCleanupAll: undefined,
+          },
+        },
+        inboxLogger,
+      );
+
+      cleanup = async () => {
+        clearInterval(timeout);
+        await listenerPool.end();
+      };
+
+      const getCount = async () =>
+        (
+          await handlerPool.query(
+            /* sql */ `SELECT COUNT(*) as count FROM ${settings.dbSchema}.${settings.dbTable};`,
+          )
+        ).rows[0];
+      expect((await getCount()).count).toBe('4');
+      await sleep(1200);
+      expect((await getCount()).count).toBe('1');
+    });
+
+    test('cleanup deletes old abandoned messages correctly', async () => {
+      // Arrange
+      const cfg = configs.inboxConfig;
+      const settings = configs.inboxConfig.settings;
+      const m1 = createMsg();
+      const m2 = createMsg();
+      const m3 = createMsg();
+      const m4 = createMsg();
+      const storeInboxMessage = initializeMessageStorage(
+        configs.inboxConfig,
+        inboxLogger,
+      );
+      await executeTransaction(await handlerPool.connect(), async (client) => {
+        const sql = /* sql */ `UPDATE ${settings.dbSchema}.${settings.dbTable} SET abandoned_at = $1 WHERE id = $2;`;
+        const secondsOld = (seconds: number) =>
+          new Date(Date.now() - seconds * 1000).toISOString();
+        await storeInboxMessage(m1, client);
+        client.query(sql, [secondsOld(200), m1.id]);
+        await storeInboxMessage(m2, client);
+        client.query(sql, [secondsOld(300), m2.id]);
+        await storeInboxMessage(m3, client);
+        client.query(sql, [secondsOld(400), m3.id]);
+        await storeInboxMessage(m4, client);
+        client.query(sql, [secondsOld(500), m4.id]);
+      });
+      const listenerPool = new Pool(cfg.dbListenerConfig);
+
+      const timeout = runScheduledMessageCleanup(
+        listenerPool,
+        {
+          ...cfg,
+          settings: {
+            ...settings,
+            messageCleanupInterval: 1, // seconds
+            messageCleanupProcessed: undefined,
+            messageCleanupAbandoned: 450,
+            messageCleanupAll: undefined,
+          },
+        },
+        inboxLogger,
+      );
+
+      cleanup = async () => {
+        clearInterval(timeout);
+        await listenerPool.end();
+      };
+
+      const getCount = async () =>
+        (
+          await handlerPool.query(
+            /* sql */ `SELECT COUNT(*) as count FROM ${settings.dbSchema}.${settings.dbTable};`,
+          )
+        ).rows[0];
+      expect((await getCount()).count).toBe('4');
+      await sleep(1200);
+      expect((await getCount()).count).toBe('3');
+    });
+
+    test('cleanup deletes old messages correctly', async () => {
+      // Arrange
+      const cfg = configs.inboxConfig;
+      const settings = configs.inboxConfig.settings;
+      const secondsOld = (seconds: number) =>
+        new Date(Date.now() - seconds * 1000).toISOString();
+      const m1 = createMsg({ createdAt: secondsOld(200) });
+      const m2 = createMsg({ createdAt: secondsOld(400) });
+      const m3 = createMsg({ createdAt: secondsOld(300) });
+      const m4 = createMsg({ createdAt: secondsOld(500) });
+      const storeInboxMessage = initializeMessageStorage(
+        configs.inboxConfig,
+        inboxLogger,
+      );
+      await executeTransaction(await handlerPool.connect(), async (client) => {
+        await storeInboxMessage(m1, client);
+        await storeInboxMessage(m2, client);
+        await storeInboxMessage(m3, client);
+        await storeInboxMessage(m4, client);
+      });
+      const listenerPool = new Pool(cfg.dbListenerConfig);
+
+      const timeout = runScheduledMessageCleanup(
+        listenerPool,
+        {
+          ...cfg,
+          settings: {
+            ...settings,
+            messageCleanupInterval: 1, // seconds
+            messageCleanupProcessed: undefined,
+            messageCleanupAbandoned: undefined,
+            messageCleanupAll: 350,
+          },
+        },
+        inboxLogger,
+      );
+
+      cleanup = async () => {
+        clearInterval(timeout);
+        await listenerPool.end();
+      };
+
+      const getCount = async () =>
+        (
+          await handlerPool.query(
+            /* sql */ `SELECT COUNT(*) as count FROM ${settings.dbSchema}.${settings.dbTable};`,
+          )
+        ).rows[0];
+      expect((await getCount()).count).toBe('4');
+      await sleep(1200);
+      expect((await getCount()).count).toBe('2');
     });
   });
 });

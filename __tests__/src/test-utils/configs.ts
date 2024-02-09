@@ -59,7 +59,7 @@ export const getConfigs = (port: number) => {
   };
 
   return {
-    handlerConnection: handlerConnection,
+    handlerConnection,
     outboxConfig,
     inboxConfig,
   };

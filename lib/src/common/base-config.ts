@@ -59,4 +59,15 @@ export interface ListenerSettings {
    * infinite service crash loop if there is a poisonous message.
    */
   enablePoisonousMessageProtection?: boolean;
+  /**
+   * Time in seconds between the execution of the old message cleanups.
+   * Leave it undefined or zero to disable automatic message cleanup.
+   */
+  messageCleanupInterval?: number;
+  /** Delete messages where the processed field is older than this in seconds */
+  messageCleanupProcessed?: number;
+  /** Delete messages where the abandoned field is older than this in seconds */
+  messageCleanupAbandoned?: number;
+  /** Delete messages where the created field is older than this in seconds */
+  messageCleanupAll?: number;
 }

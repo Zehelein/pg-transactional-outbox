@@ -23,6 +23,11 @@ export { HandlerStrategies } from './handler/handler-strategies';
 export { TransactionalMessageHandler } from './handler/transactional-message-handler';
 export { initializeMessageStorage } from './message/initialize-message-storage';
 export {
+  DeleteOld,
+  runMessageCleanupOnce,
+  runScheduledMessageCleanup,
+} from './message/message-cleanup';
+export {
   StoredTransactionalMessage,
   TransactionalMessage,
 } from './message/transactional-message';

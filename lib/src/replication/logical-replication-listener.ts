@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { Client, ClientConfig, Connection } from 'pg';
+import { Client, ClientConfig, Connection, Pool } from 'pg';
 import { Pgoutput, PgoutputPlugin } from 'pg-logical-replication';
 import { AbstractPlugin } from 'pg-logical-replication/dist/output-plugins/abstract.plugin';
 import { OutboxOrInbox } from '../common/base-config';
@@ -11,6 +11,7 @@ import {
 } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { awaitWithTimeout } from '../common/utils';
+import { runScheduledMessageCleanup } from '../message/message-cleanup';
 import {
   StoredTransactionalMessage,
   TransactionalMessage,
@@ -36,7 +37,7 @@ type ReplicationClient = Client & {
  * @returns A function to stop the logical replication listener
  */
 export const createLogicalReplicationListener = (
-  { dbListenerConfig, settings, outboxOrInbox }: ReplicationConfig,
+  config: ReplicationConfig,
   messageHandler: (
     message: StoredTransactionalMessage,
     cancellation: EventEmitter,
@@ -48,12 +49,15 @@ export const createLogicalReplicationListener = (
   logger: TransactionalLogger,
   strategies: ReplicationStrategies,
 ): [shutdown: { (): Promise<void> }] => {
+  const { dbListenerConfig, settings, outboxOrInbox } = config;
   const plugin = new PgoutputPlugin({
     protoVersion: 1,
     publicationNames: [settings.postgresPub],
   });
   let client: ReplicationClient | undefined;
+  let pool: Pool | undefined;
   let restartTimeout: NodeJS.Timeout | undefined;
+  let cleanupTimeout: NodeJS.Timeout | undefined;
   let stopped = false;
 
   // Run the listener in a self restarting background event "loop" until it gets stopped
@@ -68,6 +72,10 @@ export const createLogicalReplicationListener = (
       replication: 'database',
       stop: false,
     } as ClientConfig) as ReplicationClient;
+    pool = new Pool(dbListenerConfig);
+
+    cleanupTimeout = runScheduledMessageCleanup(pool, config, logger);
+
     const applyRestart = (promise: Promise<unknown>) => {
       void promise.catch(async (e) => {
         const err = ensureExtendedError(e, 'LISTENER_STOPPED');
@@ -109,10 +117,10 @@ export const createLogicalReplicationListener = (
     async (): Promise<void> => {
       logger.debug(`Started transactional ${outboxOrInbox} listener cleanup`);
       stopped = true;
-      if (restartTimeout) {
-        clearTimeout(restartTimeout);
-      }
+      clearTimeout(restartTimeout);
+      clearInterval(cleanupTimeout);
       await stopClient(client, logger);
+      await pool?.end();
     },
   ];
 };
