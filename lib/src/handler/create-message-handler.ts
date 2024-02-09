@@ -15,6 +15,8 @@ import { HandlerStrategies } from './handler-strategies';
 import { messageHandlerSelector } from './message-handler-selector';
 import { TransactionalMessageHandler } from './transactional-message-handler';
 
+export type ListenerType = 'replication' | 'polling';
+
 /**
  * Executes the message verification and poisonous message verification in one
  * transaction (if enabled) and the actual message handler and marking the
@@ -25,7 +27,7 @@ export const createMessageHandler = (
   strategies: HandlerStrategies,
   config: PollingConfig | ReplicationConfig,
   logger: TransactionalLogger,
-  listenerType: 'replication' | 'polling',
+  listenerType: ListenerType,
 ): ((
   message: StoredTransactionalMessage,
   cancellation: EventEmitter,

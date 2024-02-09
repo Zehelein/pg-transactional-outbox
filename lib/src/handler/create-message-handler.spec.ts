@@ -4,7 +4,7 @@ import { getDisabledLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 import { ReplicationConfig } from '../replication/config';
 import { defaultMessageRetryStrategy } from '../strategies/message-retry-strategy';
-import { createMessageHandler } from './create-message-handler';
+import { ListenerType, createMessageHandler } from './create-message-handler';
 import { TransactionalMessageHandler } from './transactional-message-handler';
 
 const message: StoredTransactionalMessage = {
@@ -110,59 +110,65 @@ function getClient({
 }
 
 describe('createMessageHandler', () => {
-  it('Should handle a message and mark it as processed', async () => {
-    // Arrange
-    const client = getClient({});
-    const strategies = {
-      messageProcessingTransactionLevelStrategy: jest
-        .fn()
-        .mockReturnValue(undefined),
-      messageProcessingDbClientStrategy: {
-        getClient: async () => client,
-        shutdown: jest.fn(),
-      },
-      poisonousMessageRetryStrategy: jest.fn().mockReturnValue(false),
-      messageRetryStrategy: jest.fn().mockReturnValue(false),
-      messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
-    };
-    const config: ReplicationConfig = {
-      outboxOrInbox: 'inbox',
-      dbListenerConfig: {},
-      settings: {
-        dbSchema: 'test_schema',
-        dbTable: 'test_table',
-        postgresPub: 'test_pub',
-        postgresSlot: 'test_slot',
-        enablePoisonousMessageProtection: true,
-        enableMaxAttemptsProtection: true,
-      },
-    };
-    const handler = { handle: jest.fn() };
-    const messageHandler = createMessageHandler(
-      handler,
-      strategies,
-      config,
-      getDisabledLogger(),
-    );
-    const mockMessage = {
-      ...message,
-    };
-    const cancellation = new EventEmitter();
+  it.each(['replication' as ListenerType, 'polling' as ListenerType])(
+    'Should handle a message and mark it as processed',
+    async (listenerTyp) => {
+      // Arrange
+      const client = getClient({});
+      const strategies = {
+        messageProcessingTransactionLevelStrategy: jest
+          .fn()
+          .mockReturnValue(undefined),
+        messageProcessingDbClientStrategy: {
+          getClient: async () => client,
+          shutdown: jest.fn(),
+        },
+        poisonousMessageRetryStrategy: jest.fn().mockReturnValue(false),
+        messageRetryStrategy: jest.fn().mockReturnValue(false),
+        messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
+      };
+      const config: ReplicationConfig = {
+        outboxOrInbox: 'inbox',
+        dbListenerConfig: {},
+        settings: {
+          dbSchema: 'test_schema',
+          dbTable: 'test_table',
+          postgresPub: 'test_pub',
+          postgresSlot: 'test_slot',
+          enablePoisonousMessageProtection: true,
+          enableMaxAttemptsProtection: true,
+        },
+      };
+      const handler = { handle: jest.fn() };
+      const messageHandler = createMessageHandler(
+        handler,
+        strategies,
+        config,
+        getDisabledLogger(),
+        listenerTyp,
+      );
+      const mockMessage = {
+        ...message,
+      };
+      const cancellation = new EventEmitter();
 
-    // Act
-    await messageHandler(mockMessage, cancellation);
+      // Act
+      await messageHandler(mockMessage, cancellation);
 
-    // Assert
-    expect(handler.handle).toHaveBeenCalledWith(mockMessage, client);
-    expect(client.startedAttemptsIncrement).toBe(1);
-    expect(client.initiateMessageProcessing).toBe(1);
-    expect(client.markMessageCompleted).toBe(1);
-    expect(
-      strategies.messageProcessingTransactionLevelStrategy,
-    ).toHaveBeenCalledWith(mockMessage);
-    expect(strategies.poisonousMessageRetryStrategy).not.toHaveBeenCalled();
-    expect(strategies.messageRetryStrategy).not.toHaveBeenCalled();
-  });
+      // Assert
+      expect(handler.handle).toHaveBeenCalledWith(mockMessage, client);
+      expect(client.startedAttemptsIncrement).toBe(
+        listenerTyp === 'replication' ? 1 : 0,
+      );
+      expect(client.initiateMessageProcessing).toBe(1);
+      expect(client.markMessageCompleted).toBe(1);
+      expect(
+        strategies.messageProcessingTransactionLevelStrategy,
+      ).toHaveBeenCalledWith(mockMessage);
+      expect(strategies.poisonousMessageRetryStrategy).not.toHaveBeenCalled();
+      expect(strategies.messageRetryStrategy).not.toHaveBeenCalled();
+    },
+  );
 
   it('When poisonous checks are disabled the attempts increase and poisonous retry strategy should not be called', async () => {
     // Arrange
@@ -197,6 +203,7 @@ describe('createMessageHandler', () => {
       strategies,
       config,
       getDisabledLogger(),
+      'replication',
     );
     const mockMessage = {
       ...message,
@@ -253,6 +260,7 @@ describe('createMessageHandler', () => {
       strategies,
       config,
       getDisabledLogger(),
+      'replication',
     );
     const mockMessage = {
       ...message,
@@ -309,6 +317,7 @@ describe('createMessageHandler', () => {
       strategies,
       config,
       getDisabledLogger(),
+      'replication',
     );
     const mockMessage = {
       ...message,
@@ -363,6 +372,7 @@ describe('createMessageHandler', () => {
       strategies,
       config,
       getDisabledLogger(),
+      'replication',
     );
     const mockMessage = {
       ...message,
@@ -421,6 +431,7 @@ describe('createMessageHandler', () => {
       strategies,
       config,
       getDisabledLogger(),
+      'replication',
     );
     const mockMessage = {
       ...message,
@@ -477,6 +488,7 @@ describe('createMessageHandler', () => {
       strategies,
       config,
       getDisabledLogger(),
+      'replication',
     );
     const mockMessage = {
       ...message,
