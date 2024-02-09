@@ -66,7 +66,7 @@ CREATE TABLE ${schema}.${table} (
   payload JSONB NOT NULL,
   metadata JSONB,
   locked_until TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
   processed_at TIMESTAMPTZ,
   abandoned_at TIMESTAMPTZ,
   started_attempts smallint NOT NULL DEFAULT 0,

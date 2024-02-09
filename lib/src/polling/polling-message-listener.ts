@@ -44,6 +44,7 @@ export const initializePollingMessageListener = (
     allStrategies,
     config,
     logger,
+    'polling',
   );
   const errorHandler = createErrorHandler(
     messageHandlers,
@@ -68,6 +69,12 @@ export const initializePollingMessageListener = (
         ensureExtendedError(error, 'DB_ERROR'),
         'PostgreSQL pool error',
       );
+    });
+    pool.on('connect', (client) => {
+      client.removeAllListeners('notice');
+      client.on('notice', (msg) => {
+        logger.trace('raised notice', msg.message);
+      });
     });
     const applyRestart = (promise: Promise<unknown>) => {
       void promise.catch(async (e) => {
@@ -190,6 +197,10 @@ const processBatch = async (
         if (err.errorCode === 'TIMEOUT') {
           cancellation.emit('timeout', err);
         }
+        logger.warn(
+          message,
+          `Message processing error for the message with id ${message.id} and type ${message.messageType}.`,
+        );
         await errorHandler(message, err);
       }
     });

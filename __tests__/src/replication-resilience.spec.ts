@@ -21,7 +21,7 @@ import {
   getConfigs,
   isDebugMode,
   retryCallback,
-  setupTestDb,
+  setupReplicationTestDb,
 } from './test-utils';
 
 if (isDebugMode()) {
@@ -89,7 +89,7 @@ const createInfraOutage = async (
   }, 3000);
 };
 
-describe('Outbox and inbox resilience integration tests', () => {
+describe('Outbox and inbox resilience integration tests for replication', () => {
   let dockerEnv: DockerComposeEnvironment;
   let startedEnv: StartedDockerComposeEnvironment;
   let handlerPool: Pool;
@@ -105,7 +105,7 @@ describe('Outbox and inbox resilience integration tests', () => {
     startedEnv = await dockerEnv.up();
 
     configs = getConfigs(60399);
-    await setupTestDb(configs);
+    await setupReplicationTestDb(configs);
 
     handlerPool = new Pool(configs.handlerConnection);
     handlerPool.on('error', (err) => {

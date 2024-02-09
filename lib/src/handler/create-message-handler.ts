@@ -9,10 +9,7 @@ import { markMessageCompleted } from '../message/mark-message-completed';
 import { startedAttemptsIncrement } from '../message/started-attempts-increment';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 import { PollingConfig } from '../polling/config';
-import {
-  ReplicationConfig,
-  ReplicationListenerConfig,
-} from '../replication/config';
+import { ReplicationConfig } from '../replication/config';
 import { GeneralMessageHandler } from './general-message-handler';
 import { HandlerStrategies } from './handler-strategies';
 import { messageHandlerSelector } from './message-handler-selector';
@@ -28,6 +25,7 @@ export const createMessageHandler = (
   strategies: HandlerStrategies,
   config: PollingConfig | ReplicationConfig,
   logger: TransactionalLogger,
+  listenerType: 'replication' | 'polling',
 ): ((
   message: StoredTransactionalMessage,
   cancellation: EventEmitter,
@@ -45,12 +43,12 @@ export const createMessageHandler = (
     }
 
     if (handler && config.settings.enablePoisonousMessageProtection !== false) {
-      if (isReplicationListener(config)) {
+      if (listenerType === 'replication') {
         const continueProcessing =
           await applyReplicationPoisonousMessageProtection(
             message,
             strategies,
-            config,
+            config as ReplicationConfig,
             logger,
           );
         if (!continueProcessing) {
@@ -191,9 +189,3 @@ const processMessage = async (
     transactionLevel,
   );
 };
-
-function isReplicationListener(
-  config: PollingConfig | ReplicationConfig,
-): config is ReplicationConfig {
-  return !!(config.settings as ReplicationListenerConfig).postgresPub;
-}

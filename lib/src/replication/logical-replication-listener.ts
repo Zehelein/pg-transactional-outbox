@@ -199,6 +199,9 @@ const subscribe = async (
   client.connection.once('replicationStart', () => {
     logger.trace(`Transactional ${outboxOrInbox} listener started`);
   });
+  client.on('notice', (msg) => {
+    logger.trace('raised notice', msg.message);
+  });
 
   return plugin.start(client, slotName, lastLsn);
 };

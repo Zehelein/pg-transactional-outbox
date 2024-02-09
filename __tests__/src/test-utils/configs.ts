@@ -31,6 +31,7 @@ export const getConfigs = (port: number) => {
       nextMessagesBatchSize: 2,
       nextMessagesFunctionName: 'next_test_inbox_messages',
       nextMessagesPollingInterval: 100,
+      nextMessagesLockMs: 200,
     },
   };
 

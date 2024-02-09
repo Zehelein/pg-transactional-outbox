@@ -35,6 +35,7 @@ export const initializeReplicationMessageListener = (
     allStrategies,
     config,
     logger,
+    'replication',
   );
   const errorHandler = createErrorHandler(
     messageHandlers,

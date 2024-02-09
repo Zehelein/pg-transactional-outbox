@@ -17,7 +17,7 @@ const {
   setupPollingIndexes,
 } = DatabaseSetup;
 
-export const getDatabaseSetupConfig = ({
+const getDatabaseSetupConfig = ({
   dbListenerConfig,
   settings,
   dbHandlerConfig,
@@ -39,19 +39,30 @@ export const getDatabaseSetupConfig = ({
   };
 };
 
-export const setupTestDb = async (configs: TestConfigs): Promise<void> => {
+export const setupReplicationTestDb = async (
+  configs: TestConfigs,
+): Promise<void> => {
   const { handlerConnection, outboxConfig, inboxConfig } = configs;
   await dbmsSetup(handlerConnection, outboxConfig, inboxConfig);
-  await resetReplication(configs);
+  await replicationSetup(
+    handlerConnection,
+    getDatabaseSetupConfig(outboxConfig),
+  );
+  await replicationSetup(
+    handlerConnection,
+    getDatabaseSetupConfig(inboxConfig),
+  );
+  await outboxSetup(handlerConnection);
+  await inboxSetup(handlerConnection);
 };
 
-export const resetReplication = async ({
-  handlerConnection,
-  outboxConfig,
-  inboxConfig,
-}: TestConfigs): Promise<void> => {
-  await trxSetup(handlerConnection, getDatabaseSetupConfig(outboxConfig));
-  await trxSetup(handlerConnection, getDatabaseSetupConfig(inboxConfig));
+export const setupPollingTestDb = async (
+  configs: TestConfigs,
+): Promise<void> => {
+  const { handlerConnection, outboxConfig, inboxConfig } = configs;
+  await dbmsSetup(handlerConnection, outboxConfig, inboxConfig);
+  await pollingSetup(handlerConnection, getDatabaseSetupConfig(outboxConfig));
+  await pollingSetup(handlerConnection, getDatabaseSetupConfig(inboxConfig));
   await outboxSetup(handlerConnection);
   await inboxSetup(handlerConnection);
 };
@@ -99,11 +110,11 @@ const dbmsSetup = async (
   await rootClient.end();
 };
 
-const trxSetup = async (
+const replicationSetup = async (
   defaultHandlerConnection: ClientConfig,
-  setupConfig: DatabaseReplicationSetupConfig & DatabasePollingSetupConfig,
+  setupConfig: DatabaseReplicationSetupConfig,
 ): Promise<void> => {
-  const { host, port, database, user } = defaultHandlerConnection;
+  const { host, port, database } = defaultHandlerConnection;
   const dbClient = new Client({
     host,
     port,
@@ -117,6 +128,26 @@ const trxSetup = async (
   await dbClient.query(grantPermissions(setupConfig));
   await dbClient.query(setupReplicationCore(setupConfig));
   await dbClient.query(setupReplicationSlot(setupConfig));
+
+  await dbClient.end();
+};
+
+const pollingSetup = async (
+  defaultHandlerConnection: ClientConfig,
+  setupConfig: DatabasePollingSetupConfig,
+): Promise<void> => {
+  const { host, port, database } = defaultHandlerConnection;
+  const dbClient = new Client({
+    host,
+    port,
+    database,
+    user: 'postgres',
+    password: 'postgres',
+  });
+  await dbClient.connect();
+
+  await dbClient.query(dropAndCreateTable(setupConfig));
+  await dbClient.query(grantPermissions(setupConfig));
   await dbClient.query(createPollingFunction(setupConfig));
   await dbClient.query(setupPollingIndexes(setupConfig));
 

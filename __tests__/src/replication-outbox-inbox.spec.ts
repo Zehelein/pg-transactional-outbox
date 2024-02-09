@@ -25,7 +25,7 @@ import {
   TestConfigs,
   getConfigs,
   isDebugMode,
-  setupTestDb,
+  setupReplicationTestDb,
   sleep,
   sleepUntilTrue,
 } from './test-utils';
@@ -142,7 +142,7 @@ const insertSourceEntity = async (
   });
 };
 
-describe('Integration tests', () => {
+describe('Replication integration tests', () => {
   let dockerEnv: DockerComposeEnvironment;
   let startedEnv: StartedDockerComposeEnvironment;
   let handlerPool: Pool;
@@ -154,14 +154,14 @@ describe('Integration tests', () => {
   beforeAll(async () => {
     dockerEnv = new DockerComposeEnvironment(
       resolve(__dirname, 'test-utils'),
-      'docker-compose.yml',
+      'docker-compose-replication.yml',
     );
     startedEnv = await dockerEnv.up();
 
-    const postgresContainer = startedEnv.getContainer('postgres');
+    const postgresContainer = startedEnv.getContainer('postgres-replication');
     const port = postgresContainer.getMappedPort(5432);
     configs = getConfigs(port);
-    await setupTestDb(configs);
+    await setupReplicationTestDb(configs);
 
     handlerPool = new Pool(configs.handlerConnection);
     handlerPool.on('error', (err) => {
