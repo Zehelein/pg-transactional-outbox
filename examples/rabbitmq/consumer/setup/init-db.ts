@@ -158,6 +158,7 @@ const testDataSetup = async (config: Config): Promise<void> => {
     await dbmsSetup(config);
     await inboxSetup(config, setupConfig);
     await testDataSetup(config);
+    process.exit(0);
   } catch (err) {
     logger.error(err);
     process.exit(1);

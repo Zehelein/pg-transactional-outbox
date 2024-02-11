@@ -4,6 +4,9 @@
   "description": "A PostgreSQL based transactional outbox and inbox pattern implementation to support exactly once message processing (with at least once message delivery).",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "pg-transactional-outbox": "./dist/index.js"
+  },
   "files": [
     "CHANGELOG.md",
     "dist",
@@ -46,7 +49,8 @@
     "prepack": "yarn clean && tsc",
     "test": "jest --detectOpenHandles src/",
     "test:coverage": "jest --coverage --detectOpenHandles",
-    "dev:watch": "tsc-watch"
+    "dev:watch": "tsc-watch",
+    "create:sql": "tsc && node ./dist/index.js"
   },
   "dependencies": {
     "async-mutex": "^0.4.0",

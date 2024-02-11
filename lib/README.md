@@ -297,10 +297,22 @@ They can reside in the same database if your service uses both the outbox and
 the inbox pattern which is often the case for distributed services.
 
 You can manually create the required database structure or (suggested) use this
-library to help you with this task. It offers you a `DatabaseSetup` helper to
-create the required structure from your codebase based on the configuration
-settings that you provide. Both the inbox and outbox structure are created in
-the same way so you call the same functions but with different configurations.
+library to help you with this task.
+
+The easiest way is to use the CLI tool to generate the SQL scripts for you:
+
+```shell
+npx pg-transactional-outbox
+```
+
+This will guide you by asking the required values from you. This uses the
+`DatabaseSetupExporter` which writes that you can also call from some code.
+
+The library offers you also a `DatabaseSetup` helper to create the required
+tables etc. in your database. You can do this from within your codebase based on
+the configuration settings that you provide. Both the inbox and outbox structure
+are created in the same way so you call the same functions but with different
+configurations.
 
 You can find the example usage in the following two files. Please notice that
 they create both the logical replication AND the polling-based structure as an
@@ -308,10 +320,6 @@ example. In your code, you should only create one of the two.
 
 - `examples/rabbitmq/producer/setup/init-db.ts`
 - `examples/rabbitmq/consumer/setup/init-db.ts`
-
-You can also use the `DatabaseSetupExporter` which writes an SQL script for you
-that you can execute or include in your application database migration files.
-You can create the SQL scripts with the following code:
 
 ```TypeScript
 import fs from 'node:fs/promises';
@@ -557,11 +565,6 @@ import {
 })();
 ```
 
-> **Please note:** This library does not automatically delete outbox messages
-> from the outbox table. Keeping them can ensure that a message is only added
-> once. Please define your own logic on how long the messages should stay in
-> this table.
-
 > **Please note:** This library offers to automatically delete outbox messages
 > from the outbox table. Keeping them for a while can be good to ensure that a
 > message is only generated once. But most often this is more of a concern on
@@ -569,7 +572,9 @@ import {
 > stay in this table. This can be seconds but also some minutes. You can define
 > different age thresholds for processed messages, abandoned ones, and a general
 > max age setting. To be safe you can add logic to not send messages anymore
-> that are older than these defined durations.
+> that are older than these defined durations.  
+> As an alternative you could also create a `outbox_archive` table and write a
+> script to move the messages into that table instead of deleting them.
 
 ### Outbox Storage
 
@@ -826,7 +831,9 @@ import {
 > table. This can be a few minutes but also some days. You can define different
 > age thresholds for processed messages, abandoned ones, and a general max age
 > setting. To be safe you can add logic to not process messages anymore that are
-> older than these defined durations.
+> older than these defined durations.  
+> As an alternative you could also create a `inbox_archive` table and write a
+> script to move the messages into that table instead of deleting them.
 
 ### Message receiver
 

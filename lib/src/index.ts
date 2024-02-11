@@ -1,3 +1,5 @@
+import { dbSetupCli } from './setup/db-setup-cli';
+
 export {
   ListenerConfig,
   ListenerSettings,
@@ -82,3 +84,10 @@ export {
   PoisonousMessageRetryStrategy,
   defaultPoisonousMessageRetryStrategy,
 } from './strategies/poisonous-message-retry-strategy';
+
+// Execute the CLI
+if (require.main === module) {
+  (async () => {
+    await dbSetupCli();
+  })();
+}

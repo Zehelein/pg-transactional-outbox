@@ -26,6 +26,8 @@ const dropAndCreateHandlerAndListenerRoles = ({
   handlerRole,
 }: DatabaseSetupConfig): string => {
   let sql = /* sql */ `
+-- Manually create the roles if they do not exist:
+
 -- DROP OWNED BY ${listenerRole};
 -- DROP ROLE IF EXISTS ${listenerRole};
 -- CREATE ROLE ${listenerRole} WITH LOGIN PASSWORD 'secret-password';  
