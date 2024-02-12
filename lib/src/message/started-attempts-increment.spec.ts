@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-import { PoolClient } from 'pg';
 import { ListenerConfig } from '../common/base-config';
+import { DatabaseClient } from '../common/database';
 import { startedAttemptsIncrement } from './started-attempts-increment';
 import { StoredTransactionalMessage } from './transactional-message';
 
@@ -15,7 +15,7 @@ describe('startedAttemptsIncrement', () => {
   let message: StoredTransactionalMessage;
   const client = {
     query: jest.fn(),
-  } as unknown as PoolClient;
+  } as unknown as DatabaseClient;
 
   beforeEach(() => {
     // Initialize your mock message, client, and config here

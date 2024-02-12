@@ -633,8 +633,9 @@ queries/mutations, and finally mark the inbox message as processed in the
 database.
 
 ```TypeScript
-import { Pool, PoolClient } from 'pg';
+import { Pool } from 'pg';
 import {
+  DatabaseClient,
   IsolationLevel,
   PollingConfig,
   ReplicationConfig,
@@ -747,7 +748,7 @@ import {
     messageType: 'movie_created',
     handle: async (
       message: TransactionalMessage,
-      client: PoolClient,
+      client: DatabaseClient,
     ): Promise<void> => {
       // Executes the message handler logic using the same database
       // transaction as the inbox message acknowledgement.
@@ -769,7 +770,7 @@ import {
     handleError: async (
       error: Error,
       message: TransactionalMessage,
-      _client: PoolClient,
+      _client: DatabaseClient,
       retry: boolean,
     ): Promise<void> => {
       if (!retry) {

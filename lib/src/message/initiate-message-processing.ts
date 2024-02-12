@@ -1,4 +1,4 @@
-import { PoolClient } from 'pg';
+import { DatabaseClient } from '../common/database';
 import { PollingListenerConfig } from '../polling/config';
 import { ReplicationListenerConfig } from '../replication/config';
 import { StoredTransactionalMessage } from './transactional-message';
@@ -17,7 +17,7 @@ import { StoredTransactionalMessage } from './transactional-message';
  */
 export const initiateMessageProcessing = async (
   message: StoredTransactionalMessage,
-  client: PoolClient,
+  client: DatabaseClient,
   settings: PollingListenerConfig | ReplicationListenerConfig,
 ): Promise<
   true | 'MESSAGE_NOT_FOUND' | 'ALREADY_PROCESSED' | 'ABANDONED_MESSAGE'

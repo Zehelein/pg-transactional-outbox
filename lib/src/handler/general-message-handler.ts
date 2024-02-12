@@ -1,4 +1,4 @@
-import { PoolClient } from 'pg';
+import { DatabaseClient } from '../common/database';
 import { ExtendedError } from '../common/error';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 
@@ -16,7 +16,7 @@ export interface GeneralMessageHandler {
    */
   handle: (
     message: StoredTransactionalMessage,
-    client: PoolClient,
+    client: DatabaseClient,
   ) => Promise<void>;
 
   /**
@@ -31,7 +31,7 @@ export interface GeneralMessageHandler {
   handleError?: (
     error: ExtendedError,
     message: StoredTransactionalMessage,
-    client: PoolClient,
+    client: DatabaseClient,
     retry: boolean,
   ) => Promise<void>;
 }

@@ -5,8 +5,9 @@
 // eslint-disable-next-line prettier/prettier
 import EventEmitter from 'events';
 import inspector from 'inspector';
-import { Client, Connection, PoolClient } from 'pg';
+import { Client, Connection } from 'pg';
 import { Pgoutput } from 'pg-logical-replication';
+import { DatabaseClient } from '../common/database';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { IsolationLevel, sleep } from '../common/utils';
 import * as increaseFinishedAttemptsImportSpy from '../message/increase-message-finished-attempts';
@@ -126,11 +127,11 @@ jest.mock('../common/utils', () => {
     ...jest.requireActual('../common/utils'),
     executeTransaction: jest.fn(
       async (
-        client: PoolClient,
-        callback: (client: PoolClient) => Promise<unknown>,
+        client: DatabaseClient,
+        callback: (client: DatabaseClient) => Promise<unknown>,
       ) => {
         const response = await callback(client);
-        client.release();
+        client.release?.();
         return response;
       },
     ),

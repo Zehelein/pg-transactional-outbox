@@ -1,5 +1,5 @@
-import { PoolClient } from 'pg';
 import { ListenerConfig } from '../common/base-config';
+import { DatabaseClient } from '../common/database';
 import { StoredTransactionalMessage } from './transactional-message';
 
 /**
@@ -10,7 +10,7 @@ import { StoredTransactionalMessage } from './transactional-message';
  */
 export const markMessageAbandoned = async (
   { id }: StoredTransactionalMessage,
-  client: PoolClient,
+  client: DatabaseClient,
   { settings }: Pick<ListenerConfig, 'settings'>,
 ): Promise<void> => {
   await client.query(

@@ -1,5 +1,5 @@
-import { PoolClient } from 'pg';
 import { ListenerConfig } from '../common/base-config';
+import { DatabaseClient } from '../common/database';
 import { TransactionalOutboxInboxError } from '../common/error';
 import { getDisabledLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
@@ -82,7 +82,7 @@ function getClient({
       }
     },
     release() {},
-  } as unknown as PoolClient & {
+  } as unknown as DatabaseClient & {
     increaseMessageFinishedAttempts: number;
     abandonedMessage: number;
   };

@@ -4,7 +4,8 @@
 // use `wtf.dump();` to get all open handles
 // eslint-disable-next-line prettier/prettier
 import inspector from 'inspector';
-import { Client, PoolClient } from 'pg';
+import { Client } from 'pg';
+import { DatabaseClient } from '../common/database';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { IsolationLevel, sleep } from '../common/utils';
 import { StoredTransactionalMessage } from '../message/transactional-message';
@@ -21,7 +22,7 @@ if (isDebugMode()) {
 }
 
 // Mock the DB client to send data and to check that it was (not) called for acknowledgement
-let client: PoolClient & {
+let client: DatabaseClient & {
   initiateMessageProcessing: number;
   startedAttemptsIncrement: number;
   increaseMessageFinishedAttempts: number;

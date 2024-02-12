@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import inspector from 'inspector';
-import { Pool, PoolClient } from 'pg';
+import { Pool } from 'pg';
 import { ListenerConfig } from '../common/base-config';
+import { DatabaseClient } from '../common/database';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { initializeMessageStorage } from './initialize-message-storage';
 import { TransactionalMessage } from './transactional-message';
@@ -48,7 +49,7 @@ const config: ListenerConfig = {
 
 describe('initializeMessageStorage', () => {
   let pool: Pool;
-  let client: PoolClient;
+  let client: DatabaseClient;
   beforeEach(() => {
     client = {
       query: jest.fn(async (sql: string, params: [unknown]) => {
@@ -72,7 +73,7 @@ describe('initializeMessageStorage', () => {
         }
         throw new Error(`Missed to mock the following SQL query: ${sql}`);
       }),
-    } as unknown as PoolClient;
+    } as unknown as DatabaseClient;
     pool = {
       connect: () => client,
       on: jest.fn(),

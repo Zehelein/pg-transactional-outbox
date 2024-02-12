@@ -155,7 +155,9 @@ const processMessage = async (
         cancellation.on('timeout', async () => {
           timedOut = true;
           await client.query('ROLLBACK');
-          await justDoIt(client.release);
+          await justDoIt(() => {
+            client.release?.();
+          });
         });
 
         // lock the message from further processing

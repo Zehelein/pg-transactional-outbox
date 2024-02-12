@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { ClientBase, Pool } from 'pg';
 import { ListenerConfig } from '../common/base-config';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
@@ -38,7 +38,7 @@ describe('defaultMessageProcessingDbClientStrategy', () => {
     const client = await strategy.getClient({
       id: '1',
     } as StoredTransactionalMessage);
-    expect(client.escapeLiteral('x')).toBe('x');
+    expect((client as ClientBase).escapeLiteral('x')).toBe('x');
   });
 
   it('should log an error when the client encounters an error', async () => {

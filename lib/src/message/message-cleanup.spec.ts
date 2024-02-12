@@ -1,6 +1,7 @@
-import { Pool, PoolClient } from 'pg';
+import { Pool } from 'pg';
 import { getInMemoryLogger } from '../../dist';
 import { ListenerConfig } from '../common/base-config';
+import { DatabaseClient } from '../common/database';
 import { sleep } from '../common/utils';
 import {
   runMessageCleanupOnce,
@@ -26,7 +27,7 @@ describe('deleteMessagesCompleted', () => {
     };
     const client = {
       query: jest.fn().mockReturnValue({ rowCount: 12 }),
-    } as unknown as PoolClient;
+    } as unknown as DatabaseClient;
 
     // Act
     const deleted = await runMessageCleanupOnce(client, { settings });
@@ -53,7 +54,7 @@ describe('deleteMessagesCompleted', () => {
     };
     const client = {
       query: jest.fn().mockReturnValue({ rowCount: 0 }),
-    } as unknown as PoolClient;
+    } as unknown as DatabaseClient;
 
     // Act
     await runMessageCleanupOnce(client, { settings });
@@ -73,7 +74,7 @@ describe('deleteMessagesCompleted', () => {
     };
     const client = {
       query: jest.fn(),
-    } as unknown as PoolClient;
+    } as unknown as DatabaseClient;
 
     // Act
     await runMessageCleanupOnce(client, { settings });

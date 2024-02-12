@@ -1,5 +1,5 @@
-import { PoolClient } from 'pg';
 import { ListenerConfig, ListenerSettings } from '../common/base-config';
+import { DatabaseClient } from '../common/database';
 import { MessageError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { TransactionalMessage } from './transactional-message';
@@ -16,7 +16,10 @@ export const initializeMessageStorage = (
     outboxOrInbox,
   }: Pick<ListenerConfig, 'settings' | 'outboxOrInbox'>,
   logger: TransactionalLogger,
-): ((message: TransactionalMessage, client: PoolClient) => Promise<void>) => {
+): ((
+  message: TransactionalMessage,
+  client: DatabaseClient,
+) => Promise<void>) => {
   /**
    * The function to store the message data to the database.
    * @param message The received message that should be stored as a outbox or inbox message
@@ -25,7 +28,7 @@ export const initializeMessageStorage = (
    */
   return async (
     message: TransactionalMessage,
-    client: PoolClient,
+    client: DatabaseClient,
   ): Promise<void> => {
     try {
       await insertMessage(message, client, settings, logger);
@@ -47,7 +50,7 @@ export const initializeMessageStorage = (
 
 const insertMessage = async (
   message: TransactionalMessage,
-  client: PoolClient,
+  client: DatabaseClient,
   { dbSchema, dbTable }: ListenerSettings,
   logger: TransactionalLogger,
 ) => {

@@ -1,5 +1,5 @@
-import { PoolClient } from 'pg';
 import { ListenerConfig } from '../../dist';
+import { DatabaseClient } from '../common/database';
 import { markMessageAbandoned } from './mark-message-abandoned';
 import { StoredTransactionalMessage } from './transactional-message';
 
@@ -11,7 +11,7 @@ describe('markMessageAbandoned', () => {
     } as unknown as StoredTransactionalMessage;
     const mockClient = {
       query: jest.fn(),
-    } as unknown as PoolClient;
+    } as unknown as DatabaseClient;
     const mockConfig = {
       settings: {
         dbSchema: 'test_schema',

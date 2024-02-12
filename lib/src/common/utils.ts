@@ -1,4 +1,5 @@
 import { Pool, PoolClient } from 'pg';
+import { DatabaseClient } from './database';
 import { TransactionalOutboxInboxError, ensureExtendedError } from './error';
 import { TransactionalLogger } from './logger';
 
@@ -66,8 +67,8 @@ export enum IsolationLevel {
  * @throws Any error from the database or the callback.
  */
 export const executeTransaction = async <T>(
-  client: PoolClient,
-  callback: (client: PoolClient) => Promise<T>,
+  client: DatabaseClient,
+  callback: (client: DatabaseClient) => Promise<T>,
   isolationLevel?: IsolationLevel,
 ): Promise<T> => {
   const isolation = Object.values(IsolationLevel).includes(
@@ -81,7 +82,7 @@ export const executeTransaction = async <T>(
     );
     const result = await callback(client);
     await client.query('COMMIT');
-    client.release();
+    client.release?.();
     return result;
   } catch (err) {
     const error = ensureExtendedError(err, 'DB_ERROR');
@@ -90,13 +91,13 @@ export const executeTransaction = async <T>(
     } catch (rollbackError) {
       error.innerError = ensureExtendedError(rollbackError, 'DB_ERROR');
     }
-    client.release(error);
+    client.release?.(error);
     throw error;
   }
 };
 
 /**
- * Creates a PoolClient from the given pool.
+ * Creates a PoolClient from the given pool and attaches the logger for error logging.
  * @param pool A PostgreSQL database pool from which clients can be created.
  * @param logger A logger that will be registered for the on-error event of the client.
  * @returns The PoolClient object

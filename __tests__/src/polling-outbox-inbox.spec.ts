@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { resolve } from 'path';
-import { Client, Pool, PoolClient } from 'pg';
+import { Client, Pool } from 'pg';
 import {
+  DatabaseClient,
   InMemoryLogEntry,
   StoredTransactionalMessage,
   TransactionalLogger,
@@ -218,7 +219,7 @@ describe('Polling integration tests', () => {
         messageType,
         handle: async (
           message: StoredTransactionalMessage,
-          _client: PoolClient,
+          _client: DatabaseClient,
         ): Promise<void> => {
           inboxMessageReceived = message;
         },
@@ -261,7 +262,7 @@ describe('Polling integration tests', () => {
         messageType,
         handle: async (
           message: StoredTransactionalMessage,
-          _client: PoolClient,
+          _client: DatabaseClient,
         ): Promise<void> => {
           receivedInboxMessages.push(message);
         },
@@ -329,7 +330,7 @@ describe('Polling integration tests', () => {
         messageType,
         handle: async (
           message: StoredTransactionalMessage,
-          _client: PoolClient,
+          _client: DatabaseClient,
         ): Promise<void> => {
           inboxMessageReceived = message;
         },
@@ -385,7 +386,7 @@ describe('Polling integration tests', () => {
         messageType,
         handle: async (
           message: StoredTransactionalMessage,
-          _client: PoolClient,
+          _client: DatabaseClient,
         ): Promise<void> => {
           if (Math.random() < 0.1 && maxErrors-- > 0) {
             inboxLogger.fatal(
@@ -445,7 +446,7 @@ describe('Polling integration tests', () => {
         messageType,
         handle: async (
           message: StoredTransactionalMessage,
-          _client: PoolClient,
+          _client: DatabaseClient,
         ): Promise<void> => {
           if (message.aggregateId === uuid1) {
             await sleep(250);

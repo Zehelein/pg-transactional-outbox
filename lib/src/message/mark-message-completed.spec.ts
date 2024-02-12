@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-import { PoolClient } from 'pg';
 import { ListenerConfig } from '../common/base-config';
+import { DatabaseClient } from '../common/database';
 import { markMessageCompleted } from './mark-message-completed';
 import { StoredTransactionalMessage } from './transactional-message';
 
@@ -19,7 +19,7 @@ describe('markMessageCompleted', () => {
         rowCount: 0,
         rows: [],
       }),
-    } as unknown as PoolClient;
+    } as unknown as DatabaseClient;
     const storedMessage = { id: 'message-id' } as StoredTransactionalMessage;
 
     // Act

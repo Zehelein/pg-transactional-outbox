@@ -5,6 +5,7 @@ export {
   ListenerSettings,
   OutboxOrInbox,
 } from './common/base-config';
+export { DatabaseClient } from './common/database';
 export {
   ErrorCode,
   ExtendedError,

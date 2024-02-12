@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { PoolClient } from 'pg';
+import { DatabaseClient } from '../common/database';
 import { getDisabledLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 import { ReplicationConfig } from '../replication/config';
@@ -100,7 +100,7 @@ function getClient({
       }
     },
     release() {},
-  } as unknown as PoolClient & {
+  } as unknown as DatabaseClient & {
     startedAttemptsIncrement: number;
     initiateMessageProcessing: number;
     markMessageCompleted: number;

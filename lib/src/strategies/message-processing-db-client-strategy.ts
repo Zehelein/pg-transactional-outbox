@@ -1,5 +1,6 @@
-import { Pool, PoolClient } from 'pg';
+import { Pool } from 'pg';
 import { ListenerConfig } from '../common/base-config';
+import { DatabaseClient } from '../common/database';
 import { ensureExtendedError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
@@ -16,7 +17,7 @@ export interface MessageProcessingDbClientStrategy {
    * @param message The stored message
    * @returns The PostgreSQL client to use to process the message
    */
-  getClient: (message: StoredTransactionalMessage) => Promise<PoolClient>;
+  getClient: (message: StoredTransactionalMessage) => Promise<DatabaseClient>;
 
   shutdown: () => Promise<void>;
 }
@@ -39,7 +40,7 @@ export const defaultMessageProcessingDbClientStrategy = (
   return {
     getClient: async (
       _message: StoredTransactionalMessage,
-    ): Promise<PoolClient> => await pool.connect(),
+    ): Promise<DatabaseClient> => await pool.connect(),
     shutdown: async () => {
       pool.removeAllListeners();
       try {

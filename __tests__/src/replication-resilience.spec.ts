@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { resolve } from 'path';
-import { Client, Pool, PoolClient } from 'pg';
+import { Client, Pool } from 'pg';
 import {
+  DatabaseClient,
   StoredTransactionalMessage,
   TransactionalLogger,
   TransactionalMessage,
@@ -36,7 +37,7 @@ const metadata = { routingKey: 'test.route', exchange: 'test-exchange' };
 const createContent = (id: string) => `Content for id ${id}`;
 
 const insertSourceEntity = async (
-  client: PoolClient,
+  client: DatabaseClient,
   id: string,
   content: string,
   storeOutboxMessage: ReturnType<typeof initializeMessageStorage>,
@@ -244,7 +245,7 @@ describe('Outbox and inbox resilience integration tests for replication', () => 
           messageType,
           handle: async (
             message: StoredTransactionalMessage,
-            client: PoolClient,
+            client: DatabaseClient,
           ): Promise<void> => {
             await client.query('SELECT NOW() as now');
             processedMessages.push(message);

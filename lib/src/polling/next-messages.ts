@@ -1,15 +1,7 @@
+import { DatabaseClient } from '../common/database';
 import { TransactionalLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 import { PollingListenerConfig } from './config';
-
-// Basic type to support both the Pool directly as well as PostgreSQL clients
-interface QueryResult {
-  rowCount: number | null;
-  rows: any[];
-}
-interface Queryable {
-  query(queryTextOrConfig: string, values?: any[]): Promise<QueryResult>;
-}
 
 /**
  * Gets the next inbox messages from the database and sets the locked_until
@@ -21,7 +13,7 @@ interface Queryable {
  */
 export const getNextInboxMessages = async (
   maxMessages: number,
-  client: Queryable,
+  client: DatabaseClient,
   settings: PollingListenerConfig,
   logger: TransactionalLogger,
 ): Promise<StoredTransactionalMessage[]> => {

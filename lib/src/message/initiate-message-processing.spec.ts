@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import inspector from 'inspector';
-import { PoolClient } from 'pg';
+import { DatabaseClient } from '../common/database';
 import { ReplicationListenerConfig } from '../replication/config';
 import { initiateMessageProcessing } from './initiate-message-processing';
 import {
@@ -46,7 +46,7 @@ const settings = {
 const getTestClient = (resolveValue: any) =>
   ({
     query: jest.fn().mockResolvedValue(resolveValue),
-  }) as unknown as PoolClient;
+  }) as unknown as DatabaseClient;
 
 describe('initiateMessageProcessing', () => {
   test('it verifies the message', async () => {

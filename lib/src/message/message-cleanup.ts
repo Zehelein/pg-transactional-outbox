@@ -1,5 +1,6 @@
-import { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg';
+import { Pool } from 'pg';
 import { ListenerConfig } from '../common/base-config';
+import { DatabaseClient } from '../common/database';
 import { ensureExtendedError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 
@@ -12,14 +13,6 @@ export interface DeleteOld {
   deleteAllInSec?: number;
 }
 
-interface Queryable {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  query<R extends QueryResultRow = any, I extends any[] = any[]>(
-    queryTextOrConfig: string | QueryConfig<I>,
-    values?: I,
-  ): Promise<QueryResult<R>>;
-}
-
 /**
  * Deletes messages from the inbox. Please keep in mind that messages should
  * stay for some time especially in the inbox to handle message deduplication.
@@ -29,7 +22,7 @@ interface Queryable {
  * @returns The number of deleted rows
  */
 export const runMessageCleanupOnce = async (
-  client: PoolClient | Queryable,
+  client: DatabaseClient,
   {
     settings: {
       dbSchema,

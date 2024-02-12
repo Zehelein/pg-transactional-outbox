@@ -180,6 +180,25 @@ describe('Utils Unit Tests', () => {
       expect(result).toBe('SELECT 1;');
     });
 
+    it('should return the result of the callback even if the client is a client without a release function', async () => {
+      // Arrange
+      const client = {
+        on: jest.fn(),
+        query: jest.fn(),
+        listeners: jest.fn().mockReturnValue([]),
+      };
+
+      // Act
+      const result = await executeTransaction(
+        client,
+        callback,
+        IsolationLevel.Serializable,
+      );
+
+      // Assert
+      expect(result).toBe('SELECT 1;');
+    });
+
     it('should commit the transaction if the callback resolves', async () => {
       // Arrange
       const client = await pool.connect();
@@ -220,6 +239,24 @@ describe('Utils Unit Tests', () => {
       ).rejects.toThrow('Callback error');
       expect(client.query).toHaveBeenCalledWith('ROLLBACK');
       expect(client.release).toHaveBeenCalled();
+    });
+
+    it('should rollback the transaction if the callback throws and log any rollback error as inner error even when a client without release is used', async () => {
+      // Arrange
+      callback.mockRejectedValue(new Error('Callback error'));
+      const client = {
+        on: jest.fn(),
+        query: jest
+          .fn()
+          .mockResolvedValueOnce(Promise.resolve()) // start transaction
+          .mockReturnValueOnce(Promise.reject(new Error('Inner error'))), // rollback
+        listeners: jest.fn().mockReturnValue([]),
+      };
+
+      // Act + Assert
+      await expect(
+        executeTransaction(client, callback, IsolationLevel.Serializable),
+      ).rejects.toThrow('Callback error');
     });
   });
 
