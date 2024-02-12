@@ -889,10 +889,10 @@ describe('Polling integration tests', () => {
           ...cfg,
           settings: {
             ...settings,
-            messageCleanupInterval: 1, // seconds
-            messageCleanupProcessed: 250,
-            messageCleanupAbandoned: undefined,
-            messageCleanupAll: undefined,
+            messageCleanupIntervalInMs: 100,
+            messageCleanupProcessedInSec: 250,
+            messageCleanupAbandonedInSec: undefined,
+            messageCleanupAllInSec: undefined,
           },
         },
         inboxLogger,
@@ -910,7 +910,7 @@ describe('Polling integration tests', () => {
           )
         ).rows[0];
       expect((await getCount()).count).toBe('4');
-      await sleep(1200);
+      await sleep(200);
       expect((await getCount()).count).toBe('1');
     });
 
@@ -947,10 +947,10 @@ describe('Polling integration tests', () => {
           ...cfg,
           settings: {
             ...settings,
-            messageCleanupInterval: 1, // seconds
-            messageCleanupProcessed: undefined,
-            messageCleanupAbandoned: 450,
-            messageCleanupAll: undefined,
+            messageCleanupIntervalInMs: 100,
+            messageCleanupProcessedInSec: undefined,
+            messageCleanupAbandonedInSec: 450,
+            messageCleanupAllInSec: undefined,
           },
         },
         inboxLogger,
@@ -968,7 +968,7 @@ describe('Polling integration tests', () => {
           )
         ).rows[0];
       expect((await getCount()).count).toBe('4');
-      await sleep(1200);
+      await sleep(200);
       expect((await getCount()).count).toBe('3');
     });
 
@@ -1000,10 +1000,10 @@ describe('Polling integration tests', () => {
           ...cfg,
           settings: {
             ...settings,
-            messageCleanupInterval: 1, // seconds
-            messageCleanupProcessed: undefined,
-            messageCleanupAbandoned: undefined,
-            messageCleanupAll: 350,
+            messageCleanupIntervalInMs: 100,
+            messageCleanupProcessedInSec: undefined,
+            messageCleanupAbandonedInSec: undefined,
+            messageCleanupAllInSec: 350,
           },
         },
         inboxLogger,
@@ -1021,7 +1021,7 @@ describe('Polling integration tests', () => {
           )
         ).rows[0];
       expect((await getCount()).count).toBe('4');
-      await sleep(1200);
+      await sleep(200);
       expect((await getCount()).count).toBe('2');
     });
   });

@@ -183,7 +183,7 @@ const getStrategies = (config?: ReplicationConfig): ReplicationStrategies => {
   const cfg =
     config ??
     ({
-      settings: { ...settings, messageProcessingTimeout: 2_000 },
+      settings: { ...settings, messageProcessingTimeoutInMs: 2_000 },
     } as ReplicationConfig);
   return {
     concurrencyStrategy: defaultReplicationConcurrencyStrategy(),
@@ -589,7 +589,7 @@ describe('Local replication listener unit tests', () => {
       const config: ReplicationConfig = {
         outboxOrInbox: 'inbox',
         dbListenerConfig: {},
-        settings: { ...settings, messageProcessingTimeout: 100 },
+        settings: { ...settings, messageProcessingTimeoutInMs: 100 },
       };
       let messageHandlerCalled = false;
       let errorHandlerCalled = false;
@@ -628,7 +628,7 @@ describe('Local replication listener unit tests', () => {
       const config: ReplicationConfig = {
         outboxOrInbox: 'inbox',
         dbListenerConfig: {},
-        settings: { ...settings, messageProcessingTimeout: 2_000 },
+        settings: { ...settings, messageProcessingTimeoutInMs: 2_000 },
       };
       let messageHandlerCalled = false;
       let errorHandlerCalled = false;
@@ -672,7 +672,7 @@ describe('Local replication listener unit tests', () => {
       const config: ReplicationConfig = {
         outboxOrInbox: 'inbox',
         dbListenerConfig: {},
-        settings: { ...settings, messageProcessingTimeout: 200 },
+        settings: { ...settings, messageProcessingTimeoutInMs: 200 },
       };
       const [cleanup] = createLogicalReplicationListener(
         config,

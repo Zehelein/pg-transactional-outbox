@@ -114,7 +114,7 @@ export const initializePollingMessageListener = (
         getNextBatch,
         allStrategies.batchSizeStrategy,
         signal,
-        config.settings.nextMessagesPollingInterval ?? 500,
+        config.settings.nextMessagesPollingIntervalInMs ?? 500,
       ),
     );
   })();
@@ -182,7 +182,7 @@ const processBatch = async (
     const batchPromises = messages.map(async (message) => {
       const cancellation = new EventEmitter();
       try {
-        const messageProcessingTimeout =
+        const messageProcessingTimeoutInMs =
           allStrategies.messageProcessingTimeoutStrategy(message);
         await awaitWithTimeout(
           async () => {
@@ -192,8 +192,8 @@ const processBatch = async (
             );
             await messageHandler(message, cancellation);
           },
-          messageProcessingTimeout,
-          `Could not process the message with id ${message.id} within the timeout of ${messageProcessingTimeout} milliseconds. Please consider to use a background worker for long running tasks to not block the message processing.`,
+          messageProcessingTimeoutInMs,
+          `Could not process the message with id ${message.id} within the timeout of ${messageProcessingTimeoutInMs} milliseconds. Please consider to use a background worker for long running tasks to not block the message processing.`,
         );
         logger.trace(
           message,

@@ -34,7 +34,7 @@ export interface ListenerSettings {
    * block further messages from being processed/sent. The timeout
    * (in milliseconds) ensures to continue with the next items. Default is 15s.
    */
-  messageProcessingTimeout?: number;
+  messageProcessingTimeoutInMs?: number;
   /**
    * The maximum number of attempts to handle an incoming message.
    * Defaults to 5 which means a message is handled once initially and up to
@@ -60,14 +60,14 @@ export interface ListenerSettings {
    */
   enablePoisonousMessageProtection?: boolean;
   /**
-   * Time in seconds between the execution of the old message cleanups.
+   * Time in milliseconds between the execution of the old message cleanups.
    * Leave it undefined or zero to disable automatic message cleanup.
    */
-  messageCleanupInterval?: number;
+  messageCleanupIntervalInMs?: number;
   /** Delete messages where the processed field is older than this in seconds */
-  messageCleanupProcessed?: number;
+  messageCleanupProcessedInSec?: number;
   /** Delete messages where the abandoned field is older than this in seconds */
-  messageCleanupAbandoned?: number;
+  messageCleanupAbandonedInSec?: number;
   /** Delete messages where the created field is older than this in seconds */
-  messageCleanupAll?: number;
+  messageCleanupAllInSec?: number;
 }

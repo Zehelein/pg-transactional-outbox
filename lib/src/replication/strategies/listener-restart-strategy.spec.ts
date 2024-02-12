@@ -39,8 +39,8 @@ describe.each([
 ])('Should return the same %p', (strategyFunction) => {
   const config = {
     settings: {
-      restartDelay: 123,
-      restartDelaySlotInUse: 1234,
+      restartDelayInMs: 123,
+      restartDelaySlotInUseInMs: 1234,
     },
   } as ReplicationConfig;
   let logger: BaseLogger;
@@ -53,7 +53,7 @@ describe.each([
     jest.restoreAllMocks();
   });
 
-  it('should return restartDelaySlotInUse for PostgreSQL replication slot in use error', async () => {
+  it('should return restartDelaySlotInUseInMs for PostgreSQL replication slot in use error', async () => {
     // Arrange
     const error = createPgError('55006');
     const strategy = strategyFunction(config);
@@ -62,7 +62,7 @@ describe.each([
     const result = await strategy(error, logger, 'inbox');
 
     // Assert
-    expect(result).toBe(config.settings.restartDelaySlotInUse);
+    expect(result).toBe(config.settings.restartDelaySlotInUseInMs);
     expect(logger.trace).toHaveBeenCalledWith(
       error,
       'The replication slot for the inbox listener is currently in use.',
@@ -73,7 +73,7 @@ describe.each([
     );
   });
 
-  it('should return restartDelay for MessageErrors but not log the error', async () => {
+  it('should return restartDelayInMs for MessageErrors but not log the error', async () => {
     // Arrange
     const error = new MessageError(
       'some_other_code',
@@ -87,7 +87,7 @@ describe.each([
     const result = await strategy(error, logger, 'outbox');
 
     // Assert
-    expect(result).toBe(config.settings.restartDelay);
+    expect(result).toBe(config.settings.restartDelayInMs);
     expect(logger.error).not.toHaveBeenCalledWith(
       error,
       'Transactional outbox listener error',
@@ -133,7 +133,7 @@ describe.each([
     expect(result).toBe(250);
   });
 
-  it('should return restartDelay for other errors', async () => {
+  it('should return restartDelayInMs for other errors', async () => {
     // Arrange
     const error = new Error('some_other_code') as ExtendedError;
     error.errorCode = 'LISTENER_STOPPED';
@@ -143,7 +143,7 @@ describe.each([
     const result = await strategy(error, logger, 'outbox');
 
     // Assert
-    expect(result).toBe(config.settings.restartDelay);
+    expect(result).toBe(config.settings.restartDelayInMs);
     expect(logger.error).toHaveBeenCalledWith(
       error,
       'Transactional outbox listener error',
@@ -163,7 +163,7 @@ describe.each([
     const result = await strategy(error, logger, 'inbox');
 
     // Assert
-    expect(result).toBe(config.settings.restartDelay);
+    expect(result).toBe(config.settings.restartDelayInMs);
     if (
       strategyFunction.name ===
       defaultReplicationListenerAndSlotRestartStrategy.name
@@ -190,7 +190,7 @@ describe.each([
     const result = await strategy(error, logger, 'inbox');
 
     // Assert
-    expect(result).toBe(config.settings.restartDelay);
+    expect(result).toBe(config.settings.restartDelayInMs);
     if (
       strategyFunction.name ===
       defaultReplicationListenerAndSlotRestartStrategy.name
@@ -199,7 +199,7 @@ describe.each([
       expect(Pool).toHaveBeenCalledWith(config.dbListenerConfig);
       expect(query).toHaveBeenCalled();
       expect(end).toHaveBeenCalled();
-      expect(result).toBe(config.settings.restartDelay);
+      expect(result).toBe(config.settings.restartDelayInMs);
       expect(logger.trace).toHaveBeenCalledWith(
         expect.any(Error),
         'Failed to create the replication slot for the inbox which does not exist.',

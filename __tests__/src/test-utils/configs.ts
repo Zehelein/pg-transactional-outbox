@@ -26,12 +26,12 @@ export const getConfigs = (port: number) => {
       // Replication
       postgresPub: 'pg_transactional_inbox_tests_pub',
       postgresSlot: 'pg_transactional_inbox_tests_slot',
-      restartDelay: 1,
+      restartDelayInMs: 1,
       // Polling
       nextMessagesBatchSize: 2,
       nextMessagesFunctionName: 'next_test_inbox_messages',
-      nextMessagesPollingInterval: 100,
-      nextMessagesLockMs: 200,
+      nextMessagesPollingIntervalInMs: 100,
+      nextMessagesLockInMs: 200,
     },
   };
 
@@ -54,7 +54,7 @@ export const getConfigs = (port: number) => {
       // Polling
       nextMessagesBatchSize: 2,
       nextMessagesFunctionName: 'next_test_outbox_messages',
-      nextMessagesPollingInterval: 100,
+      nextMessagesPollingIntervalInMs: 100,
     },
   };
 

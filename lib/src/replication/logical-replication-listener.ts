@@ -345,7 +345,7 @@ const handleIncomingData = (
   ) => {
     const cancellation = new EventEmitter();
     try {
-      const messageProcessingTimeout =
+      const messageProcessingTimeoutInMs =
         messageProcessingTimeoutStrategy(message);
       await awaitWithTimeout(
         async () => {
@@ -362,8 +362,8 @@ const handleIncomingData = (
           await messageHandler(message, cancellation);
           finishProcessingLSN(lsn);
         },
-        messageProcessingTimeout,
-        `Could not process the message with ID ${message.id} and LSN ${lsn} within the timeout of ${messageProcessingTimeout} milliseconds. Please consider to use a background worker for long running tasks to not block the message processing.`,
+        messageProcessingTimeoutInMs,
+        `Could not process the message with ID ${message.id} and LSN ${lsn} within the timeout of ${messageProcessingTimeoutInMs} milliseconds. Please consider to use a background worker for long running tasks to not block the message processing.`,
       );
       logger.trace(
         message,

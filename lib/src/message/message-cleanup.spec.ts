@@ -20,9 +20,9 @@ describe('deleteMessagesCompleted', () => {
     const settings = {
       dbSchema: 'inbox',
       dbTable: 'inbox',
-      messageCleanupProcessed: 5000,
-      messageCleanupAbandoned: 10000,
-      messageCleanupAll: 20000,
+      messageCleanupProcessedInSec: 5000,
+      messageCleanupAbandonedInSec: 10000,
+      messageCleanupAllInSec: 20000,
     };
     const client = {
       query: jest.fn().mockReturnValue({ rowCount: 12 }),
@@ -35,9 +35,9 @@ describe('deleteMessagesCompleted', () => {
     expect(client.query).toHaveBeenCalledWith(
       "DELETE FROM inbox.inbox WHERE false OR processed_at < NOW() - ($1 || ' SECOND')::INTERVAL OR abandoned_at < NOW() - ($2 || ' SECOND')::INTERVAL OR created_at < NOW() - ($3 || ' SECOND')::INTERVAL RETURNING id;",
       [
-        settings.messageCleanupProcessed,
-        settings.messageCleanupAbandoned,
-        settings.messageCleanupAll,
+        settings.messageCleanupProcessedInSec,
+        settings.messageCleanupAbandonedInSec,
+        settings.messageCleanupAllInSec,
       ],
     );
     expect(deleted).toBe(12);
@@ -48,8 +48,8 @@ describe('deleteMessagesCompleted', () => {
     const settings = {
       dbSchema: 'inbox',
       dbTable: 'inbox',
-      messageCleanupAbandoned: 10000,
-      messageCleanupAll: 20000,
+      messageCleanupAbandonedInSec: 10000,
+      messageCleanupAllInSec: 20000,
     };
     const client = {
       query: jest.fn().mockReturnValue({ rowCount: 0 }),
@@ -61,7 +61,7 @@ describe('deleteMessagesCompleted', () => {
     // Assert
     expect(client.query).toHaveBeenCalledWith(
       "DELETE FROM inbox.inbox WHERE false OR abandoned_at < NOW() - ($1 || ' SECOND')::INTERVAL OR created_at < NOW() - ($2 || ' SECOND')::INTERVAL RETURNING id;",
-      [settings.messageCleanupAbandoned, settings.messageCleanupAll],
+      [settings.messageCleanupAbandonedInSec, settings.messageCleanupAllInSec],
     );
   });
 
@@ -86,8 +86,8 @@ describe('deleteMessagesCompleted', () => {
     const settings = {
       dbSchema: 'inbox',
       dbTable: 'inbox',
-      messageCleanupInterval: 1,
-      messageCleanupAll: 20000,
+      messageCleanupIntervalInMs: 100,
+      messageCleanupAllInSec: 20000,
     };
     const client = {
       query: jest.fn().mockReturnValue({ rowCount: 12 }),
@@ -97,7 +97,7 @@ describe('deleteMessagesCompleted', () => {
     const expectQueryCalled = () =>
       expect(client.query).toHaveBeenCalledWith(
         "DELETE FROM inbox.inbox WHERE false OR created_at < NOW() - ($1 || ' SECOND')::INTERVAL RETURNING id;",
-        [settings.messageCleanupAll],
+        [settings.messageCleanupAllInSec],
       );
 
     // Act and Assert
@@ -125,8 +125,8 @@ describe('deleteMessagesCompleted', () => {
     const settings = {
       dbSchema: 'inbox',
       dbTable: 'inbox',
-      messageCleanupInterval: undefined,
-      messageCleanupAll: 20000,
+      messageCleanupIntervalInMs: undefined,
+      messageCleanupAllInSec: 20000,
     };
     const client = {
       query: jest.fn().mockReturnValue({ rowCount: 6 }),

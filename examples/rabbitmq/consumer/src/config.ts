@@ -146,7 +146,7 @@ export const getPollingInboxConfig = (config: Config): PollingConfig => {
       maxPoisonousAttempts: config.maxPoisonousAttempts,
       nextMessagesBatchSize: 5,
       nextMessagesFunctionName: config.nextInboxMessagesFunctionName,
-      nextMessagesPollingInterval: 500,
+      nextMessagesPollingIntervalInMs: 500,
     },
   };
 };

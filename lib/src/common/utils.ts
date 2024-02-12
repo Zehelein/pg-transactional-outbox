@@ -13,13 +13,13 @@ export const sleep = async (milliseconds: number): Promise<void> =>
 /**
  * Run a promise but make sure to wait only a maximum amount of time for it to finish.
  * @param promise The promise to execute
- * @param timeoutMs The amount of time in milliseconds to wait for the promise to finish
+ * @param timeoutInMs The amount of time in milliseconds to wait for the promise to finish
  * @param failureMessage The message for the error if the timeout was reached
  * @returns The promise return value or a timeout error is thrown
  */
 export const awaitWithTimeout = <T>(
   promise: () => Promise<T>,
-  timeoutMs: number,
+  timeoutInMs: number,
   failureMessage?: string,
 ): Promise<T> => {
   let timeoutHandle: NodeJS.Timeout;
@@ -32,7 +32,7 @@ export const awaitWithTimeout = <T>(
             'TIMEOUT',
           ),
         ),
-      timeoutMs,
+      timeoutInMs,
     );
   });
 
@@ -127,14 +127,14 @@ export const getClient = async (
  * @param getNextBatch Get the next items to fill up the pool. Gets the batch size input parameter from the `getBatchSize` parameter
  * @param getBatchSize Async function that gets the number of batch items that are currently processed
  * @param signal A signal object to stop the processing. Setting the stopped property to true will stop the loop
- * @param maxDelayMs The maximum number of milliseconds to wait before checking if new items are there
+ * @param maxDelayInMs The maximum number of milliseconds to wait before checking if new items are there
  */
 export const processPool = async (
   processingPool: Set<Promise<void>>,
   getNextBatch: (batchSize: number) => Promise<Promise<void>[]>,
   getBatchSize: (currentlyProcessed: number) => Promise<number>,
   signal: { stopped: boolean },
-  maxDelayMs: number,
+  maxDelayInMs: number,
 ): Promise<void> => {
   while (!signal.stopped) {
     // get the dynamic pool size - and one await is needed to allow event loop to continue
@@ -151,7 +151,7 @@ export const processPool = async (
       const awaitItems = Array.from(processingPool);
       if (awaitItems.length < poolSize) {
         // If there are not enough items then try again at least after this duration
-        awaitItems.push(sleep(maxDelayMs));
+        awaitItems.push(sleep(maxDelayInMs));
       }
       await Promise.race(awaitItems);
     }

@@ -17,9 +17,9 @@ export interface PollingListenerConfig extends ListenerSettings {
    */
   nextMessagesFunctionName: string;
   /** The batch size for messages to load simultaneously. Default is 5. */
-  nextMessagesBatchSize: number;
+  nextMessagesBatchSize?: number;
   /** How long should a message be locked for exclusive processing and error handling (in milliseconds). Default is 5 seconds. */
-  nextMessagesLockMs?: number;
+  nextMessagesLockInMs?: number;
   /** Next polling interval. Default is 500ms. */
-  nextMessagesPollingInterval: number;
+  nextMessagesPollingIntervalInMs?: number;
 }

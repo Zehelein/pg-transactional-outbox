@@ -137,7 +137,7 @@ export const getPollingOutboxConfig = (config: Config): PollingConfig => {
       enablePoisonousMessageProtection: false,
       nextMessagesBatchSize: 5,
       nextMessagesFunctionName: config.nextOutboxMessagesFunctionName,
-      nextMessagesPollingInterval: 500,
+      nextMessagesPollingIntervalInMs: 500,
     },
   };
 };

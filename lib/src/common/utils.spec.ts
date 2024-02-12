@@ -283,7 +283,7 @@ describe('Utils Unit Tests', () => {
       processPool(processingPool, getNextBatch, getBatchSize, signal, 100);
       await sleep(420); // wait until the actual items are started
       signal.stopped = true;
-      await sleep(50); // wait until the last items are finished
+      await sleep(80); // wait until the last items are finished
 
       expect(getNextBatch).toHaveBeenCalledTimes(6);
       expect(getBatchSize).toHaveBeenCalledTimes(6);

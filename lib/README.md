@@ -480,7 +480,7 @@ import {
       ...baseSettings,
       nextMessagesBatchSize: 5,
       nextMessagesFunctionName: 'next_outbox_messages',
-      nextMessagesPollingInterval: 250,
+      nextMessagesPollingIntervalInMs: 250,
     },
   };
 
@@ -698,7 +698,7 @@ import {
       ...baseSettings,
       nextMessagesBatchSize: 5,
       nextMessagesFunctionName: 'next_inbox_messages',
-      nextMessagesPollingInterval: 250,
+      nextMessagesPollingIntervalInMs: 250,
     },
   };
 
@@ -946,7 +946,7 @@ The `messageProcessingTimeoutStrategy` allows you to define a message-based
 timeout on how long the message is allowed to be processed (in milliseconds).
 This allows you to give more time to process "expensive" messages while still
 processing others on a short timeout. By default, it uses the configured
-`messageProcessingTimeout` or falls back to a 15-second timeout.
+`messageProcessingTimeoutInMs` or falls back to a 15-second timeout.
 
 ### Message processing Transaction level strategy
 
@@ -1035,15 +1035,15 @@ track the caught error.
 
 The `defaultListenerRestartStrategy` checks if the error message is a PostgreSQL
 error. If the PostgreSQL error is about the replication slot being in use, it
-logs a trace entry and waits for the configured `restartDelaySlotInUse`
+logs a trace entry and waits for the configured `restartDelaySlotInUseInMs`
 (default: 10sec) time. Otherwise, it logs an error entry and waits for the
-configured `restartDelay` (default: 250ms).
+configured `restartDelayInMs` (default: 250ms).
 
 The `defaultListenerAndSlotRestartStrategy` uses the same logic as the
 `defaultListenerRestartStrategy`. In addition, it checks if a PostgreSQL error
 is about the replication slot not existing (e.g. after a DB failover). Then it
 tries to create the replication slot with the connection details of the
-replication user slot and waits for the configured `restartDelay` (default:
+replication user slot and waits for the configured `restartDelayInMs` (default:
 250ms) to restart the listener.
 
 ## Polling listener strategies

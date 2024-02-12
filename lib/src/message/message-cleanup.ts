@@ -5,11 +5,11 @@ import { TransactionalLogger } from '../common/logger';
 
 export interface DeleteOld {
   /** Delete messages where the processed field is older than the configured seconds */
-  deleteProcessed?: number;
+  deleteProcessedInSec?: number;
   /** Delete messages where the abandoned field is older than the configured seconds */
-  deleteAbandoned?: number;
+  deleteAbandonedInSec?: number;
   /** Delete messages where the created field is older than the configured seconds */
-  deleteAll?: number;
+  deleteAllInSec?: number;
 }
 
 interface Queryable {
@@ -34,32 +34,32 @@ export const runMessageCleanupOnce = async (
     settings: {
       dbSchema,
       dbTable,
-      messageCleanupProcessed,
-      messageCleanupAbandoned,
-      messageCleanupAll,
+      messageCleanupProcessedInSec,
+      messageCleanupAbandonedInSec,
+      messageCleanupAllInSec: messageCleanupAllInSec,
     },
   }: Pick<ListenerConfig, 'settings'>,
 ): Promise<number> => {
   if (
-    !messageCleanupProcessed &&
-    !messageCleanupAbandoned &&
-    !messageCleanupAll
+    !messageCleanupProcessedInSec &&
+    !messageCleanupAbandonedInSec &&
+    !messageCleanupAllInSec
   ) {
     return 0;
   }
 
   let sql = /* sql */ `DELETE FROM ${dbSchema}.${dbTable} WHERE false`;
   const insertValues = [];
-  if (messageCleanupProcessed) {
-    insertValues.push(messageCleanupProcessed);
+  if (messageCleanupProcessedInSec) {
+    insertValues.push(messageCleanupProcessedInSec);
     sql += /* sql */ ` OR processed_at < NOW() - ($${insertValues.length} || ' SECOND')::INTERVAL`;
   }
-  if (messageCleanupAbandoned) {
-    insertValues.push(messageCleanupAbandoned);
+  if (messageCleanupAbandonedInSec) {
+    insertValues.push(messageCleanupAbandonedInSec);
     sql += /* sql */ ` OR abandoned_at < NOW() - ($${insertValues.length} || ' SECOND')::INTERVAL`;
   }
-  if (messageCleanupAll) {
-    insertValues.push(messageCleanupAll);
+  if (messageCleanupAllInSec) {
+    insertValues.push(messageCleanupAllInSec);
     sql += /* sql */ ` OR created_at < NOW() - ($${insertValues.length} || ' SECOND')::INTERVAL`;
   }
   const rows = await client.query(`${sql} RETURNING id;`, insertValues);
@@ -79,7 +79,7 @@ export const runScheduledMessageCleanup = (
   logger: TransactionalLogger,
 ): NodeJS.Timeout | undefined => {
   const { settings } = config;
-  if (settings.messageCleanupInterval) {
+  if (settings.messageCleanupIntervalInMs) {
     return setInterval(() => {
       runMessageCleanupOnce(pool, config)
         .then((deleted) => {
@@ -97,7 +97,7 @@ export const runScheduledMessageCleanup = (
           const err = ensureExtendedError(e, 'MESSAGE_CLEANUP_ERROR');
           logger.warn(err, 'Could not run the message cleanup logic.');
         });
-    }, settings.messageCleanupInterval * 1000);
+    }, settings.messageCleanupIntervalInMs);
   }
   return undefined;
 };

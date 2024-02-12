@@ -12,7 +12,7 @@ export interface ReplicationStrategies {
 
   /**
    * Defines the message processing timeout strategy. By default, it uses the
-   * configured messageProcessingTimeout or falls back to a 15-second timeout.
+   * configured messageProcessingTimeoutInMs or falls back to a 15-second timeout.
    */
   messageProcessingTimeoutStrategy: MessageProcessingTimeoutStrategy;
 

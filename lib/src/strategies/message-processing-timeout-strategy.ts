@@ -13,10 +13,10 @@ export interface MessageProcessingTimeoutStrategy {
 
 /**
  * Get the default message processing timeout strategy which uses the
- * messageProcessingTimeout setting if this is defined or 2 seconds.
+ * messageProcessingTimeoutInMs setting if this is defined or 2 seconds.
  */
 export const defaultMessageProcessingTimeoutStrategy =
   (config: ListenerConfig): MessageProcessingTimeoutStrategy =>
   () => {
-    return config.settings.messageProcessingTimeout ?? 2_000;
+    return config.settings.messageProcessingTimeoutInMs ?? 2_000;
   };

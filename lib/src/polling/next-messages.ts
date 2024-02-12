@@ -2,7 +2,7 @@ import { TransactionalLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 import { PollingListenerConfig } from './config';
 
-// Basic type to support both the Pool directly as well as clients
+// Basic type to support both the Pool directly as well as PostgreSQL clients
 interface QueryResult {
   rowCount: number | null;
   rows: any[];
@@ -27,7 +27,7 @@ export const getNextInboxMessages = async (
 ): Promise<StoredTransactionalMessage[]> => {
   const schema = settings.nextMessagesFunctionSchema ?? settings.dbSchema;
   const func = settings.nextMessagesFunctionName;
-  const lock = settings.nextMessagesLockMs ?? 5000;
+  const lock = settings.nextMessagesLockInMs ?? 5000;
 
   const messagesResult = await client.query(
     /* sql */ `SELECT * FROM ${schema}.${func}(${maxMessages}, ${lock});`,

@@ -6,7 +6,7 @@ describe('defaultMessageProcessingTimeoutStrategy', () => {
   it('should return the configured value', () => {
     const getTimeout = defaultMessageProcessingTimeoutStrategy({
       settings: {
-        messageProcessingTimeout: 123,
+        messageProcessingTimeoutInMs: 123,
       },
     } as ListenerConfig);
 
@@ -16,7 +16,7 @@ describe('defaultMessageProcessingTimeoutStrategy', () => {
   it('should return the default value when the config value is undefined', () => {
     const getTimeout = defaultMessageProcessingTimeoutStrategy({
       settings: {
-        messageProcessingTimeout: undefined,
+        messageProcessingTimeoutInMs: undefined,
       },
     } as ListenerConfig);
 

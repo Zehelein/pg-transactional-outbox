@@ -121,7 +121,7 @@ const config: PollingConfig = {
     dbTable: 'test_table',
     nextMessagesBatchSize: 2,
     nextMessagesFunctionName: 'next_inbox_messages',
-    nextMessagesPollingInterval: 100,
+    nextMessagesPollingIntervalInMs: 100,
   },
 };
 

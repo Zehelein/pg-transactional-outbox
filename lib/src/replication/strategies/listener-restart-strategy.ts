@@ -32,9 +32,9 @@ export interface ReplicationListenerRestartStrategy {
 /**
  * The default listener restart strategy checks if the error is a PostgreSQL
  * error. If the PostgreSQL error is about the replication slot being in use, it
- * logs a trace entry and waits for the configured `restartDelaySlotInUse`
+ * logs a trace entry and waits for the configured `restartDelaySlotInUseInMs`
  * (default: 10sec) time. Otherwise, it logs an error entry and waits for the
- * configured `restartDelay` (default: 250ms).
+ * configured `restartDelayInMs` (default: 250ms).
  */
 export const defaultReplicationListenerRestartStrategy = (
   config: ReplicationConfig,
@@ -47,7 +47,7 @@ export const defaultReplicationListenerRestartStrategy = (
  * `defaultListenerRestartStrategy`. In addition, it checks if a PostgreSQL error
  * is about the replication slot not existing (e.g. after a DB failover). Then
  * it tries to create the replication slot with the connection details of the
- * replication user slot and waits for the configured `restartDelay` (default:
+ * replication user slot and waits for the configured `restartDelayInMs` (default:
  * 250ms).
  */
 export const defaultReplicationListenerAndSlotRestartStrategy = (
@@ -58,7 +58,7 @@ export const defaultReplicationListenerAndSlotRestartStrategy = (
 
 const handleError = (
   {
-    settings: { restartDelay, restartDelaySlotInUse, postgresSlot },
+    settings: { restartDelayInMs, restartDelaySlotInUseInMs, postgresSlot },
     dbListenerConfig: pgReplicationConfig,
   }: ReplicationConfig,
   replicationSlotNotFoundCallback?: typeof createReplicationSlot,
@@ -74,7 +74,7 @@ const handleError = (
           error,
           `The replication slot for the ${outboxOrInbox} listener is currently in use.`,
         );
-        return restartDelaySlotInUse ?? 10_000;
+        return restartDelaySlotInUseInMs ?? 10_000;
       } else if ('code' in error && error.code === '42704') {
         // replication slot not found - best effort to create it again
         logger.error(error, error.message);
@@ -85,7 +85,7 @@ const handleError = (
           outboxOrInbox,
         );
       }
-      return restartDelay ?? 250;
+      return restartDelayInMs ?? 250;
     }
 
     if (
@@ -95,7 +95,7 @@ const handleError = (
       // Message based errors are already logged
       logger.error(error, `Transactional ${outboxOrInbox} listener error`);
     }
-    return restartDelay ?? 250;
+    return restartDelayInMs ?? 250;
   };
 };
 
