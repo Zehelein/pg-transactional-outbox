@@ -18,13 +18,14 @@ const protectedAsyncFunction = async (
 
 const createOutboxMessage = (
   id: number,
-  messageType: string,
+  segment: string,
   aggregateType = 'task',
 ): TransactionalMessage => {
   return {
     aggregateId: id.toString(),
     aggregateType,
-    messageType,
+    messageType: 'order',
+    segment,
     payload: { id },
   } as TransactionalMessage;
 };
@@ -56,11 +57,10 @@ describe('createReplicationMultiConcurrencyController', () => {
     expect(diff).toBeLessThan(100);
   });
 
-  it('Executes tasks in sequential order within a context but the contexts in parallel when the discriminating mutex is selected', async () => {
+  it('Executes tasks in sequential order within a context but the contexts in parallel when the segment mutex is selected', async () => {
     // Arrange
     const controller = createReplicationMultiConcurrencyController(
-      () => 'discriminating-mutex',
-      { discriminator: (message) => message.messageType },
+      () => 'segment-mutex',
     );
     const orderA: number[] = [];
     const orderB: number[] = [];
@@ -195,9 +195,9 @@ describe('createReplicationMultiConcurrencyController', () => {
     // Arrange
     const controller = createReplicationMultiConcurrencyController(
       (message) => {
-        switch (message.messageType) {
+        switch (message.aggregateType) {
           case 'A':
-            return 'discriminating-mutex';
+            return 'segment-mutex';
           case 'B':
             return 'full-concurrency';
           case 'C':
@@ -209,7 +209,6 @@ describe('createReplicationMultiConcurrencyController', () => {
         }
       },
       {
-        discriminator: (message) => message.aggregateType,
         maxSemaphoreParallelism: 2,
       },
     );
@@ -227,66 +226,66 @@ describe('createReplicationMultiConcurrencyController', () => {
 
     // Act: these will execute in parallel, but the mutex should ensure that tasks for A and B are completed in order.
     await Promise.all([
-      // discriminating tasks (1 then 2 and in parallel 3 then 4 --> takes ~40ms in total)
+      // segment tasks (1 then 2 and in parallel 3 then 4 --> takes ~40ms in total)
       protectedAsyncFunction(
         controller,
         createTask(orderA, 20),
-        createOutboxMessage(1, 'A', 'D1'),
+        createOutboxMessage(1, 'D1', 'A'),
       ),
       protectedAsyncFunction(
         controller,
         createTask(orderA, 20),
-        createOutboxMessage(2, 'A', 'D1'),
+        createOutboxMessage(2, 'D1', 'A'),
       ),
       protectedAsyncFunction(
         controller,
         createTask(orderA, 20),
-        createOutboxMessage(3, 'A', 'D2'),
+        createOutboxMessage(3, 'D2', 'A'),
       ),
       protectedAsyncFunction(
         controller,
         createTask(orderA, 20),
-        createOutboxMessage(4, 'A', 'D2'),
+        createOutboxMessage(4, 'D2', 'A'),
       ),
 
       // concurrent tasks (5+6 in parallel --> takes ~40ms)
       protectedAsyncFunction(
         controller,
         createTask(orderB, 40),
-        createOutboxMessage(5, 'B'),
+        createOutboxMessage(5, 'x', 'B'),
       ),
       protectedAsyncFunction(
         controller,
         createTask(orderB, 40),
-        createOutboxMessage(6, 'B'),
+        createOutboxMessage(6, 'x', 'B'),
       ),
 
       // mutex tasks (7 then 8 --> takes ~40ms)
       protectedAsyncFunction(
         controller,
         createTask(orderC, 20),
-        createOutboxMessage(7, 'C'),
+        createOutboxMessage(7, 'x', 'C'),
       ),
       protectedAsyncFunction(
         controller,
         createTask(orderC, 20),
-        createOutboxMessage(8, 'C'),
+        createOutboxMessage(8, 'x', 'C'),
       ),
       // semaphore tasks (9 and 10 then 11 --> takes ~40ms)
       protectedAsyncFunction(
         controller,
         createTask(orderD, 20),
-        createOutboxMessage(9, 'D'),
+        createOutboxMessage(9, 'x', 'D'),
       ),
       protectedAsyncFunction(
         controller,
         createTask(orderD, 30),
-        createOutboxMessage(10, 'D'),
+        createOutboxMessage(10, 'x', 'D'),
       ),
       protectedAsyncFunction(
         controller,
         createTask(orderD, 20),
-        createOutboxMessage(11, 'D'),
+        createOutboxMessage(11, 'x', 'D'),
       ),
     ]);
 
@@ -308,29 +307,13 @@ describe('createReplicationMultiConcurrencyController', () => {
     expect(diff).toBeLessThan(60);
   });
 
-  it('Throws an error if a discriminating mutex is used but the controller was not configured.', async () => {
-    // Arrange
-    const controller = createReplicationMultiConcurrencyController(
-      () => 'discriminating-mutex',
-    );
-
-    // Act + Assert
-    await expect(() =>
-      protectedAsyncFunction(
-        controller,
-        () => sleep(1),
-        createOutboxMessage(1, 'A', 'D1'),
-      ),
-    ).rejects.toThrow('A discriminating mutex controller was not configured.');
-  });
-
   it('Cancel works for all types', async () => {
     // Arrange
     const controller = createReplicationMultiConcurrencyController(
       (message) => {
-        switch (message.messageType) {
+        switch (message.segment) {
           case 'A':
-            return 'discriminating-mutex';
+            return 'segment-mutex';
           case 'B':
             return 'full-concurrency';
           case 'C':
@@ -342,7 +325,6 @@ describe('createReplicationMultiConcurrencyController', () => {
         }
       },
       {
-        discriminator: (message) => message.aggregateType,
         maxSemaphoreParallelism: 2,
       },
     );
@@ -357,7 +339,7 @@ describe('createReplicationMultiConcurrencyController', () => {
 
     // Act
 
-    // discriminating tasks (1 and only then 2)
+    // segment tasks (1 and only then 2)
     protectedAsyncFunction(
       controller,
       createTask(success, 5),

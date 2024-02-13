@@ -41,13 +41,13 @@ export { PollingConfig, PollingListenerConfig } from './polling/config';
 export { initializePollingMessageListener } from './polling/polling-message-listener';
 export { PollingMessageStrategies } from './polling/polling-strategies';
 export { ReplicationConcurrencyController } from './replication/concurrency-controller/concurrency-controller';
-export { createReplicationDiscriminatingMutexConcurrencyController } from './replication/concurrency-controller/create-discriminating-mutex-concurrency-controller';
 export { createReplicationFullConcurrencyController } from './replication/concurrency-controller/create-full-concurrency-controller';
 export {
   ReplicationMultiConcurrencyType,
   createReplicationMultiConcurrencyController,
 } from './replication/concurrency-controller/create-multi-concurrency-controller';
 export { createReplicationMutexConcurrencyController } from './replication/concurrency-controller/create-mutex-concurrency-controller';
+export { createReplicationSegmentMutexConcurrencyController } from './replication/concurrency-controller/create-segment-mutex-concurrency-controller';
 export { createReplicationSemaphoreConcurrencyController } from './replication/concurrency-controller/create-semaphore-concurrency-controller';
 export {
   ReplicationConfig,

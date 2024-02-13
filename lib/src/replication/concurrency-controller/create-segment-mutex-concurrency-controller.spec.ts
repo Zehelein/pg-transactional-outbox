@@ -1,7 +1,7 @@
 import { sleep } from '../../common/utils';
 import { TransactionalMessage } from '../../message/transactional-message';
 import { ReplicationConcurrencyController } from './concurrency-controller';
-import { createReplicationDiscriminatingMutexConcurrencyController } from './create-discriminating-mutex-concurrency-controller';
+import { createReplicationSegmentMutexConcurrencyController } from './create-segment-mutex-concurrency-controller';
 
 const protectedAsyncFunction = async (
   controller: ReplicationConcurrencyController,
@@ -18,13 +18,13 @@ const protectedAsyncFunction = async (
 
 const createOutboxMessage = (
   id: number,
-  messageType: string,
+  segment: string,
 ): TransactionalMessage => {
   return {
     aggregateId: id.toString(),
     aggregateType: 'task',
     payload: { id },
-    messageType,
+    segment,
   } as TransactionalMessage;
 };
 
@@ -32,13 +32,10 @@ interface OrderMessage {
   id: number;
 }
 
-describe('createReplicationDiscriminatingMutexConcurrencyController', () => {
+describe('createReplicationSegmentMutexConcurrencyController', () => {
   it('Executes tasks in sequential order within a context but the contexts in parallel', async () => {
     // Arrange
-    const controller =
-      createReplicationDiscriminatingMutexConcurrencyController(
-        (message) => message.messageType,
-      );
+    const controller = createReplicationSegmentMutexConcurrencyController();
     const orderA: number[] = [];
     const orderB: number[] = [];
     const firstTask =
@@ -86,10 +83,7 @@ describe('createReplicationDiscriminatingMutexConcurrencyController', () => {
 
   it('Cancels all mutexes', async () => {
     // Arrange
-    const controller =
-      createReplicationDiscriminatingMutexConcurrencyController(
-        (message) => message.messageType,
-      );
+    const controller = createReplicationSegmentMutexConcurrencyController();
     const orderA: number[] = [];
     const errorA: number[] = [];
     const orderB: number[] = [];

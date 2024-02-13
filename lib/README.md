@@ -725,20 +725,16 @@ import {
   });
 
   // Define an optional concurrency strategy to handle messages with the message
-  // type "ABC" in parallel while handling other messages sequentially per
-  // aggregate type and message type combination.
+  // type "ABC" in parallel while handling other messages sequentially based on
+  // their `segment` field value.
   const concurrencyStrategy = createReplicationMultiConcurrencyController(
     (message) => {
       switch (message.messageType) {
         case 'ABC':
           return 'full-concurrency';
         default:
-          return 'discriminating-mutex';
+          return 'segment-mutex';
       }
-    },
-    {
-      discriminator: (message) =>
-        `${message.aggregateType}.${message.messageType}`,
     },
   );
 
@@ -1018,11 +1014,10 @@ There are the following pre-build ones but you can also write your own:
   message processing across all messages.
 - `createSemaphoreConcurrencyController` - this controller allows the processing
   of messages in parallel up to a configurable number.
-- `createDiscriminatingMutexConcurrencyController` - this controller enables
-  sequential message processing based on a specified discriminator. This could
-  be the message type or some other (calculated) value. The controller still
-  guarantees sequential message processing but only across messages with the
-  same discriminator.
+- `createReplicationSegmentMutexConcurrencyController` - this controller enables
+  sequential message processing based on the message "segment" discriminator.
+  The controller still guarantees sequential message processing but only across
+  messages with the same segment value.
 - `createMultiConcurrencyController` - this is a combined concurrency
   controller. You can define which of the above controllers should be used for
   different kinds of messages.

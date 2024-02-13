@@ -9,9 +9,9 @@ import {
   TransactionalLogger,
   TransactionalMessage,
   TransactionalMessageHandler,
-  createReplicationDiscriminatingMutexConcurrencyController,
   createReplicationFullConcurrencyController,
   createReplicationMultiConcurrencyController,
+  createReplicationSegmentMutexConcurrencyController,
   executeTransaction,
   getInMemoryLogger,
   initializeMessageStorage,
@@ -685,14 +685,38 @@ describe('Replication integration tests', () => {
       expect(inboxResult.rows[0].finished_attempts).toBe(5);
     });
 
-    test('discriminating mutex cares for the correct message processing order', async () => {
+    test('Segment mutex cares for the correct message processing order', async () => {
       // Arrange
-      const msg1 = createMsg({ aggregateId: '30', aggregateType: 'A' });
-      const msg2 = createMsg({ aggregateId: '100', aggregateType: 'A' });
-      const msg3 = createMsg({ aggregateId: '50', aggregateType: 'B' });
-      const msg4 = createMsg({ aggregateId: '50', aggregateType: 'B' });
-      const msg5 = createMsg({ aggregateId: '1', aggregateType: 'C' });
-      const msg6 = createMsg({ aggregateId: '1', aggregateType: 'C' });
+      const msg1 = createMsg({
+        aggregateId: '30',
+        segment: 'A',
+        aggregateType: 'A',
+      });
+      const msg2 = createMsg({
+        aggregateId: '100',
+        segment: 'A',
+        aggregateType: 'A',
+      });
+      const msg3 = createMsg({
+        aggregateId: '50',
+        segment: 'B',
+        aggregateType: 'B',
+      });
+      const msg4 = createMsg({
+        aggregateId: '50',
+        segment: 'B',
+        aggregateType: 'B',
+      });
+      const msg5 = createMsg({
+        aggregateId: '1',
+        segment: 'C',
+        aggregateType: 'C',
+      });
+      const msg6 = createMsg({
+        aggregateId: '1',
+        segment: 'C',
+        aggregateType: 'C',
+      });
       const createHandler = (aggregateType: string) => ({
         aggregateType,
         messageType,
@@ -724,9 +748,7 @@ describe('Replication integration tests', () => {
         inboxLogger,
         {
           concurrencyStrategy:
-            createReplicationDiscriminatingMutexConcurrencyController(
-              (message) => message.aggregateType,
-            ),
+            createReplicationSegmentMutexConcurrencyController(),
         },
       );
       cleanup = async () => {
@@ -747,25 +769,29 @@ describe('Replication integration tests', () => {
     test('multi concurrency controller cares for the correct message processing order', async () => {
       // Arrange - message execution should all sum up to 40ms per concurrency type
 
-      // discriminating tasks (1 then 2 and in parallel 3 then 4)
-      const disc1 = createMsg({
+      // segmented tasks (1 then 2 and in parallel 3 then 4)
+      const seg1 = createMsg({
         aggregateId: '20',
         aggregateType: 'A',
+        segment: 'X',
         messageType: 'X',
       });
-      const disc2 = createMsg({
+      const seg2 = createMsg({
         aggregateId: '20',
         aggregateType: 'A',
+        segment: 'X',
         messageType: 'X',
       });
-      const disc3 = createMsg({
+      const seg3 = createMsg({
         aggregateId: '20',
         aggregateType: 'A',
+        segment: 'Y',
         messageType: 'Y',
       });
-      const disc4 = createMsg({
+      const seg4 = createMsg({
         aggregateId: '20',
         aggregateType: 'A',
+        segment: 'Y',
         messageType: 'Y',
       });
 
@@ -799,7 +825,7 @@ describe('Replication integration tests', () => {
         (message) => {
           switch (message.aggregateType) {
             case 'A':
-              return 'discriminating-mutex';
+              return 'segment-mutex';
             case 'B':
               return 'full-concurrency';
             case 'C':
@@ -811,12 +837,11 @@ describe('Replication integration tests', () => {
           }
         },
         {
-          discriminator: (message) => message.messageType,
           maxSemaphoreParallelism: 2,
         },
       );
-      const discAXMessages: TransactionalMessage[] = [];
-      const discAYMessages: TransactionalMessage[] = [];
+      const segAXMessages: TransactionalMessage[] = [];
+      const segAYMessages: TransactionalMessage[] = [];
       const concMessages: TransactionalMessage[] = [];
       const mutMessages: TransactionalMessage[] = [];
       const semMessages: TransactionalMessage[] = [];
@@ -828,10 +853,10 @@ describe('Replication integration tests', () => {
       );
 
       await executeTransaction(await handlerPool.connect(), async (client) => {
-        await storeInboxMessage(disc1, client);
-        await storeInboxMessage(disc2, client);
-        await storeInboxMessage(disc3, client);
-        await storeInboxMessage(disc4, client);
+        await storeInboxMessage(seg1, client);
+        await storeInboxMessage(seg2, client);
+        await storeInboxMessage(seg3, client);
+        await storeInboxMessage(seg4, client);
         await storeInboxMessage(conc1, client);
         await storeInboxMessage(conc2, client);
         await storeInboxMessage(mut1, client);
@@ -844,8 +869,8 @@ describe('Replication integration tests', () => {
       const [shutdownInboxSrv] = initializeReplicationMessageListener(
         configs.inboxConfig,
         [
-          createHandler(discAXMessages, 'A', 'X'),
-          createHandler(discAYMessages, 'A', 'Y'),
+          createHandler(segAXMessages, 'A', 'X'),
+          createHandler(segAYMessages, 'A', 'Y'),
           createHandler(concMessages, 'B'),
           createHandler(mutMessages, 'C'),
           createHandler(semMessages, 'D'),
@@ -862,17 +887,17 @@ describe('Replication integration tests', () => {
       // Assert
       const duration = await sleepUntilTrue(
         () =>
-          discAXMessages.length === 2 &&
-          discAYMessages.length === 2 &&
+          segAXMessages.length === 2 &&
+          segAYMessages.length === 2 &&
           concMessages.length === 2 &&
           mutMessages.length === 2 &&
           semMessages.length === 3,
         50_000,
       );
-      expect(discAXMessages[0]).toMatchObject(disc1);
-      expect(discAXMessages[1]).toMatchObject(disc2);
-      expect(discAYMessages[0]).toMatchObject(disc3);
-      expect(discAYMessages[1]).toMatchObject(disc4);
+      expect(segAXMessages[0]).toMatchObject(seg1);
+      expect(segAXMessages[1]).toMatchObject(seg2);
+      expect(segAYMessages[0]).toMatchObject(seg3);
+      expect(segAYMessages[1]).toMatchObject(seg4);
       expect(concMessages.map((m) => m.id).sort()).toStrictEqual(
         [conc1.id, conc2.id].sort(),
       );

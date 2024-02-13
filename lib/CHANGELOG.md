@@ -51,8 +51,8 @@ this file.
   ALTER TABLE public.outbox ADD COLUMN processed_at TIMESTAMPTZ;
   ```
 - Function names were renamed to not include "inbox" or "outbox" specifically
-  anymore as both use the same underlying concept now. Generally the methods and
-  type names reflect now more their roles:
+  anymore as both use the same underlying concept now. Generally, the methods
+  and type names reflect now more their roles:
   - "replication" is used for the logical replication based listener approach
   - "polling" on the other hand is used now for the polling listener approach
   - "handler" is used for code that is handling the outbox or inbox message
@@ -71,6 +71,9 @@ this file.
   ```sql
   ALTER TABLE public.outbox ALTER COLUMN created_at SET DEFAULT clock_timestamp();
   ```
+- The discriminating controller and the multi-concurrency controller were
+  changed to use the "segment" value from the messages as discriminators. This
+  was done to align that usage between the polling and replication listener.
 
 ## [0.4.0] - 2024-02-01
 
