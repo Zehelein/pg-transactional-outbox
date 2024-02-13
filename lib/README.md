@@ -249,6 +249,86 @@ This setup is purely based on the database and does not use logical replication:
 _Components involved in the transactional outbox and inbox logical replication
 implementation_
 
+## Logical replication vs. polling
+
+The logical replication and the polling listeners have different advantages and
+disadvantages. Please check the following table to get an overview and also the
+next section about considerations to operate such a solution.
+
+Both listeners can be used interchangeably with minor differences on the
+concurrency strategies. Switching from one listener type to another during
+development time requires not much code changes. Switching in production is easy
+from logical replication to polling. The way around you have to make sure that
+the replication slot is generated upfront. Then let the listener process the
+latest messages and restart the service. Some messages will be attempted twice
+but this is handled by the checks on the processed/abandoned at database fields.
+
+| Area               | Logical Replication                                                  | Polling                                                                              |
+| ------------------ | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Scaling            | Only a single instance can connect to the replication slot.          | Multiple instances can poll from the same table.                                     |
+| Lag                | Receives new messages immediately.                                   | Must poll on a (short) timeout for new messages. Can be improved with LISTEN/NOTIFY. |
+| DB load            | Listening to new messages does not use the database itself.          | Polling the database for new messages puts load on the database.                     |
+| Setup              | Logical replication must be enabled. A replication role is required. | No special settings are needed.                                                      |
+| Message priority   | Will receive messages sequentially. Picking newer messages is hard.  | Can implement any selection algorithm based on segments or other fields.             |
+| Sequential order   | Guaranteed sequential ordering same as transactions were committed.  | Sequential processing only on created_at date which may not be unique.               |
+| Quick Retries      | Receives messages again immediately when some error ocurred.         | The locked_until colum might not be reset on error. Next retry needs to wait.        |
+| Scheduled Retries  | Processes messages sequentially. May delete and re-add message.      | Can use the locked_until field to schedule messages for a later point in time.       |
+| DB degrading       | When a replication slot is not active disk space may run out.        | When messages are not deleted the polling will slow down over time.                  |
+| Migration/Failover | To guarantee same LSNs only some migration types are available.      | Can use any available migration or failover option.                                  |
+
+## Operational notes
+
+General considerations for both approaches:
+
+- Like any other service functionality it is important to monitor the
+  functionality of the listeners. This could be done by checking the amount of
+  unprocessed messages in the inbox/outbox. Or by sending and receiving a test
+  message and time the duration.
+
+### Logical replication approach
+
+The following points are important when operating the logical replication
+approach for using the transactional outbox and inbox:
+
+- When the logical replication approach is used there must be a consumer that
+  reads from the WAL and acknowledges the LSN numbers. If the consumer is down
+  for longer periods the database server must retain the WAL files which can
+  fill up the disk and bring down the full database server. Good monitoring is
+  mandatory. You can check the maximum wal size, the retention period, and the
+  wal file size configuration values. PostgreSQL will do a roll-over of old WAL
+  files if you configure a maximum size. This would mean old message
+  notifications are lost. Removing and adding all messages again in the order of
+  the created_at field could be used as a recovery strategy.
+- The name of a replication slot must be unique at the PostgreSQL server level.
+- Migrating a database when using the logical replication approach is tricky. It
+  tracks the processing progress based on the LSN numbers of the database. When
+  the database is migrated or a failover happens the replication slot must be
+  manually recreated on the new instance. Possible solutions:
+  - [Patroni configured slots](https://patroni.readthedocs.io/en/latest/dynamic_configuration.html)
+  - [pg_failover_slots](https://github.com/EnterpriseDB/pg_failover_slots)
+  - Manually: Create the replication slot on the new database server. Stop your
+    application so no new inbox/outbox messages arrive. Switch the service to
+    the new database. Messages that arrived during that time will be pushed to
+    the listener. But as the messages were marked as processed, the message
+    processing will stop.
+- The replication role has built-in permissions to list and delete all
+  replication slots on the database server. If the database server is shared it
+  is not possible to secure against replication slot deletions.
+- With the logical replication approach, it is not that important to delete
+  outbox and inbox messages quickly as the tables are not queried much besides
+  based on their unique ID.
+
+### Polling approach
+
+The polling approach has not that many special considerations. It will put
+higher load on the database due to the polling approach but is generally easier
+to maintain.
+
+- On the polling listener, it is important to delete messages from the outbox
+  and inbox tables to increase polling performance. A tradeoff must be taken
+  between the performance by deleting messages and the message deduplication
+  possibilities by keeping the messages longer.
+
 # The pg-transactional-outbox library overview
 
 This library implements the transactional outbox and inbox pattern using a
@@ -1055,6 +1135,25 @@ default is 5. But the first few times until the batch size is reached it will
 respond to return only one message. This protects against poisonous messages: if
 5 messages would be taken during startup all those 5 would be marked as
 poisonous if one of them fails.
+
+# Outlook
+
+The following points could be added to the library to improve certain scenarios:
+
+- Add functionality to (exponentially) increase the time when a message can be
+  retried again. This would set the locked_until to some configurable
+  time/factor in the future for the polling listener approach. This can already
+  be done manually in the message error handler.
+- The polling lag can be improved by using the PostgreSQL LISTEN/NOTIFY
+  functionality. This can immediately trigger a new polling query in case there
+  are worker slots open.
+- Tests for poisonous messages are hard to automate. One approach could be to
+  use a `cluster` implementation where the listener runs within a fork and can
+  safely crash (process.exit(-1)).
+- Implement a "safe delete" where messages are inserted into an "inbox_archive"
+  and "outbox_archive" table when they are deleted from the main tables. This
+  would help to debug production issues and copy messages back to their main
+  tables to do another retry.
 
 # Testing
 
