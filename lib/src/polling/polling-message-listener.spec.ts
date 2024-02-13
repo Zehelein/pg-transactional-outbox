@@ -278,7 +278,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
     cleanup = shutdown;
 
     // Act
-    await sleep(170);
+    await sleep(195);
 
     // Assert
     const expectedMessage = {

@@ -1,22 +1,16 @@
 #! /usr/bin/env node
 
 import { writeFile } from 'node:fs/promises';
-import { createInterface } from 'readline';
+import { Interface, createInterface } from 'readline';
 import {
   DatabasePollingSetupConfig,
   DatabaseReplicationSetupConfig,
 } from './database-setup';
 import { DatabaseSetupExporter } from './database-setup-exporter';
-
-/* eslint-disable @typescript-eslint/no-var-requires */
-const rli = createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
 const { createPollingScript, createReplicationScript } = DatabaseSetupExporter;
 
 /** Async way to ask a question from the CLI */
-const input = (prompt: string): Promise<string> => {
+const input = (prompt: string, rli: Interface): Promise<string> => {
   return new Promise((callbackFn) => {
     rli.question(prompt, (userInput: string): void => {
       callbackFn(userInput?.trim());
@@ -25,7 +19,8 @@ const input = (prompt: string): Promise<string> => {
 };
 
 /** Get a value from the command line with allowed values and a default value */
-const getValue = async (
+const getValueFromInput = async (
+  rli: Interface,
   prompt: string,
   allowedAnswers?: string[],
   defaultValue?: string,
@@ -33,7 +28,7 @@ const getValue = async (
   let answer;
   do {
     const d = defaultValue ? ` (default: ${defaultValue})` : '';
-    answer = await input(`\x1b[32m${prompt}\x1b[0m${d}\n> `);
+    answer = await input(`\x1b[32m${prompt}\x1b[0m${d}\n> `, rli);
     if (defaultValue && !answer) {
       answer = defaultValue;
     }
@@ -42,13 +37,18 @@ const getValue = async (
 };
 
 /** Get config values for the logical replication listener */
-const logicalReplicationValues = async (outboxOrInbox: 'outbox' | 'inbox') => {
-  const replicationSlot = await getValue(
+const logicalReplicationValues = async (
+  outboxOrInbox: 'outbox' | 'inbox',
+  rli: Interface,
+) => {
+  const replicationSlot = await getValueFromInput(
+    rli,
     `What should the name of the replication slot for the ${outboxOrInbox} be?`,
     undefined,
     `transactional_${outboxOrInbox}_slot`,
   );
-  const publication = await getValue(
+  const publication = await getValueFromInput(
+    rli,
     `What should the name of the replication publication for the ${outboxOrInbox} be?`,
     undefined,
     `transactional_${outboxOrInbox}_publication`,
@@ -60,13 +60,16 @@ const logicalReplicationValues = async (outboxOrInbox: 'outbox' | 'inbox') => {
 const pollingValues = async (
   outboxOrInbox: 'outbox' | 'inbox',
   schema: string,
+  rli: Interface,
 ) => {
-  const nextMessagesName = await getValue(
+  const nextMessagesName = await getValueFromInput(
+    rli,
     `What should the name of the ${outboxOrInbox} polling function be?`,
     undefined,
     `next_${outboxOrInbox}_messages`,
   );
-  const nextMessagesSchema = await getValue(
+  const nextMessagesSchema = await getValueFromInput(
+    rli,
     `What should the name of the database schema for the "${nextMessagesName}" function be?`,
     undefined,
     schema,
@@ -76,6 +79,17 @@ const pollingValues = async (
 
 /** Execute the CLI */
 export const dbSetupCli = async (): Promise<void> => {
+  const rli = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const getValue = (
+    prompt: string,
+    allowedAnswers?: string[],
+    defaultValue?: string,
+  ) => getValueFromInput(rli, prompt, allowedAnswers, defaultValue);
+
   const listener = await getValue(
     'What type of listener should be created?\n- Logical Replication (r)\n- Polling (p)',
     ['r', 'p'],
@@ -106,8 +120,10 @@ export const dbSetupCli = async (): Promise<void> => {
     table: string,
     skipRoles = false,
   ) => {
-    const { publication, replicationSlot } =
-      await logicalReplicationValues(outboxOrInbox);
+    const { publication, replicationSlot } = await logicalReplicationValues(
+      outboxOrInbox,
+      rli,
+    );
     const config: DatabaseReplicationSetupConfig = {
       database,
       schema,
@@ -129,6 +145,7 @@ export const dbSetupCli = async (): Promise<void> => {
     const { nextMessagesName, nextMessagesSchema } = await pollingValues(
       outboxOrInbox,
       schema,
+      rli,
     );
     const config: DatabasePollingSetupConfig = {
       database,

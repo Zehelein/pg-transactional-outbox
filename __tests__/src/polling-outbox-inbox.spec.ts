@@ -1,3 +1,6 @@
+// eslint-disable-next-line prettier/prettier
+// import * as wtf from 'wtfnode';
+// use `wtf.dump();` to get all open handles
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { resolve } from 'path';
 import { Client, Pool } from 'pg';
