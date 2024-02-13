@@ -1,5 +1,6 @@
 import EventEmitter from 'events';
 import { ListenerConfig } from '../common/base-config';
+import { releaseIfPoolClient } from '../common/database';
 import { TransactionalOutboxInboxError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { executeTransaction, justDoIt } from '../common/utils';
@@ -156,7 +157,7 @@ const processMessage = async (
           timedOut = true;
           await client.query('ROLLBACK');
           await justDoIt(() => {
-            client.release?.();
+            releaseIfPoolClient(client);
           });
         });
 

@@ -1,4 +1,4 @@
-import { ListenerConfig } from '../../dist';
+import { ListenerConfig } from '../common/base-config';
 import { DatabaseClient } from '../common/database';
 import { markMessageAbandoned } from './mark-message-abandoned';
 import { StoredTransactionalMessage } from './transactional-message';

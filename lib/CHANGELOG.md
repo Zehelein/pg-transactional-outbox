@@ -59,6 +59,18 @@ this file.
 - To get (close) to the prior outbox handling logic you can set the settings
   fields `enableMaxAttemptsProtection` and `enablePoisonousMessageProtection` to
   `false`.
+- The created_at date should use the `clock_timestamp` function to accurately
+  define the created date when the insert happened and not when the transaction
+  was committed. This is especially important for bulk inserts to maintain the
+  message sort order.  
+  For the inbox table:
+  ```sql
+  ALTER TABLE public.inbox ALTER COLUMN created_at SET DEFAULT clock_timestamp();
+  ```
+  For the outbox table:
+  ```sql
+  ALTER TABLE public.outbox ALTER COLUMN created_at SET DEFAULT clock_timestamp();
+  ```
 
 ## [0.4.0] - 2024-02-01
 

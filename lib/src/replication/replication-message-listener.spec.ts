@@ -7,7 +7,7 @@ import EventEmitter from 'events';
 import inspector from 'inspector';
 import { Client, Connection } from 'pg';
 import { Pgoutput } from 'pg-logical-replication';
-import { DatabaseClient } from '../common/database';
+import { DatabaseClient, releaseIfPoolClient } from '../common/database';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { IsolationLevel, sleep } from '../common/utils';
 import * as increaseFinishedAttemptsImportSpy from '../message/increase-message-finished-attempts';
@@ -131,7 +131,7 @@ jest.mock('../common/utils', () => {
         callback: (client: DatabaseClient) => Promise<unknown>,
       ) => {
         const response = await callback(client);
-        client.release?.();
+        releaseIfPoolClient(client);
         return response;
       },
     ),
@@ -1047,7 +1047,9 @@ describe('Replication message listener unit tests - initializeReplicationMessage
         },
       },
     );
-
+    increaseMessageFinishedAttemptsSpy.mockRejectedValueOnce(
+      new Error('Finished Attempts Increase'),
+    );
     // Act
     sendReplicationChunk('not_processed_id');
     await continueEventLoop();

@@ -1,5 +1,5 @@
 import { Pool, PoolClient } from 'pg';
-import { DatabaseClient } from './database';
+import { DatabaseClient, releaseIfPoolClient } from './database';
 import { TransactionalOutboxInboxError, ensureExtendedError } from './error';
 import { TransactionalLogger } from './logger';
 
@@ -82,7 +82,7 @@ export const executeTransaction = async <T>(
     );
     const result = await callback(client);
     await client.query('COMMIT');
-    client.release?.();
+    releaseIfPoolClient(client);
     return result;
   } catch (err) {
     const error = ensureExtendedError(err, 'DB_ERROR');
@@ -91,7 +91,7 @@ export const executeTransaction = async <T>(
     } catch (rollbackError) {
       error.innerError = ensureExtendedError(rollbackError, 'DB_ERROR');
     }
-    client.release?.(error);
+    releaseIfPoolClient(client, error);
     throw error;
   }
 };

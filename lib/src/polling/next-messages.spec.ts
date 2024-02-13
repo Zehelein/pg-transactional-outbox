@@ -1,5 +1,5 @@
 import { ClientBase } from 'pg';
-import { getDisabledLogger } from '../../dist';
+import { getDisabledLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 import { PollingListenerConfig } from './config';
 import { getNextInboxMessages } from './next-messages';

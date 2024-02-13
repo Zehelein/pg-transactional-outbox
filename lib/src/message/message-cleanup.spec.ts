@@ -1,7 +1,7 @@
 import { Pool } from 'pg';
-import { getInMemoryLogger } from '../../dist';
 import { ListenerConfig } from '../common/base-config';
 import { DatabaseClient } from '../common/database';
+import { getInMemoryLogger } from '../common/logger';
 import { sleep } from '../common/utils';
 import {
   runMessageCleanupOnce,

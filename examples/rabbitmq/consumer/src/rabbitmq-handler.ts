@@ -1,9 +1,9 @@
 import { Mutex } from 'async-mutex';
 import { Pool } from 'pg';
 import {
-  DatabaseClient,
   IsolationLevel,
   ListenerConfig,
+  MessageStorage,
   TransactionalLogger,
   TransactionalMessage,
   ensureExtendedError,
@@ -23,10 +23,7 @@ import { getMessagingConfig } from './rabbitmq-config';
 export const initializeRabbitMqHandler = async (
   config: Config,
   inboxConfig: ListenerConfig,
-  storeInboxMessage: (
-    message: TransactionalMessage,
-    client: DatabaseClient,
-  ) => Promise<void>,
+  storeInboxMessage: MessageStorage,
   messageTypes: string[],
   logger: TransactionalLogger,
 ): Promise<[shutdown: { (): Promise<void> }]> => {

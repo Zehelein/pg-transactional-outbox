@@ -4,6 +4,10 @@ import { MessageError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import { TransactionalMessage } from './transactional-message';
 
+export interface MessageStorage {
+  (message: TransactionalMessage, client: DatabaseClient): Promise<void>;
+}
+
 /**
  * Initialize the message storage to store outbox or inbox messages in the corresponding table.
  * @param config The configuration object that defines the values on how to connect to the database and general settings.
@@ -16,10 +20,7 @@ export const initializeMessageStorage = (
     outboxOrInbox,
   }: Pick<ListenerConfig, 'settings' | 'outboxOrInbox'>,
   logger: TransactionalLogger,
-): ((
-  message: TransactionalMessage,
-  client: DatabaseClient,
-) => Promise<void>) => {
+): MessageStorage => {
   /**
    * The function to store the message data to the database.
    * @param message The received message that should be stored as a outbox or inbox message

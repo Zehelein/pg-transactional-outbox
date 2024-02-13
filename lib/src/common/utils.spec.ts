@@ -1,5 +1,5 @@
 import inspector from 'inspector';
-import { Pool } from 'pg';
+import { Client, Pool } from 'pg';
 import { getInMemoryLogger } from './logger';
 import {
   IsolationLevel,
@@ -68,12 +68,16 @@ describe('Utils Unit Tests', () => {
 
     beforeEach(() => {
       pool = {
-        connect: jest.fn().mockResolvedValue({
-          on: jest.fn(),
-          query: jest.fn(),
-          release: jest.fn(),
-          listeners: jest.fn().mockReturnValue([]),
-        }),
+        connect: jest.fn().mockResolvedValue(
+          (() => {
+            const client = Object.create(Client.prototype);
+            client.on = jest.fn();
+            client.query = jest.fn();
+            client.release = jest.fn();
+            client.listeners = jest.fn().mockReturnValue([]);
+            return client;
+          })(),
+        ),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any;
       callback = jest.fn().mockResolvedValue('SELECT 1;');
@@ -186,7 +190,7 @@ describe('Utils Unit Tests', () => {
         on: jest.fn(),
         query: jest.fn(),
         listeners: jest.fn().mockReturnValue([]),
-      };
+      } as unknown as Client;
 
       // Act
       const result = await executeTransaction(
@@ -251,7 +255,7 @@ describe('Utils Unit Tests', () => {
           .mockResolvedValueOnce(Promise.resolve()) // start transaction
           .mockReturnValueOnce(Promise.reject(new Error('Inner error'))), // rollback
         listeners: jest.fn().mockReturnValue([]),
-      };
+      } as unknown as Client;
 
       // Act + Assert
       await expect(

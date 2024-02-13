@@ -24,7 +24,10 @@ export { IsolationLevel, executeTransaction } from './common/utils';
 export { GeneralMessageHandler } from './handler/general-message-handler';
 export { HandlerStrategies } from './handler/handler-strategies';
 export { TransactionalMessageHandler } from './handler/transactional-message-handler';
-export { initializeMessageStorage } from './message/initialize-message-storage';
+export {
+  MessageStorage,
+  initializeMessageStorage,
+} from './message/initialize-message-storage';
 export {
   DeleteOld,
   runMessageCleanupOnce,
