@@ -7,6 +7,7 @@ import { Client, Pool } from 'pg';
 import {
   DatabaseClient,
   InMemoryLogEntry,
+  MessageStorage,
   StoredTransactionalMessage,
   TransactionalLogger,
   TransactionalMessage,
@@ -116,30 +117,44 @@ const createMsg = (
 const insertSourceEntity = async (
   handlerPool: Pool,
   id: string,
-  content: string,
-  storeOutboxMessage: ReturnType<typeof initializeMessageStorage>,
+  payload: string,
+  storeOutboxMessage: MessageStorage,
 ) => {
   await executeTransaction(await handlerPool.connect(), async (client) => {
     const entity = await client.query(
       `INSERT INTO public.source_entities (id, content) VALUES ($1, $2) RETURNING id, content;`,
-      [id, content],
+      [id, payload],
     );
     if (entity.rowCount !== 1) {
       throw new Error(
         `Inserted ${entity.rowCount} source entities instead of 1.`,
       );
     }
-    const message: TransactionalMessage = {
-      id: uuid(),
-      aggregateId: id,
-      aggregateType,
-      messageType,
-      payload: entity.rows[0],
-      metadata,
-      createdAt: new Date().toISOString(),
-    };
-    await storeOutboxMessage(message, client);
+    await storeMessage(
+      client,
+      id,
+      JSON.stringify({ id, content: 'movie' }),
+      storeOutboxMessage,
+    );
   });
+};
+
+const storeMessage = async (
+  client: DatabaseClient,
+  id: string,
+  payload: string,
+  storeOutboxMessage: MessageStorage,
+) => {
+  const message: TransactionalMessage = {
+    id: uuid(),
+    aggregateId: id,
+    aggregateType,
+    messageType,
+    payload,
+    metadata,
+    createdAt: new Date().toISOString(),
+  };
+  await storeOutboxMessage(message, client);
 };
 
 describe('Polling integration tests', () => {
@@ -277,9 +292,6 @@ describe('Polling integration tests', () => {
         outboxLogger,
       );
       cleanup = shutdown;
-      // wait a bit so older WAL messages are received and then reset the array
-      await sleep(500);
-      receivedInboxMessages.length = 0;
       const ids = Array.from({ length: 10 }, () => uuid());
 
       // Act
@@ -353,8 +365,6 @@ describe('Polling integration tests', () => {
         },
       );
       cleanup = shutdown;
-      // wait a bit so older WAL messages are received
-      await sleep(500);
 
       // Act
       await insertSourceEntity(
@@ -409,8 +419,6 @@ describe('Polling integration tests', () => {
         outboxLogger,
       );
       cleanup = shutdown;
-      // wait a bit so older WAL messages are received
-      await sleep(500);
 
       // Act
       for (const id of uuids) {
@@ -438,6 +446,65 @@ describe('Polling integration tests', () => {
         uuids,
       );
     });
+
+    test(
+      '10000 messages are reliably sent and received in the same order.',
+      async () => {
+        const totalCount = 10_000;
+        // Arrange
+        const uuids = Array.from(Array(totalCount), () => uuid());
+        const inboxMessageReceived: StoredTransactionalMessage[] = [];
+        const inboxMessageHandler = {
+          aggregateType,
+          messageType,
+          handle: async (
+            message: StoredTransactionalMessage,
+            _client: DatabaseClient,
+          ): Promise<void> => {
+            await sleep(1);
+            inboxMessageReceived.push(message);
+          },
+        };
+        const [storeOutboxMessage, shutdown] = setupProducerAndConsumer(
+          configs,
+          [inboxMessageHandler],
+          inboxLogger,
+          outboxLogger,
+        );
+        cleanup = shutdown;
+
+        // Act
+        for (const id of uuids) {
+          // Sequentially insert the messages to test message processing sort order
+          await storeMessage(
+            handlerPool,
+            id,
+            JSON.stringify({ id, content: 'movie' }),
+            storeOutboxMessage,
+          );
+          await sleep(1); // at least one millisecond between saves to guarantee sorting
+        }
+
+        // Assert
+        const timeout = Date.now() + 4 * 60 * 1000;
+        let lastLength = 0;
+        while (
+          inboxMessageReceived.length !== totalCount &&
+          Date.now() < timeout
+        ) {
+          if (inboxMessageReceived.length > lastLength) {
+            lastLength = inboxMessageReceived.length;
+          }
+          await sleep(10);
+        }
+        expect(timeout).toBeGreaterThanOrEqual(Date.now());
+        expect(inboxMessageReceived).toHaveLength(totalCount);
+        expect(
+          inboxMessageReceived.map((msg) => msg.aggregateId),
+        ).toStrictEqual(uuids);
+      },
+      5 * 60 * 1000,
+    );
 
     test('Two messages are processed in order even if the first takes longer.', async () => {
       // Arrange
