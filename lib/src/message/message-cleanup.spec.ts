@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
-import { ListenerConfig } from '../common/base-config';
 import { DatabaseClient } from '../common/database';
+import { ListenerConfig } from '../common/listener-config';
 import { getInMemoryLogger } from '../common/logger';
 import { sleep } from '../common/utils';
 import {

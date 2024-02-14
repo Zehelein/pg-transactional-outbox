@@ -1,7 +1,7 @@
 import { Pool } from 'pg';
-import { ListenerConfig } from '../common/base-config';
 import { DatabaseClient } from '../common/database';
 import { ensureExtendedError } from '../common/error';
+import { ListenerConfig } from '../common/listener-config';
 import { TransactionalLogger } from '../common/logger';
 
 export interface DeleteOld {

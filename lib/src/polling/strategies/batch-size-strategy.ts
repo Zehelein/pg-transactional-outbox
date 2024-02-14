@@ -1,4 +1,4 @@
-import { PollingConfig } from '../config';
+import { PollingListenerConfig } from '../config';
 
 /**
  * Define the batch size strategy how many messages should be loaded at once.
@@ -20,7 +20,7 @@ export interface PollingListenerBatchSizeStrategy {
  * those 5 would be marked as poisonous if one of them fails.
  */
 export const defaultPollingListenerBatchSizeStrategy = (
-  config: PollingConfig,
+  config: PollingListenerConfig,
 ): PollingListenerBatchSizeStrategy => {
   const max = config.settings.nextMessagesBatchSize ?? 5;
   let callsSinceStart = 1;

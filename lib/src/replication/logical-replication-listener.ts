@@ -2,13 +2,13 @@ import { EventEmitter } from 'events';
 import { Client, ClientConfig, Connection, Pool } from 'pg';
 import { Pgoutput, PgoutputPlugin } from 'pg-logical-replication';
 import { AbstractPlugin } from 'pg-logical-replication/dist/output-plugins/abstract.plugin';
-import { OutboxOrInbox } from '../common/base-config';
 import {
   ExtendedError,
   MessageError,
   TransactionalOutboxInboxError,
   ensureExtendedError,
 } from '../common/error';
+import { OutboxOrInbox } from '../common/listener-config';
 import { TransactionalLogger } from '../common/logger';
 import { awaitWithTimeout } from '../common/utils';
 import { runScheduledMessageCleanup } from '../message/message-cleanup';
@@ -19,7 +19,10 @@ import {
 import { MessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
 import { createAcknowledgeManager } from './acknowledge-manager';
 import { ReplicationConcurrencyController } from './concurrency-controller/concurrency-controller';
-import { ReplicationConfig, ReplicationListenerConfig } from './config';
+import {
+  ReplicationListenerConfig,
+  ReplicationListenerSettings,
+} from './config';
 import { ReplicationStrategies } from './replication-strategies';
 
 /** connection exists on the Client but is not typed */
@@ -37,7 +40,7 @@ type ReplicationClient = Client & {
  * @returns A function to stop the logical replication listener
  */
 export const createLogicalReplicationListener = (
-  config: ReplicationConfig,
+  config: ReplicationListenerConfig,
   messageHandler: (
     message: StoredTransactionalMessage,
     cancellation: EventEmitter,
@@ -128,7 +131,7 @@ export const createLogicalReplicationListener = (
 /** Get and map the outbox/inbox message if the WAL log entry is such a message. Otherwise returns undefined. */
 const getRelevantMessage = (
   log: Pgoutput.Message,
-  { dbSchema, dbTable }: ReplicationConfig['settings'],
+  { dbSchema, dbTable }: ReplicationListenerConfig['settings'],
 ): StoredTransactionalMessage | undefined =>
   log.tag === 'insert' &&
   log.relation.schema === dbSchema &&
@@ -299,7 +302,7 @@ const KEEP_ALIVE_FLAG = 0x6b; // 107 in base 10
 const handleIncomingData = (
   client: ReplicationClient,
   plugin: AbstractPlugin,
-  config: ReplicationListenerConfig,
+  config: ReplicationListenerSettings,
   messageHandler: (
     message: StoredTransactionalMessage,
     cancellation: EventEmitter,

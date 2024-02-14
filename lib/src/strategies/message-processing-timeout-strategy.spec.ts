@@ -1,4 +1,4 @@
-import { ListenerConfig } from '../common/base-config';
+import { ListenerConfig } from '../common/listener-config';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 import { defaultMessageProcessingTimeoutStrategy } from './message-processing-timeout-strategy';
 

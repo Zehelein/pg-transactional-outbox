@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import inspector from 'inspector';
 import { DatabaseClient } from '../common/database';
-import { ReplicationListenerConfig } from '../replication/config';
+import { ReplicationListenerSettings } from '../replication/config';
 import { initiateMessageProcessing } from './initiate-message-processing';
 import {
   StoredTransactionalMessage,
@@ -40,7 +40,7 @@ const settings = {
   dbTable: 'test_table',
   postgresPub: 'test_pub',
   postgresSlot: 'test_slot',
-} as ReplicationListenerConfig;
+} as ReplicationListenerSettings;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const getTestClient = (resolveValue: any) =>

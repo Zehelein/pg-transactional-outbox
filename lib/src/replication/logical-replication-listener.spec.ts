@@ -7,7 +7,7 @@ import { Pgoutput } from 'pg-logical-replication';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { sleep } from '../common/utils';
 import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
-import { ReplicationConfig } from './config';
+import { ReplicationListenerConfig } from './config';
 import {
   createLogicalReplicationListener,
   __only_for_unit_tests__ as tests,
@@ -179,12 +179,14 @@ const relation: Pgoutput.MessageRelation = {
   keyColumns: ['id'],
 };
 
-const getStrategies = (config?: ReplicationConfig): ReplicationStrategies => {
+const getStrategies = (
+  config?: ReplicationListenerConfig,
+): ReplicationStrategies => {
   const cfg =
     config ??
     ({
       settings: { ...settings, messageProcessingTimeoutInMs: 2_000 },
-    } as ReplicationConfig);
+    } as ReplicationListenerConfig);
   return {
     concurrencyStrategy: defaultReplicationConcurrencyStrategy(),
     messageProcessingTimeoutStrategy:
@@ -373,7 +375,7 @@ describe('Local replication listener unit tests', () => {
 
     it('should call the messageHandler and acknowledge the message when no errors are thrown', async () => {
       // Arrange
-      const config: ReplicationConfig = {
+      const config: ReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
         dbListenerConfig: {},
         settings,
@@ -405,7 +407,7 @@ describe('Local replication listener unit tests', () => {
 
     it('should call the messageHandler but not acknowledge the message when a transient error is thrown', async () => {
       // Arrange
-      const config: ReplicationConfig = {
+      const config: ReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
         dbListenerConfig: {},
         settings,
@@ -443,7 +445,7 @@ describe('Local replication listener unit tests', () => {
 
     it('should call the messageHandler and acknowledge the message when a permanent error is thrown', async () => {
       // Arrange
-      const config: ReplicationConfig = {
+      const config: ReplicationListenerConfig = {
         outboxOrInbox: 'outbox',
         dbListenerConfig: {},
         settings,
@@ -481,7 +483,7 @@ describe('Local replication listener unit tests', () => {
 
     it('A keep alive to which the listener should respond is acknowledged', async () => {
       // Arrange
-      const config: ReplicationConfig = {
+      const config: ReplicationListenerConfig = {
         outboxOrInbox: 'outbox',
         dbListenerConfig: {},
         settings,
@@ -513,7 +515,7 @@ describe('Local replication listener unit tests', () => {
 
     it('A keep alive to which the listener is not required to respond is not acknowledged', async () => {
       // Arrange
-      const config: ReplicationConfig = {
+      const config: ReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
         dbListenerConfig: {},
         settings,
@@ -546,7 +548,7 @@ describe('Local replication listener unit tests', () => {
     it('Parallel messages wait to be executed sequentially', async () => {
       // Arrange
       const sleepTime = 50;
-      const config: ReplicationConfig = {
+      const config: ReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
         dbListenerConfig: {},
         settings,
@@ -586,7 +588,7 @@ describe('Local replication listener unit tests', () => {
 
     it('should call the messageHandler and then the errorHandler when the configured timeout is exceeded', async () => {
       // Arrange
-      const config: ReplicationConfig = {
+      const config: ReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
         dbListenerConfig: {},
         settings: { ...settings, messageProcessingTimeoutInMs: 100 },
@@ -625,7 +627,7 @@ describe('Local replication listener unit tests', () => {
 
     it('should call the messageHandler and then the errorHandler when the timeout strategy value is exceeded', async () => {
       // Arrange
-      const config: ReplicationConfig = {
+      const config: ReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
         dbListenerConfig: {},
         settings: { ...settings, messageProcessingTimeoutInMs: 2_000 },
@@ -669,7 +671,7 @@ describe('Local replication listener unit tests', () => {
 
     it('should call the messageHandler and acknowledge the message when the message does not run into a timeout', async () => {
       // Arrange
-      const config: ReplicationConfig = {
+      const config: ReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
         dbListenerConfig: {},
         settings: { ...settings, messageProcessingTimeoutInMs: 200 },
@@ -706,7 +708,7 @@ describe('Local replication listener unit tests', () => {
 
     it('should log that an unknown message appeared when an invalid chunk was sent', async () => {
       // Arrange
-      const config: ReplicationConfig = {
+      const config: ReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
         dbListenerConfig: {},
         settings,
@@ -742,7 +744,7 @@ describe('Local replication listener unit tests', () => {
       client.connect = jest.fn().mockImplementation(() => {
         throw new Error('something something');
       });
-      const config: ReplicationConfig = {
+      const config: ReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
         dbListenerConfig: {},
         settings,
@@ -782,7 +784,7 @@ describe('Local replication listener unit tests', () => {
       client.connect = jest.fn().mockImplementation(() => {
         throw error;
       });
-      const config: ReplicationConfig = {
+      const config: ReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
         dbListenerConfig: {},
         settings,
@@ -815,7 +817,7 @@ describe('Local replication listener unit tests', () => {
 
     it('should correctly handle database event callbacks', async () => {
       // Arrange
-      const config: ReplicationConfig = {
+      const config: ReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
         dbListenerConfig: {},
         settings,

@@ -8,7 +8,7 @@ import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-p
 import { defaultMessageProcessingTransactionLevelStrategy } from '../strategies/message-processing-transaction-level-strategy';
 import { defaultMessageRetryStrategy } from '../strategies/message-retry-strategy';
 import { defaultPoisonousMessageRetryStrategy } from '../strategies/poisonous-message-retry-strategy';
-import { ReplicationConfig } from './config';
+import { ReplicationListenerConfig } from './config';
 import { createLogicalReplicationListener } from './logical-replication-listener';
 import { ReplicationMessageStrategies } from './replication-strategies';
 import { defaultReplicationConcurrencyStrategy } from './strategies/concurrency-strategy';
@@ -24,7 +24,7 @@ import { defaultReplicationListenerRestartStrategy } from './strategies/listener
  * @returns Functions for a clean shutdown.
  */
 export const initializeReplicationMessageListener = (
-  config: ReplicationConfig,
+  config: ReplicationListenerConfig,
   messageHandlers: TransactionalMessageHandler[] | GeneralMessageHandler,
   logger: TransactionalLogger,
   strategies?: Partial<ReplicationMessageStrategies>,
@@ -62,7 +62,7 @@ export const initializeReplicationMessageListener = (
 
 const applyDefaultStrategies = (
   strategies: Partial<ReplicationMessageStrategies> | undefined,
-  config: ReplicationConfig,
+  config: ReplicationListenerConfig,
   logger: TransactionalLogger,
 ): ReplicationMessageStrategies => ({
   concurrencyStrategy:

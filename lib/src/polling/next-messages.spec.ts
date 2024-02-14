@@ -1,7 +1,7 @@
 import { ClientBase } from 'pg';
 import { getDisabledLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
-import { PollingListenerConfig } from './config';
+import { PollingListenerSettings } from './config';
 import { getNextInboxMessages } from './next-messages';
 
 describe('getNextInboxMessages', () => {
@@ -18,7 +18,7 @@ describe('getNextInboxMessages', () => {
         nextMessagesFunctionSchema: 'test',
         nextMessagesFunctionName: 'test_load_next_messages',
       },
-    } as unknown as PollingListenerConfig;
+    } as unknown as PollingListenerSettings;
 
     // Act
     const result = await getNextInboxMessages(
@@ -61,7 +61,7 @@ describe('getNextInboxMessages', () => {
         nextMessagesFunctionSchema: 'test',
         nextMessagesFunctionName: 'test_load_next_messages',
       },
-    } as unknown as PollingListenerConfig;
+    } as unknown as PollingListenerSettings;
 
     // Act
     const result = await getNextInboxMessages(
@@ -121,7 +121,7 @@ describe('getNextInboxMessages', () => {
         nextMessagesFunctionSchema: 'test',
         nextMessagesFunctionName: 'test_load_next_messages',
       },
-    } as unknown as PollingListenerConfig;
+    } as unknown as PollingListenerSettings;
 
     // Act
     const result = await getNextInboxMessages(

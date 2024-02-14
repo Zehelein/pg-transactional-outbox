@@ -1,10 +1,5 @@
 import { dbSetupCli } from './setup/db-setup-cli';
 
-export {
-  ListenerConfig,
-  ListenerSettings,
-  OutboxOrInbox,
-} from './common/base-config';
 export { DatabaseClient } from './common/database';
 export {
   ErrorCode,
@@ -13,6 +8,18 @@ export {
   TransactionalOutboxInboxError,
   ensureExtendedError,
 } from './common/error';
+export {
+  ListenerConfig,
+  ListenerSettings,
+  OutboxOrInbox,
+  fallbackEnvPrefix,
+  getInboxListenerSettings,
+  getOutboxListenerSettings,
+  inboxEnvPrefix,
+  outboxEnvPrefix,
+  printInboxListenerEnvVariables,
+  printOutboxListenerEnvVariables,
+} from './common/listener-config';
 export {
   InMemoryLogEntry,
   TransactionalLogger,
@@ -37,7 +44,14 @@ export {
   StoredTransactionalMessage,
   TransactionalMessage,
 } from './message/transactional-message';
-export { PollingConfig, PollingListenerConfig } from './polling/config';
+export {
+  PollingListenerConfig,
+  PollingListenerSettings,
+  getInboxPollingListenerSettings,
+  getOutboxPollingListenerSettings,
+  printInboxPollingListenerEnvVariables,
+  printOutboxPollingListenerEnvVariables,
+} from './polling/config';
 export { initializePollingMessageListener } from './polling/polling-message-listener';
 export { PollingMessageStrategies } from './polling/polling-strategies';
 export { ReplicationConcurrencyController } from './replication/concurrency-controller/concurrency-controller';
@@ -50,8 +64,12 @@ export { createReplicationMutexConcurrencyController } from './replication/concu
 export { createReplicationSegmentMutexConcurrencyController } from './replication/concurrency-controller/create-segment-mutex-concurrency-controller';
 export { createReplicationSemaphoreConcurrencyController } from './replication/concurrency-controller/create-semaphore-concurrency-controller';
 export {
-  ReplicationConfig,
   ReplicationListenerConfig,
+  ReplicationListenerSettings,
+  getInboxReplicationListenerSettings,
+  getOutboxReplicationListenerSettings,
+  printInboxReplicationListenerEnvVariables,
+  printOutboxReplicationListenerEnvVariables,
 } from './replication/config';
 export { initializeReplicationMessageListener } from './replication/replication-message-listener';
 export { ReplicationMessageStrategies } from './replication/replication-strategies';

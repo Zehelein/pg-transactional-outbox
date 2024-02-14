@@ -1,6 +1,6 @@
 import { DatabaseClient } from '../common/database';
-import { PollingListenerConfig } from '../polling/config';
-import { ReplicationListenerConfig } from '../replication/config';
+import { PollingListenerSettings } from '../polling/config';
+import { ReplicationListenerSettings } from '../replication/config';
 import { StoredTransactionalMessage } from './transactional-message';
 
 /**
@@ -18,7 +18,7 @@ import { StoredTransactionalMessage } from './transactional-message';
 export const initiateMessageProcessing = async (
   message: StoredTransactionalMessage,
   client: DatabaseClient,
-  settings: PollingListenerConfig | ReplicationListenerConfig,
+  settings: PollingListenerSettings | ReplicationListenerSettings,
 ): Promise<
   true | 'MESSAGE_NOT_FOUND' | 'ALREADY_PROCESSED' | 'ABANDONED_MESSAGE'
 > => {

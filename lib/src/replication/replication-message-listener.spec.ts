@@ -18,7 +18,7 @@ import {
   TransactionalMessage,
 } from '../message/transactional-message';
 import { defaultMessageProcessingDbClientStrategy } from '../strategies/message-processing-db-client-strategy';
-import { ReplicationConfig } from './config';
+import { ReplicationListenerConfig } from './config';
 import { initializeReplicationMessageListener } from './replication-message-listener';
 import { ReplicationMessageStrategies } from './replication-strategies';
 
@@ -238,7 +238,7 @@ const messageByFlag = (buffer: Buffer) => {
   }
 };
 
-const config: ReplicationConfig = {
+const config: ReplicationListenerConfig = {
   outboxOrInbox: 'inbox',
   dbHandlerConfig: {
     host: 'test_host',
@@ -728,7 +728,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       processedAt: null,
       abandonedAt: null,
     };
-    const cfg: ReplicationConfig = {
+    const cfg: ReplicationListenerConfig = {
       outboxOrInbox: 'inbox',
       dbHandlerConfig: {
         ...config.dbHandlerConfig,

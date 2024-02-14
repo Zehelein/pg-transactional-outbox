@@ -1,6 +1,6 @@
-import { ListenerConfig } from '../common/base-config';
 import { DatabaseClient } from '../common/database';
 import { TransactionalOutboxInboxError } from '../common/error';
+import { ListenerConfig } from '../common/listener-config';
 import { getDisabledLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 import { createErrorHandler } from './create-error-handler';

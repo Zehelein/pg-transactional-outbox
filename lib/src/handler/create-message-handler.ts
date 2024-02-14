@@ -1,7 +1,7 @@
 import EventEmitter from 'events';
-import { ListenerConfig } from '../common/base-config';
 import { releaseIfPoolClient } from '../common/database';
 import { TransactionalOutboxInboxError } from '../common/error';
+import { ListenerConfig } from '../common/listener-config';
 import { TransactionalLogger } from '../common/logger';
 import { executeTransaction, justDoIt } from '../common/utils';
 import { initiateMessageProcessing } from '../message/initiate-message-processing';
@@ -9,8 +9,8 @@ import { markMessageAbandoned } from '../message/mark-message-abandoned';
 import { markMessageCompleted } from '../message/mark-message-completed';
 import { startedAttemptsIncrement } from '../message/started-attempts-increment';
 import { StoredTransactionalMessage } from '../message/transactional-message';
-import { PollingConfig } from '../polling/config';
-import { ReplicationConfig } from '../replication/config';
+import { PollingListenerConfig } from '../polling/config';
+import { ReplicationListenerConfig } from '../replication/config';
 import { GeneralMessageHandler } from './general-message-handler';
 import { HandlerStrategies } from './handler-strategies';
 import { messageHandlerSelector } from './message-handler-selector';
@@ -26,7 +26,7 @@ export type ListenerType = 'replication' | 'polling';
 export const createMessageHandler = (
   messageHandlers: TransactionalMessageHandler[] | GeneralMessageHandler,
   strategies: HandlerStrategies,
-  config: PollingConfig | ReplicationConfig,
+  config: PollingListenerConfig | ReplicationListenerConfig,
   logger: TransactionalLogger,
   listenerType: ListenerType,
 ): ((
@@ -51,7 +51,7 @@ export const createMessageHandler = (
           await applyReplicationPoisonousMessageProtection(
             message,
             strategies,
-            config as ReplicationConfig,
+            config as ReplicationListenerConfig,
             logger,
           );
         if (!continueProcessing) {
@@ -94,7 +94,7 @@ export const createMessageHandler = (
 const applyReplicationPoisonousMessageProtection = async (
   message: StoredTransactionalMessage,
   strategies: HandlerStrategies,
-  config: ReplicationConfig,
+  config: ReplicationListenerConfig,
   logger: TransactionalLogger,
 ) => {
   const transactionLevel =
@@ -143,7 +143,7 @@ const processMessage = async (
   handler: GeneralMessageHandler | undefined,
   strategies: HandlerStrategies,
   cancellation: EventEmitter,
-  config: PollingConfig | ReplicationConfig,
+  config: PollingListenerConfig | ReplicationListenerConfig,
   logger: TransactionalLogger,
 ) => {
   const transactionLevel =

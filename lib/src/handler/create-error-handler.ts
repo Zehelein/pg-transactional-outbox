@@ -1,5 +1,5 @@
-import { ListenerConfig } from '../common/base-config';
 import { ExtendedError, MessageError } from '../common/error';
+import { ListenerConfig } from '../common/listener-config';
 import { TransactionalLogger } from '../common/logger';
 import { executeTransaction } from '../common/utils';
 import { increaseMessageFinishedAttempts } from '../message/increase-message-finished-attempts';

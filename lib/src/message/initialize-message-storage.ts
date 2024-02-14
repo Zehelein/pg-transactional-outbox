@@ -1,6 +1,6 @@
-import { ListenerConfig, ListenerSettings } from '../common/base-config';
 import { DatabaseClient } from '../common/database';
 import { MessageError } from '../common/error';
+import { ListenerConfig, ListenerSettings } from '../common/listener-config';
 import { TransactionalLogger } from '../common/logger';
 import { TransactionalMessage } from './transactional-message';
 

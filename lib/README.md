@@ -533,6 +533,8 @@ import {
     },
   };
 
+  // You can also use ENV variables via getOutboxReplicationListenerSettings and
+  // getOutboxPollingListenerSettings to create the settings objects.
   const dbListenerConfig = {
     host: 'localhost',
     port: 5432,
@@ -678,11 +680,31 @@ input parameter and calls it to send out messages. Other parameters are the
 `config` object, a `logger` instance and an optional strategies object to
 fine-tune and customize specific aspects of the outbox listener.
 
+You can build the configuration object from your code. Alternatively you can use
+`process.env` variables to provide the configuration values.
+
+- `getOutboxReplicationListenerSettings` is used to create the outbox
+  replication listener settings from the ENV variables.
+- `printOutboxReplicationListenerEnvVariables` shows a list of all ENV variables
+  that are available. There are the ones prefixed with "TRX\_" and
+  "TRX_OUTBOX\_". The first env variable type is shared between outbox and inbox
+  settings. The latter only for the outbox settings.
+
 The second option is to use the `initializePollingMessageListener` to use the
 database polling approach to query for unprocessed outbox messages. It uses the
 same handler to send out the message and the same logger. It has a (partly)
 different configuration object and can optionally define also different
 strategies.
+
+You can again build the configuration objects from your code or use the
+`process.env` variables.
+
+- `getOutboxPollingListenerSettings` is used to create the outbox polling
+  listener settings from the ENV variables.
+- `printOutboxPollingListenerEnvVariables` shows a list of all ENV variables
+  that are available. There are the ones prefixed with "TRX\_" and
+  "TRX_OUTBOX\_". The first env variable type is shared between outbox and inbox
+  settings. The latter only for the outbox settings.
 
 ### Message Publisher
 
@@ -734,7 +756,8 @@ import {
 (async () => {
   const logger = getDefaultLogger('outbox');
 
-  // Configuration settings for the replication and inbox table configurations
+  // You can also use ENV variables via getInboxReplicationListenerSettings and
+  // getInboxPollingListenerSettings to create the settings objects.
 
   // This configuration is used to start a transaction that locks and updates
   // the row in the inbox table that was found from the inbox table. This connection
@@ -936,10 +959,30 @@ input parameter and calls it to send out messages. Other parameters are the
 `config` object, a `logger` instance and an optional strategies object to
 fine-tune and customize specific aspects of the inbox listener.
 
+You can build the configuration object from your code. Alternatively you can use
+`process.env` variables to provide the configuration values.
+
+- `getInboxReplicationListenerSettings` is used to create the inbox replication
+  listener settings from the ENV variables.
+- `printInboxReplicationListenerEnvVariables` shows a list of all ENV variables
+  that are available. There are the ones prefixed with "TRX\_" and
+  "TRX_INBOX\_". The first env variable type is shared between outbox and inbox
+  settings. The latter only for the inbox settings.
+
 The second option is to use the `initializePollingMessageListener` to use the
 database polling approach to query unprocessed inbox messages. It uses the same
 handler to send out the message and the same logger. It has a (partly) different
 configuration object and can optionally define also different strategies.
+
+You can again build the configuration objects from your code or use the
+`process.env` variables.
+
+- `getInboxPollingListenerSettings` is used to create the inbox polling listener
+  settings from the ENV variables.
+- `printInboxPollingListenerEnvVariables` shows a list of all ENV variables that
+  are available. There are the ones prefixed with "TRX\_" and "TRX_INBOX\_". The
+  first env variable type is shared between outbox and inbox settings. The
+  latter only for the inbox settings.
 
 ### Message Handler
 

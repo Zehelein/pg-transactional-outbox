@@ -1,4 +1,4 @@
-import { OutboxOrInbox } from '../common/base-config';
+import { OutboxOrInbox } from '../common/listener-config';
 
 export interface DatabaseSetupConfig {
   outboxOrInbox: OutboxOrInbox;

@@ -1,5 +1,5 @@
 import { ClientBase, Pool } from 'pg';
-import { ListenerConfig } from '../common/base-config';
+import { ListenerConfig } from '../common/listener-config';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 import { defaultMessageProcessingDbClientStrategy } from './message-processing-db-client-strategy';

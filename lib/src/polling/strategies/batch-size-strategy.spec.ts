@@ -1,4 +1,4 @@
-import { PollingConfig } from '../config';
+import { PollingListenerConfig } from '../config';
 import { defaultPollingListenerBatchSizeStrategy } from './batch-size-strategy';
 
 describe('defaultPollingListenerBatchSizeStrategy', () => {
@@ -8,7 +8,7 @@ describe('defaultPollingListenerBatchSizeStrategy', () => {
       settings: {
         nextMessagesBatchSize: 3,
       },
-    } as PollingConfig;
+    } as PollingListenerConfig;
     const strategy = defaultPollingListenerBatchSizeStrategy(mockConfig);
 
     // Act and assert
@@ -23,7 +23,7 @@ describe('defaultPollingListenerBatchSizeStrategy', () => {
     // Arrange
     const mockConfig = {
       settings: {},
-    } as PollingConfig;
+    } as PollingListenerConfig;
     const strategy = defaultPollingListenerBatchSizeStrategy(mockConfig);
 
     // Act and assert

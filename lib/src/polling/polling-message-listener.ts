@@ -20,7 +20,7 @@ import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-p
 import { defaultMessageProcessingTransactionLevelStrategy } from '../strategies/message-processing-transaction-level-strategy';
 import { defaultMessageRetryStrategy } from '../strategies/message-retry-strategy';
 import { defaultPoisonousMessageRetryStrategy } from '../strategies/poisonous-message-retry-strategy';
-import { PollingConfig } from './config';
+import { PollingListenerConfig } from './config';
 import { getNextInboxMessages } from './next-messages';
 import { PollingMessageStrategies } from './polling-strategies';
 import { defaultPollingListenerBatchSizeStrategy } from './strategies/batch-size-strategy';
@@ -35,7 +35,7 @@ import { defaultPollingListenerBatchSizeStrategy } from './strategies/batch-size
  * @returns Functions for a clean shutdown.
  */
 export const initializePollingMessageListener = (
-  config: PollingConfig,
+  config: PollingListenerConfig,
   messageHandlers: TransactionalMessageHandler[] | GeneralMessageHandler,
   logger: TransactionalLogger,
   strategies?: Partial<PollingMessageStrategies>,
@@ -133,7 +133,7 @@ export const initializePollingMessageListener = (
 
 const applyDefaultStrategies = (
   strategies: Partial<PollingMessageStrategies> | undefined,
-  config: PollingConfig,
+  config: PollingListenerConfig,
   logger: TransactionalLogger,
 ): PollingMessageStrategies => ({
   messageProcessingDbClientStrategy:
@@ -157,7 +157,7 @@ const applyDefaultStrategies = (
 
 const processBatch = async (
   batchSize: number,
-  config: PollingConfig,
+  config: PollingListenerConfig,
   pool: Pool,
   messageHandler: (
     message: StoredTransactionalMessage,

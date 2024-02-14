@@ -1,7 +1,7 @@
 import { DatabaseClient } from '../common/database';
 import { TransactionalLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
-import { PollingListenerConfig } from './config';
+import { PollingListenerSettings } from './config';
 
 /**
  * Gets the next inbox messages from the database and sets the locked_until
@@ -14,7 +14,7 @@ import { PollingListenerConfig } from './config';
 export const getNextInboxMessages = async (
   maxMessages: number,
   client: DatabaseClient,
-  settings: PollingListenerConfig,
+  settings: PollingListenerSettings,
   logger: TransactionalLogger,
 ): Promise<StoredTransactionalMessage[]> => {
   const schema = settings.nextMessagesFunctionSchema ?? settings.dbSchema;

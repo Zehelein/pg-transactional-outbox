@@ -9,7 +9,7 @@ import { DatabaseClient } from '../common/database';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { IsolationLevel, sleep } from '../common/utils';
 import { StoredTransactionalMessage } from '../message/transactional-message';
-import { PollingConfig } from './config';
+import { PollingListenerConfig } from './config';
 import * as getNextInboxMessagesImportSpy from './next-messages';
 import { initializePollingMessageListener } from './polling-message-listener';
 import { PollingMessageStrategies } from './polling-strategies';
@@ -101,7 +101,7 @@ const poisonousExceededMessage: StoredTransactionalMessage = {
   abandonedAt: null,
 };
 
-const config: PollingConfig = {
+const config: PollingListenerConfig = {
   outboxOrInbox: 'inbox',
   dbHandlerConfig: {
     host: 'test_host',

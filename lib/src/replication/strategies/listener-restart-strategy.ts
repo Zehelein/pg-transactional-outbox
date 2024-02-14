@@ -1,12 +1,12 @@
 import { ClientConfig, Pool } from 'pg';
-import { OutboxOrInbox } from '../../common/base-config';
 import {
   ExtendedError,
   MessageError,
   ensureExtendedError,
 } from '../../common/error';
+import { OutboxOrInbox } from '../../common/listener-config';
 import { TransactionalLogger } from '../../common/logger';
-import { ReplicationConfig } from '../config';
+import { ReplicationListenerConfig } from '../config';
 
 /**
  * When some error is caught in the outbox or inbox listener this strategy will
@@ -37,7 +37,7 @@ export interface ReplicationListenerRestartStrategy {
  * configured `restartDelayInMs` (default: 250ms).
  */
 export const defaultReplicationListenerRestartStrategy = (
-  config: ReplicationConfig,
+  config: ReplicationListenerConfig,
 ): ReplicationListenerRestartStrategy => {
   return handleError(config);
 };
@@ -51,7 +51,7 @@ export const defaultReplicationListenerRestartStrategy = (
  * 250ms).
  */
 export const defaultReplicationListenerAndSlotRestartStrategy = (
-  config: ReplicationConfig,
+  config: ReplicationListenerConfig,
 ): ReplicationListenerRestartStrategy => {
   return handleError(config, createReplicationSlot);
 };
@@ -60,7 +60,7 @@ const handleError = (
   {
     settings: { restartDelayInMs, restartDelaySlotInUseInMs, postgresSlot },
     dbListenerConfig: pgReplicationConfig,
-  }: ReplicationConfig,
+  }: ReplicationListenerConfig,
   replicationSlotNotFoundCallback?: typeof createReplicationSlot,
 ): ReplicationListenerRestartStrategy => {
   return async (

@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import inspector from 'inspector';
 import { Pool } from 'pg';
-import { ListenerConfig } from '../common/base-config';
 import { DatabaseClient } from '../common/database';
+import { ListenerConfig } from '../common/listener-config';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { initializeMessageStorage } from './initialize-message-storage';
 import { TransactionalMessage } from './transactional-message';

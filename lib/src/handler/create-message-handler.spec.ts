@@ -2,7 +2,7 @@ import { EventEmitter } from 'events';
 import { DatabaseClient } from '../common/database';
 import { getDisabledLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
-import { ReplicationConfig } from '../replication/config';
+import { ReplicationListenerConfig } from '../replication/config';
 import { defaultMessageRetryStrategy } from '../strategies/message-retry-strategy';
 import { ListenerType, createMessageHandler } from './create-message-handler';
 import { TransactionalMessageHandler } from './transactional-message-handler';
@@ -127,7 +127,7 @@ describe('createMessageHandler', () => {
         messageRetryStrategy: jest.fn().mockReturnValue(false),
         messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
       };
-      const config: ReplicationConfig = {
+      const config: ReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
         dbListenerConfig: {},
         settings: {
@@ -185,7 +185,7 @@ describe('createMessageHandler', () => {
       messageRetryStrategy: jest.fn().mockReturnValue(false),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
     };
-    const config: ReplicationConfig = {
+    const config: ReplicationListenerConfig = {
       outboxOrInbox: 'inbox',
       dbListenerConfig: {},
       settings: {
@@ -242,7 +242,7 @@ describe('createMessageHandler', () => {
       messageRetryStrategy: jest.fn().mockReturnValue(false),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
     };
-    const config: ReplicationConfig = {
+    const config: ReplicationListenerConfig = {
       outboxOrInbox: 'inbox',
       dbListenerConfig: {},
       settings: {
@@ -299,7 +299,7 @@ describe('createMessageHandler', () => {
       messageRetryStrategy: jest.fn().mockReturnValue(true),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
     };
-    const config: ReplicationConfig = {
+    const config: ReplicationListenerConfig = {
       outboxOrInbox: 'inbox',
       dbListenerConfig: {},
       settings: {
@@ -354,7 +354,7 @@ describe('createMessageHandler', () => {
       messageRetryStrategy: jest.fn().mockReturnValue(false),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
     };
-    const config: ReplicationConfig = {
+    const config: ReplicationListenerConfig = {
       outboxOrInbox: 'inbox',
       dbListenerConfig: {},
       settings: {
@@ -409,7 +409,7 @@ describe('createMessageHandler', () => {
       messageRetryStrategy: jest.fn().mockReturnValue(false),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
     };
-    const config: ReplicationConfig = {
+    const config: ReplicationListenerConfig = {
       outboxOrInbox: 'inbox',
       dbListenerConfig: {},
       settings: {
@@ -456,7 +456,7 @@ describe('createMessageHandler', () => {
   it('Should double check that a message is not processed if max attempts are exceeded', async () => {
     // Arrange
     const client = getClient({ finished_attempts: 6 });
-    const config: ReplicationConfig = {
+    const config: ReplicationListenerConfig = {
       outboxOrInbox: 'inbox',
       dbListenerConfig: {},
       settings: {

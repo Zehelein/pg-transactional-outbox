@@ -2,7 +2,7 @@ import { DatabaseError, Pool } from 'pg';
 import { BaseLogger } from 'pino';
 import { ErrorCode, ExtendedError, MessageError } from '../../common/error';
 import { TransactionalMessage } from '../../message/transactional-message';
-import { ReplicationConfig } from '../config';
+import { ReplicationListenerConfig } from '../config';
 import {
   defaultReplicationListenerAndSlotRestartStrategy,
   defaultReplicationListenerRestartStrategy,
@@ -42,7 +42,7 @@ describe.each([
       restartDelayInMs: 123,
       restartDelaySlotInUseInMs: 1234,
     },
-  } as ReplicationConfig;
+  } as ReplicationListenerConfig;
   let logger: BaseLogger;
 
   beforeEach(() => {
@@ -102,7 +102,7 @@ describe.each([
     // Arrange
     const config = {
       settings: {},
-    } as ReplicationConfig;
+    } as ReplicationListenerConfig;
     const strategy = strategyFunction(config);
 
     // Act + Assert

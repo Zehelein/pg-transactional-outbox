@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-import { ListenerConfig } from '../common/base-config';
 import { DatabaseClient } from '../common/database';
+import { ListenerConfig } from '../common/listener-config';
 import { startedAttemptsIncrement } from './started-attempts-increment';
 import { StoredTransactionalMessage } from './transactional-message';
 
