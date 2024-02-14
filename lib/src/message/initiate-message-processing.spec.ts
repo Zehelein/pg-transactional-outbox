@@ -38,8 +38,8 @@ const storedMessage: StoredTransactionalMessage = {
 const settings = {
   dbSchema: 'test_schema',
   dbTable: 'test_table',
-  postgresPub: 'test_pub',
-  postgresSlot: 'test_slot',
+  dbPublication: 'test_pub',
+  dbReplicationSlot: 'test_slot',
 } as ReplicationListenerSettings;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

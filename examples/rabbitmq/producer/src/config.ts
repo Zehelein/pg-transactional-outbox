@@ -1,8 +1,10 @@
 import {
   DatabasePollingSetupConfig,
   DatabaseReplicationSetupConfig,
-  PollingConfig,
-  ReplicationConfig,
+  PollingListenerConfig,
+  ReplicationListenerConfig,
+  getOutboxPollingListenerSettings,
+  getOutboxReplicationListenerSettings,
 } from 'pg-transactional-outbox';
 
 /**
@@ -20,27 +22,6 @@ export const getConfig = (env: Env = process.env) => {
       env,
       'POSTGRESQL_DATABASE',
       'pg_transactional_outbox',
-    ),
-
-    postgresOutboxSchema: getEnvVariableString(
-      env,
-      'POSTGRESQL_OUTBOX_SCHEMA',
-      'outbox',
-    ),
-    postgresOutboxTable: getEnvVariableString(
-      env,
-      'POSTGRESQL_OUTBOX_TABLE',
-      'outbox',
-    ),
-    postgresOutboxSlot: getEnvVariableString(
-      env,
-      'POSTGRESQL_OUTBOX_SLOT',
-      'pg_transactional_outbox_slot',
-    ),
-    postgresOutboxPub: getEnvVariableString(
-      env,
-      'POSTGRESQL_OUTBOX_PUB',
-      'pg_transactional_outbox_pub',
     ),
     postgresOutboxListenerRole: getEnvVariableString(
       env,
@@ -62,11 +43,6 @@ export const getConfig = (env: Env = process.env) => {
       env,
       'POSTGRESQL_OUTBOX_HANDLER_ROLE_PASSWORD',
       'db_outbox_handler_password',
-    ),
-    nextOutboxMessagesFunctionName: getEnvVariableString(
-      env,
-      'NEXT_OUTBOX_MESSAGES_FUNCTION_NAME',
-      'next_outbox_messages',
     ),
     listenerType: getEnvVariableString(env, 'LISTENER_TYPE', 'replication'),
 
@@ -92,72 +68,62 @@ export const getConfig = (env: Env = process.env) => {
 /** The configuration object type with parsed environment variables. */
 export type Config = ReturnType<typeof getConfig>;
 
+const getDbConnections = (config: Config) => ({
+  dbHandlerConfig: {
+    host: config.postgresHost,
+    port: config.postgresPort,
+    user: config.postgresHandlerRole,
+    password: config.postgresHandlerRolePassword,
+    database: config.postgresDatabase,
+  },
+  dbListenerConfig: {
+    host: config.postgresHost,
+    port: config.postgresPort,
+    user: config.postgresOutboxListenerRole,
+    password: config.postgresOutboxListenerRolePassword,
+    database: config.postgresDatabase,
+  },
+});
+
 export const getReplicationOutboxConfig = (
   config: Config,
-): ReplicationConfig => {
+): ReplicationListenerConfig => {
   return {
     outboxOrInbox: 'outbox',
-    dbHandlerConfig: {
-      host: config.postgresHost,
-      port: config.postgresPort,
-      user: config.postgresHandlerRole,
-      password: config.postgresHandlerRolePassword,
-      database: config.postgresDatabase,
-    },
-    dbListenerConfig: {
-      host: config.postgresHost,
-      port: config.postgresPort,
-      user: config.postgresOutboxListenerRole,
-      password: config.postgresOutboxListenerRolePassword,
-      database: config.postgresDatabase,
-    },
-    settings: {
-      dbSchema: config.postgresOutboxSchema,
-      dbTable: config.postgresOutboxTable,
-      postgresPub: config.postgresOutboxPub,
-      postgresSlot: config.postgresOutboxSlot,
-      // For the outbox we skip those settings as we assume sending the message will succeed (once RabbitMQ is up again)
-      enableMaxAttemptsProtection: false,
-      enablePoisonousMessageProtection: false,
-    },
+    ...getDbConnections(config),
+    settings: getOutboxReplicationListenerSettings(),
   };
 };
 
-export const getPollingOutboxConfig = (config: Config): PollingConfig => {
-  const repConfig = getReplicationOutboxConfig(config);
+export const getPollingOutboxConfig = (
+  config: Config,
+): PollingListenerConfig => {
   return {
     outboxOrInbox: 'outbox',
-    dbHandlerConfig: repConfig.dbHandlerConfig,
-    dbListenerConfig: repConfig.dbListenerConfig,
-    settings: {
-      dbSchema: config.postgresOutboxSchema,
-      dbTable: config.postgresOutboxTable,
-      // For the outbox we skip those settings as we assume sending the message will succeed (once RabbitMQ is up again)
-      enableMaxAttemptsProtection: false,
-      enablePoisonousMessageProtection: false,
-      nextMessagesBatchSize: 5,
-      nextMessagesFunctionName: config.nextOutboxMessagesFunctionName,
-      nextMessagesPollingIntervalInMs: 500,
-    },
+    ...getDbConnections(config),
+    settings: getOutboxPollingListenerSettings(),
   };
 };
 
 export const getDatabaseSetupConfig = (
   config: Config,
 ): DatabaseReplicationSetupConfig & DatabasePollingSetupConfig => {
+  const repSettings = getOutboxReplicationListenerSettings();
+  const pollSettings = getOutboxPollingListenerSettings();
+
   return {
     outboxOrInbox: 'outbox',
     database: config.postgresDatabase,
-    schema: config.postgresOutboxSchema,
-    table: config.postgresOutboxTable,
+    schema: repSettings.dbSchema,
+    table: repSettings.dbTable,
     listenerRole: config.postgresOutboxListenerRole,
     handlerRole: config.postgresHandlerRole,
     // Replication
-    replicationSlot: config.postgresOutboxSlot,
-    publication: config.postgresOutboxPub,
+    replicationSlot: repSettings.dbReplicationSlot,
+    publication: repSettings.dbPublication,
     // Polling
-    nextMessagesName: config.nextOutboxMessagesFunctionName,
-    nextMessagesSchema: config.postgresOutboxSchema,
+    nextMessagesName: pollSettings.nextMessagesFunctionName,
+    nextMessagesSchema: pollSettings.nextMessagesFunctionSchema,
   };
 };
 

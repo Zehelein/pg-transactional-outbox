@@ -551,8 +551,8 @@ import {
     dbListenerConfig,
     settings: {
       ...baseSettings,
-      postgresPub: 'pg_transactional_outbox_pub',
-      postgresSlot: 'pg_transactional_outbox_slot',
+      dbPublication: 'pg_transactional_outbox_pub',
+      dbReplicationSlot: 'pg_transactional_outbox_slot',
     },
   };
   const pollingConfig: PollingConfig = {
@@ -791,8 +791,8 @@ import {
     dbListenerConfig,
     settings: {
       ...baseSettings,
-      postgresPub: 'pg_transactional_inbox_pub',
-      postgresSlot: 'pg_transactional_outbox_slot',
+      dbPublication: 'pg_transactional_inbox_pub',
+      dbReplicationSlot: 'pg_transactional_outbox_slot',
     },
   };
   const pollingConfig: PollingConfig = {

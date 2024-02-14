@@ -133,7 +133,7 @@ const insertSourceEntity = async (
     await storeMessage(
       client,
       id,
-      JSON.stringify({ id, content: 'movie' }),
+      JSON.stringify({ id, content: createContent(id) }),
       storeOutboxMessage,
     );
   });

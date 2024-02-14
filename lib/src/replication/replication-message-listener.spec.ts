@@ -257,8 +257,8 @@ const config: ReplicationListenerConfig = {
   settings: {
     dbSchema: 'test_schema',
     dbTable: 'test_table',
-    postgresPub: 'test_pub',
-    postgresSlot: 'test_slot',
+    dbPublication: 'test_pub',
+    dbReplicationSlot: 'test_slot',
   },
 };
 

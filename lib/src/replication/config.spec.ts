@@ -23,8 +23,8 @@ describe('Replication listener settings', () => {
       // specific replication settings
       TRX_INBOX_RESTART_DELAY_IN_MS: '1234',
       TRX_INBOX_RESTART_DELAY_SLOT_IN_USE_IN_MS: '56789',
-      TRX_INBOX_POSTGRES_PUB: 'test_transactional_inbox_pub',
-      TRX_INBOX_POSTGRES_SLOT: 'test_transactional_inbox_slot',
+      TRX_INBOX_DB_PUBLICATION: 'test_transactional_inbox_pub',
+      TRX_INBOX_DB_REPLICATION_SLOT: 'test_transactional_inbox_slot',
     };
 
     it('should return listener settings with all default values', () => {
@@ -41,8 +41,8 @@ describe('Replication listener settings', () => {
         messageCleanupProcessedInSec: 604800,
         messageProcessingTimeoutInMs: 15000,
 
-        postgresPub: 'pg_transactional_inbox_pub',
-        postgresSlot: 'pg_transactional_inbox_slot',
+        dbPublication: 'pg_transactional_inbox_pub',
+        dbReplicationSlot: 'pg_transactional_inbox_slot',
         restartDelayInMs: 250,
         restartDelaySlotInUseInMs: 10000,
       };
@@ -66,8 +66,8 @@ describe('Replication listener settings', () => {
         messageCleanupProcessedInSec: 321,
         messageProcessingTimeoutInMs: 123456,
 
-        postgresPub: 'test_transactional_inbox_pub',
-        postgresSlot: 'test_transactional_inbox_slot',
+        dbPublication: 'test_transactional_inbox_pub',
+        dbReplicationSlot: 'test_transactional_inbox_slot',
         restartDelayInMs: 1234,
         restartDelaySlotInUseInMs: 56789,
       };
@@ -93,8 +93,8 @@ describe('Replication listener settings', () => {
 
         TRX_RESTART_DELAY_IN_MS: '9876',
         TRX_RESTART_DELAY_SLOT_IN_USE_IN_MS: '12345',
-        TRX_INBOX_POSTGRES_PUB: 'test_transactional_inbox_pub',
-        TRX_INBOX_POSTGRES_SLOT: 'test_transactional_inbox_slot',
+        TRX_INBOX_DB_PUBLICATION: 'test_transactional_inbox_pub',
+        TRX_INBOX_DB_REPLICATION_SLOT: 'test_transactional_inbox_slot',
       };
 
       const expectedSettings = {
@@ -110,8 +110,8 @@ describe('Replication listener settings', () => {
         messageCleanupAbandonedInSec: 400000,
         messageCleanupAllInSec: 500000,
 
-        postgresPub: 'test_transactional_inbox_pub',
-        postgresSlot: 'test_transactional_inbox_slot',
+        dbPublication: 'test_transactional_inbox_pub',
+        dbReplicationSlot: 'test_transactional_inbox_slot',
         restartDelayInMs: 9876,
         restartDelaySlotInUseInMs: 12345,
       };
@@ -139,8 +139,8 @@ describe('Replication listener settings', () => {
       // specific replication settings
       TRX_OUTBOX_RESTART_DELAY_IN_MS: '1234',
       TRX_OUTBOX_RESTART_DELAY_SLOT_IN_USE_IN_MS: '56789',
-      TRX_OUTBOX_POSTGRES_PUB: 'test_transactional_outbox_pub',
-      TRX_OUTBOX_POSTGRES_SLOT: 'test_transactional_outbox_slot',
+      TRX_OUTBOX_DB_PUBLICATION: 'test_transactional_outbox_pub',
+      TRX_OUTBOX_DB_REPLICATION_SLOT: 'test_transactional_outbox_slot',
     };
 
     it('should return listener settings with all default values', () => {
@@ -157,8 +157,8 @@ describe('Replication listener settings', () => {
         messageCleanupProcessedInSec: 604800,
         messageProcessingTimeoutInMs: 15000,
 
-        postgresPub: 'pg_transactional_outbox_pub',
-        postgresSlot: 'pg_transactional_outbox_slot',
+        dbPublication: 'pg_transactional_outbox_pub',
+        dbReplicationSlot: 'pg_transactional_outbox_slot',
         restartDelayInMs: 250,
         restartDelaySlotInUseInMs: 10000,
       };
@@ -182,8 +182,8 @@ describe('Replication listener settings', () => {
         messageCleanupProcessedInSec: 321,
         messageProcessingTimeoutInMs: 123456,
 
-        postgresPub: 'test_transactional_outbox_pub',
-        postgresSlot: 'test_transactional_outbox_slot',
+        dbPublication: 'test_transactional_outbox_pub',
+        dbReplicationSlot: 'test_transactional_outbox_slot',
         restartDelayInMs: 1234,
         restartDelaySlotInUseInMs: 56789,
       };
@@ -223,10 +223,10 @@ TRX_INBOX_RESTART_DELAY_IN_MS=250
 TRX_RESTART_DELAY_IN_MS=250
 TRX_INBOX_RESTART_DELAY_SLOT_IN_USE_IN_MS=10000
 TRX_RESTART_DELAY_SLOT_IN_USE_IN_MS=10000
-TRX_INBOX_POSTGRES_PUB=pg_transactional_inbox_pub
-TRX_POSTGRES_PUB=pg_transactional_inbox_pub
-TRX_INBOX_POSTGRES_SLOT=pg_transactional_inbox_slot
-TRX_POSTGRES_SLOT=pg_transactional_inbox_slot
+TRX_INBOX_DB_PUBLICATION=pg_transactional_inbox_pub
+TRX_DB_PUBLICATION=pg_transactional_inbox_pub
+TRX_INBOX_DB_REPLICATION_SLOT=pg_transactional_inbox_slot
+TRX_DB_REPLICATION_SLOT=pg_transactional_inbox_slot
 `;
       expect(settings).toBe(expected);
     });
@@ -259,10 +259,10 @@ TRX_INBOX_RESTART_DELAY_IN_MS=250
 TRX_RESTART_DELAY_IN_MS=250
 TRX_INBOX_RESTART_DELAY_SLOT_IN_USE_IN_MS=10000
 TRX_RESTART_DELAY_SLOT_IN_USE_IN_MS=10000
-TRX_INBOX_POSTGRES_PUB=pg_transactional_outbox_pub
-TRX_POSTGRES_PUB=pg_transactional_outbox_pub
-TRX_INBOX_POSTGRES_SLOT=pg_transactional_outbox_slot
-TRX_POSTGRES_SLOT=pg_transactional_outbox_slot
+TRX_INBOX_DB_PUBLICATION=pg_transactional_outbox_pub
+TRX_DB_PUBLICATION=pg_transactional_outbox_pub
+TRX_INBOX_DB_REPLICATION_SLOT=pg_transactional_outbox_slot
+TRX_DB_REPLICATION_SLOT=pg_transactional_outbox_slot
 `;
 
       expect(settings).toBe(expected);

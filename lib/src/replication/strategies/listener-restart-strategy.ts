@@ -58,7 +58,11 @@ export const defaultReplicationListenerAndSlotRestartStrategy = (
 
 const handleError = (
   {
-    settings: { restartDelayInMs, restartDelaySlotInUseInMs, postgresSlot },
+    settings: {
+      restartDelayInMs,
+      restartDelaySlotInUseInMs,
+      dbReplicationSlot,
+    },
     dbListenerConfig: pgReplicationConfig,
   }: ReplicationListenerConfig,
   replicationSlotNotFoundCallback?: typeof createReplicationSlot,
@@ -80,7 +84,7 @@ const handleError = (
         logger.error(error, error.message);
         await replicationSlotNotFoundCallback?.(
           pgReplicationConfig,
-          postgresSlot,
+          dbReplicationSlot,
           logger,
           outboxOrInbox,
         );
@@ -101,14 +105,14 @@ const handleError = (
 
 const createReplicationSlot = async (
   pgReplicationConfig: ClientConfig,
-  postgresSlot: string,
+  dbReplicationSlot: string,
   logger: TransactionalLogger,
   outboxOrInbox: string,
 ) => {
   const pool = new Pool(pgReplicationConfig);
   try {
     await pool.query(
-      /** sql*/ `select pg_create_logical_replication_slot('${postgresSlot}', 'pgoutput');`,
+      /** sql*/ `select pg_create_logical_replication_slot('${dbReplicationSlot}', 'pgoutput');`,
     );
   } catch (err) {
     logger.trace(

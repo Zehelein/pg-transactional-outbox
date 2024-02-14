@@ -4,7 +4,7 @@ import { Client, Pool } from 'pg';
 import {
   DatabaseClient,
   InMemoryLogEntry,
-  ReplicationConfig,
+  ReplicationListenerConfig,
   StoredTransactionalMessage,
   TransactionalLogger,
   TransactionalMessage,
@@ -176,9 +176,9 @@ describe('Replication integration tests', () => {
     outboxLogs.length = 0;
     const { host, port } = configs.handlerConnection;
     const resetReplication = async ({
-      settings: { postgresSlot },
+      settings: { dbReplicationSlot },
       dbListenerConfig: { database },
-    }: ReplicationConfig) => {
+    }: ReplicationListenerConfig) => {
       const rootInboxClient = new Client({
         host,
         port,
@@ -189,7 +189,7 @@ describe('Replication integration tests', () => {
       try {
         await rootInboxClient.connect();
         await rootInboxClient.query(
-          `SELECT * FROM pg_replication_slot_advance('${postgresSlot}', pg_current_wal_lsn());`,
+          `SELECT * FROM pg_replication_slot_advance('${dbReplicationSlot}', pg_current_wal_lsn());`,
         );
       } finally {
         await rootInboxClient.end();

@@ -1,8 +1,10 @@
 import {
   DatabasePollingSetupConfig,
   DatabaseReplicationSetupConfig,
-  PollingConfig,
-  ReplicationConfig,
+  PollingListenerConfig,
+  ReplicationListenerConfig,
+  getInboxPollingListenerSettings,
+  getInboxReplicationListenerSettings,
 } from 'pg-transactional-outbox';
 
 /**
@@ -21,27 +23,6 @@ export const getConfig = (env: Env = process.env) => {
       'POSTGRESQL_DATABASE',
       'pg_transactional_inbox',
     ),
-
-    postgresInboxSchema: getEnvVariableString(
-      env,
-      'POSTGRESQL_INBOX_SCHEMA',
-      'inbox',
-    ),
-    postgresInboxTable: getEnvVariableString(
-      env,
-      'POSTGRESQL_INBOX_TABLE',
-      'inbox',
-    ),
-    postgresInboxSlot: getEnvVariableString(
-      env,
-      'POSTGRESQL_INBOX_SLOT',
-      'pg_transactional_inbox_slot',
-    ),
-    postgresInboxPub: getEnvVariableString(
-      env,
-      'POSTGRESQL_INBOX_PUB',
-      'pg_transactional_inbox_pub',
-    ),
     postgresInboxListenerRole: getEnvVariableString(
       env,
       'POSTGRESQL_INBOX_LISTENER_ROLE',
@@ -52,7 +33,6 @@ export const getConfig = (env: Env = process.env) => {
       'POSTGRESQL_INBOX_LISTENER_ROLE_PASSWORD',
       'db_inbox_listener_password',
     ),
-
     postgresHandlerRole: getEnvVariableString(
       env,
       'POSTGRESQL_INBOX_HANDLER_ROLE',
@@ -62,11 +42,6 @@ export const getConfig = (env: Env = process.env) => {
       env,
       'POSTGRESQL_INBOX_HANDLER_ROLE_PASSWORD',
       'db_inbox_handler_password',
-    ),
-    nextInboxMessagesFunctionName: getEnvVariableString(
-      env,
-      'NEXT_INBOX_MESSAGES_FUNCTION_NAME',
-      'next_inbox_messages',
     ),
     listenerType: getEnvVariableString(env, 'LISTENER_TYPE', 'replication'),
 
@@ -99,74 +74,61 @@ export const getConfig = (env: Env = process.env) => {
 /** The configuration object type with parsed environment variables. */
 export type Config = ReturnType<typeof getConfig>;
 
+const getDbConnections = (config: Config) => ({
+  dbHandlerConfig: {
+    host: config.postgresHost,
+    port: config.postgresPort,
+    user: config.postgresHandlerRole,
+    password: config.postgresHandlerRolePassword,
+    database: config.postgresDatabase,
+  },
+  dbListenerConfig: {
+    host: config.postgresHost,
+    port: config.postgresPort,
+    user: config.postgresInboxListenerRole,
+    password: config.postgresInboxListenerRolePassword,
+    database: config.postgresDatabase,
+  },
+});
+
 export const getReplicationInboxConfig = (
   config: Config,
-): ReplicationConfig => {
+): ReplicationListenerConfig => {
   return {
     outboxOrInbox: 'inbox',
-    dbHandlerConfig: {
-      host: config.postgresHost,
-      port: config.postgresPort,
-      user: config.postgresHandlerRole,
-      password: config.postgresHandlerRolePassword,
-      database: config.postgresDatabase,
-    },
-    dbListenerConfig: {
-      host: config.postgresHost,
-      port: config.postgresPort,
-      user: config.postgresInboxListenerRole,
-      password: config.postgresInboxListenerRolePassword,
-      database: config.postgresDatabase,
-    },
-    settings: {
-      dbSchema: config.postgresInboxSchema,
-      dbTable: config.postgresInboxTable,
-      postgresPub: config.postgresInboxPub,
-      postgresSlot: config.postgresInboxSlot,
-      enableMaxAttemptsProtection: true,
-      maxAttempts: config.maxAttempts,
-      enablePoisonousMessageProtection: true,
-      maxPoisonousAttempts: config.maxPoisonousAttempts,
-    },
+    ...getDbConnections(config),
+    settings: getInboxReplicationListenerSettings(),
   };
 };
 
-export const getPollingInboxConfig = (config: Config): PollingConfig => {
-  const repConfig = getReplicationInboxConfig(config);
+export const getPollingInboxConfig = (
+  config: Config,
+): PollingListenerConfig => {
   return {
     outboxOrInbox: 'inbox',
-    dbHandlerConfig: repConfig.dbHandlerConfig,
-    dbListenerConfig: repConfig.dbListenerConfig,
-    settings: {
-      dbSchema: config.postgresInboxSchema,
-      dbTable: config.postgresInboxTable,
-      enableMaxAttemptsProtection: true,
-      maxAttempts: config.maxAttempts,
-      enablePoisonousMessageProtection: true,
-      maxPoisonousAttempts: config.maxPoisonousAttempts,
-      nextMessagesBatchSize: 5,
-      nextMessagesFunctionName: config.nextInboxMessagesFunctionName,
-      nextMessagesPollingIntervalInMs: 500,
-    },
+    ...getDbConnections(config),
+    settings: getInboxPollingListenerSettings(),
   };
 };
 
 export const getDatabaseSetupConfig = (
   config: Config,
 ): DatabaseReplicationSetupConfig & DatabasePollingSetupConfig => {
+  const repSettings = getInboxReplicationListenerSettings();
+  const pollSettings = getInboxPollingListenerSettings();
   return {
     outboxOrInbox: 'inbox',
     database: config.postgresDatabase,
-    schema: config.postgresInboxSchema,
-    table: config.postgresInboxTable,
+    schema: repSettings.dbSchema,
+    table: repSettings.dbTable,
     listenerRole: config.postgresInboxListenerRole,
     handlerRole: config.postgresHandlerRole,
     // Replication
-    replicationSlot: config.postgresInboxSlot,
-    publication: config.postgresInboxPub,
+    replicationSlot: repSettings.dbReplicationSlot,
+    publication: repSettings.dbPublication,
     // Polling
-    nextMessagesName: config.nextInboxMessagesFunctionName,
-    nextMessagesSchema: config.postgresInboxSchema,
+    nextMessagesName: pollSettings.nextMessagesFunctionName,
+    nextMessagesSchema: pollSettings.nextMessagesFunctionSchema,
   };
 };
 

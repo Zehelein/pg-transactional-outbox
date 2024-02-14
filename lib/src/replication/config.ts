@@ -27,9 +27,9 @@ export interface ReplicationListenerConfig extends ListenerConfig {
 
 export interface ReplicationListenerSettings extends ListenerSettings {
   /** The name of the used PostgreSQL publication */
-  postgresPub: string;
+  dbPublication: string;
   /** The name of the used PostgreSQL logical replication slot */
-  postgresSlot: string;
+  dbReplicationSlot: string;
   /** When there is a message processing error it restarts the logical replication subscription with a delay. This setting defines this delay in milliseconds. Default is 250ms. */
   restartDelayInMs?: number;
   /** When the replication slot is in use e.g. by another service, this service will still continue to try to connect in case the other service stops. Delay is given in milliseconds, the default is 10s. */
@@ -51,12 +51,12 @@ const basicSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
 
 const inboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
   {
-    constantName: 'POSTGRES_PUB',
+    constantName: 'DB_PUBLICATION',
     default: 'pg_transactional_inbox_pub',
     func: getEnvVariableString,
   },
   {
-    constantName: 'POSTGRES_SLOT',
+    constantName: 'DB_REPLICATION_SLOT',
     default: 'pg_transactional_inbox_slot',
     func: getEnvVariableString,
   },
@@ -64,12 +64,12 @@ const inboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
 
 const outboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
   {
-    constantName: 'POSTGRES_PUB',
+    constantName: 'DB_PUBLICATION',
     default: 'pg_transactional_outbox_pub',
     func: getEnvVariableString,
   },
   {
-    constantName: 'POSTGRES_SLOT',
+    constantName: 'DB_REPLICATION_SLOT',
     default: 'pg_transactional_outbox_slot',
     func: getEnvVariableString,
   },
@@ -83,7 +83,7 @@ const outboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
  * @example
  * TRX_DB_SCHEMA=trx_schema
  * TRX_INBOX_DB_TABLE=inbox_table
- * TRX_INBOX_POSTGRES_SLOT=pg_transactional_inbox_slot
+ * TRX_INBOX_DB_REPLICATION_SLOT=pg_transactional_inbox_slot
  * @param env The process.env variable or a custom object.
  * @returns The replication listener settings object with filled with the ENV variables
  */
@@ -111,7 +111,7 @@ export const getInboxReplicationListenerSettings = (
  * @example
  * TRX_DB_SCHEMA=trx_schema
  * TRX_OUTBOX_DB_TABLE=outbox_table
- * TRX_OUTBOX_POSTGRES_SLOT=pg_transactional_outbox_slot
+ * TRX_OUTBOX_DB_REPLICATION_SLOT=pg_transactional_outbox_slot
  * @param env The process.env variable or a custom object.
  * @returns The replication listener settings object with filled with the ENV variables
  */

@@ -125,8 +125,8 @@ const sendReplicationChunk = (chunk: Buffer) => {
 const settings = {
   dbSchema: 'test_schema',
   dbTable: 'test_table',
-  postgresPub: 'test_pub',
-  postgresSlot: 'test_slot',
+  dbPublication: 'test_pub',
+  dbReplicationSlot: 'test_slot',
 };
 
 const dbMessage = {

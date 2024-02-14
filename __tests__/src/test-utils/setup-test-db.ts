@@ -3,8 +3,8 @@ import {
   DatabasePollingSetupConfig,
   DatabaseReplicationSetupConfig,
   DatabaseSetup,
-  PollingConfig,
-  ReplicationConfig,
+  PollingListenerConfig,
+  ReplicationListenerConfig,
 } from 'pg-transactional-outbox';
 import { TestConfigs } from './configs';
 
@@ -21,7 +21,8 @@ const getDatabaseSetupConfig = ({
   dbListenerConfig,
   settings,
   dbHandlerConfig,
-}: ReplicationConfig & PollingConfig): DatabaseReplicationSetupConfig &
+}: ReplicationListenerConfig &
+  PollingListenerConfig): DatabaseReplicationSetupConfig &
   DatabasePollingSetupConfig => {
   return {
     outboxOrInbox: 'outbox',
@@ -31,8 +32,8 @@ const getDatabaseSetupConfig = ({
     listenerRole: dbListenerConfig.user!,
     handlerRole: dbHandlerConfig?.user,
     // Replication
-    replicationSlot: settings.postgresSlot,
-    publication: settings.postgresPub,
+    replicationSlot: settings.dbReplicationSlot,
+    publication: settings.dbPublication,
     // Polling
     nextMessagesName: settings.nextMessagesFunctionName,
     nextMessagesSchema: settings.nextMessagesFunctionSchema,
@@ -70,8 +71,8 @@ export const setupPollingTestDb = async (
 /** Setup on the PostgreSQL server level (and not within a DB) */
 const dbmsSetup = async (
   defaultHandlerConnection: ClientConfig,
-  outSrvConfig: ReplicationConfig,
-  inSrvConfig: ReplicationConfig,
+  outSrvConfig: ReplicationListenerConfig,
+  inSrvConfig: ReplicationListenerConfig,
 ): Promise<void> => {
   const { host, port, database, user, password } = defaultHandlerConnection;
   const rootClient = new Client({

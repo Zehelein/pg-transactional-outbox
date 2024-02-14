@@ -55,7 +55,7 @@ export const createLogicalReplicationListener = (
   const { dbListenerConfig, settings, outboxOrInbox } = config;
   const plugin = new PgoutputPlugin({
     protoVersion: 1,
-    publicationNames: [settings.postgresPub],
+    publicationNames: [settings.dbPublication],
   });
   let client: ReplicationClient | undefined;
   let pool: Pool | undefined;
@@ -100,7 +100,13 @@ export const createLogicalReplicationListener = (
 
     // Start background functions to connect the DB client and handle replication data
     applyRestart(
-      subscribe(client, plugin, settings.postgresSlot, logger, outboxOrInbox),
+      subscribe(
+        client,
+        plugin,
+        settings.dbReplicationSlot,
+        logger,
+        outboxOrInbox,
+      ),
     );
     applyRestart(
       handleIncomingData(
