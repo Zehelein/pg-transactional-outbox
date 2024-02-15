@@ -90,18 +90,21 @@ export interface StringSetting {
   constantName: string;
   default: string;
   func: typeof getEnvVariableString;
+  skipFallback?: boolean;
 }
 
 export interface NumberSetting {
   constantName: string;
   default: number;
   func: typeof getEnvVariableNumber;
+  skipFallback?: boolean;
 }
 
 export interface BooleanSetting {
   constantName: string;
   default: boolean;
   func: typeof getEnvVariableBoolean;
+  skipFallback?: boolean;
 }
 
 /**
@@ -143,12 +146,18 @@ export const printConfigSettings = (
   map: (StringSetting | NumberSetting | BooleanSetting)[],
   envPrefix: string,
   envPrefixFallback: string,
+  defaultOverrides?: Record<string, string>,
 ): string => {
   let result = '';
   for (const s of map) {
-    result += `${envPrefix}${s.constantName}=${s.default}
-${envPrefixFallback}${s.constantName}=${s.default}
-`;
+    const val =
+      defaultOverrides?.[`${envPrefix}${s.constantName}`] ??
+      defaultOverrides?.[s.constantName] ??
+      s.default;
+    result += `${envPrefix}${s.constantName}=${val}\n`;
+    if (s.skipFallback !== true) {
+      result += `${envPrefixFallback}${s.constantName}=${val}\n`;
+    }
   }
   return result;
 };

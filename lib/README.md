@@ -379,7 +379,8 @@ the inbox pattern which is often the case for distributed services.
 You can manually create the required database structure or (suggested) use this
 library to help you with this task.
 
-The easiest way is to use the CLI tool to generate the SQL scripts for you:
+The easiest way is to use the CLI tool to generate the SQL scripts and the .ENV
+settings file for you:
 
 ```shell
 npx pg-transactional-outbox
@@ -683,6 +684,13 @@ fine-tune and customize specific aspects of the outbox listener.
 You can build the configuration object from your code. Alternatively you can use
 `process.env` variables to provide the configuration values.
 
+The easiest way to generate the .ENV files is to use the CLI tool which also
+generates the SQL scripts file:
+
+```shell
+npx pg-transactional-outbox
+```
+
 - `getOutboxReplicationListenerSettings` is used to create the outbox
   replication listener settings from the ENV variables.
 - `printOutboxReplicationListenerEnvVariables` shows a list of all ENV variables
@@ -961,6 +969,13 @@ fine-tune and customize specific aspects of the inbox listener.
 
 You can build the configuration object from your code. Alternatively you can use
 `process.env` variables to provide the configuration values.
+
+The easiest way to generate the .ENV files is to use the CLI tool which also
+generates the SQL scripts file:
+
+```shell
+npx pg-transactional-outbox
+```
 
 - `getInboxReplicationListenerSettings` is used to create the inbox replication
   listener settings from the ENV variables.

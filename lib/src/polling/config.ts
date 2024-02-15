@@ -72,6 +72,7 @@ const inboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
     constantName: 'NEXT_MESSAGES_FUNCTION_NAME',
     default: 'next_inbox_messages',
     func: getEnvVariableString,
+    skipFallback: true,
   },
 ];
 
@@ -80,6 +81,7 @@ const outboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
     constantName: 'NEXT_MESSAGES_FUNCTION_NAME',
     default: 'next_outbox_messages',
     func: getEnvVariableString,
+    skipFallback: true,
   },
 ];
 
@@ -147,14 +149,21 @@ export const getOutboxPollingListenerSettings = (
  * @param envPrefixFallback The fallback prefix if the other is not found. Useful for defining settings that should be used for both outbox and inbox.
  * @returns
  */
-export const printInboxPollingListenerEnvVariables = (): string =>
-  printInboxListenerEnvVariables() +
-  printConfigSettings(
+export const printInboxPollingListenerEnvVariables = (
+  defaultOverrides?: Record<string, string>,
+): string => {
+  const il = printInboxListenerEnvVariables(defaultOverrides);
+  const cfg = printConfigSettings(
     [...basicSettingsMap, ...inboxSettingsMap],
     inboxEnvPrefix,
     fallbackEnvPrefix,
+    defaultOverrides,
   );
-
+  return `# Inbox listener variables
+${il}
+# Inbox polling listener variables
+${cfg}`;
+};
 /**
  * Shows the available env variables and their default values for the outbox
  * listener with the polling approach.
@@ -163,10 +172,18 @@ export const printInboxPollingListenerEnvVariables = (): string =>
  * @param envPrefixFallback The fallback prefix if the other is not found. Useful for defining settings that should be used for both outbox and inbox.
  * @returns
  */
-export const printOutboxPollingListenerEnvVariables = (): string =>
-  printOutboxListenerEnvVariables() +
-  printConfigSettings(
+export const printOutboxPollingListenerEnvVariables = (
+  defaultOverrides?: Record<string, string>,
+): string => {
+  const ol = printOutboxListenerEnvVariables(defaultOverrides);
+  const cfg = printConfigSettings(
     [...basicSettingsMap, ...outboxSettingsMap],
-    inboxEnvPrefix,
+    outboxEnvPrefix,
     fallbackEnvPrefix,
+    defaultOverrides,
   );
+  return `# Outbox listener variables
+${ol}
+# Outbox polling listener variables
+${cfg}`;
+};

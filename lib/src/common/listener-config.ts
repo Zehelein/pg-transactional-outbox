@@ -127,16 +127,19 @@ const inboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
     constantName: 'DB_TABLE',
     default: 'inbox',
     func: getEnvVariableString,
+    skipFallback: true,
   },
   {
     constantName: 'ENABLE_MAX_ATTEMPTS_PROTECTION',
     default: true,
     func: getEnvVariableBoolean,
+    skipFallback: true,
   },
   {
     constantName: 'ENABLE_POISONOUS_MESSAGE_PROTECTION',
     default: true,
     func: getEnvVariableBoolean,
+    skipFallback: true,
   },
 ];
 
@@ -145,17 +148,20 @@ const outboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
     constantName: 'DB_TABLE',
     default: 'outbox',
     func: getEnvVariableString,
+    skipFallback: true,
   },
   {
     constantName: 'ENABLE_MAX_ATTEMPTS_PROTECTION',
     default: false,
     func: getEnvVariableBoolean,
+    skipFallback: true,
   },
 
   {
     constantName: 'ENABLE_POISONOUS_MESSAGE_PROTECTION',
     default: false,
     func: getEnvVariableBoolean,
+    skipFallback: true,
   },
 ];
 
@@ -213,20 +219,26 @@ export const getOutboxListenerSettings = (
  * Prints the available env variables and their default values for the basic
  * inbox listener env variables.
  */
-export const printInboxListenerEnvVariables = (): string =>
+export const printInboxListenerEnvVariables = (
+  defaultOverrides?: Record<string, string>,
+): string =>
   printConfigSettings(
     [...basicSettingsMap, ...inboxSettingsMap],
     inboxEnvPrefix,
     fallbackEnvPrefix,
+    defaultOverrides,
   );
 
 /**
  * Prints the available env variables and their default values for the basic
  * outbox listener env variables.
  */
-export const printOutboxListenerEnvVariables = (): string =>
+export const printOutboxListenerEnvVariables = (
+  defaultOverrides?: Record<string, string>,
+): string =>
   printConfigSettings(
     [...basicSettingsMap, ...outboxSettingsMap],
     outboxEnvPrefix,
     fallbackEnvPrefix,
+    defaultOverrides,
   );

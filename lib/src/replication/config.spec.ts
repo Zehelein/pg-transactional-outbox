@@ -197,7 +197,8 @@ describe('Replication listener settings', () => {
   describe('print polling listener settings', () => {
     it('printInboxPollingListenerEnvVariables', () => {
       const settings = printInboxReplicationListenerEnvVariables();
-      const expected = `TRX_INBOX_DB_SCHEMA=public
+      const expected = `# Inbox listener variables
+TRX_INBOX_DB_SCHEMA=public
 TRX_DB_SCHEMA=public
 TRX_INBOX_MESSAGE_PROCESSING_TIMEOUT_IN_MS=15000
 TRX_MESSAGE_PROCESSING_TIMEOUT_IN_MS=15000
@@ -214,26 +215,24 @@ TRX_MESSAGE_CLEANUP_ABANDONED_IN_SEC=1209600
 TRX_INBOX_MESSAGE_CLEANUP_ALL_IN_SEC=5184000
 TRX_MESSAGE_CLEANUP_ALL_IN_SEC=5184000
 TRX_INBOX_DB_TABLE=inbox
-TRX_DB_TABLE=inbox
 TRX_INBOX_ENABLE_MAX_ATTEMPTS_PROTECTION=true
-TRX_ENABLE_MAX_ATTEMPTS_PROTECTION=true
 TRX_INBOX_ENABLE_POISONOUS_MESSAGE_PROTECTION=true
-TRX_ENABLE_POISONOUS_MESSAGE_PROTECTION=true
+
+# Inbox replication listener variables
 TRX_INBOX_RESTART_DELAY_IN_MS=250
 TRX_RESTART_DELAY_IN_MS=250
 TRX_INBOX_RESTART_DELAY_SLOT_IN_USE_IN_MS=10000
 TRX_RESTART_DELAY_SLOT_IN_USE_IN_MS=10000
 TRX_INBOX_DB_PUBLICATION=pg_transactional_inbox_pub
-TRX_DB_PUBLICATION=pg_transactional_inbox_pub
 TRX_INBOX_DB_REPLICATION_SLOT=pg_transactional_inbox_slot
-TRX_DB_REPLICATION_SLOT=pg_transactional_inbox_slot
 `;
       expect(settings).toBe(expected);
     });
 
     it('printOutboxPollingListenerEnvVariables', () => {
       const settings = printOutboxReplicationListenerEnvVariables();
-      const expected = `TRX_OUTBOX_DB_SCHEMA=public
+      const expected = `# Outbox listener variables
+TRX_OUTBOX_DB_SCHEMA=public
 TRX_DB_SCHEMA=public
 TRX_OUTBOX_MESSAGE_PROCESSING_TIMEOUT_IN_MS=15000
 TRX_MESSAGE_PROCESSING_TIMEOUT_IN_MS=15000
@@ -250,19 +249,16 @@ TRX_MESSAGE_CLEANUP_ABANDONED_IN_SEC=1209600
 TRX_OUTBOX_MESSAGE_CLEANUP_ALL_IN_SEC=5184000
 TRX_MESSAGE_CLEANUP_ALL_IN_SEC=5184000
 TRX_OUTBOX_DB_TABLE=outbox
-TRX_DB_TABLE=outbox
 TRX_OUTBOX_ENABLE_MAX_ATTEMPTS_PROTECTION=false
-TRX_ENABLE_MAX_ATTEMPTS_PROTECTION=false
 TRX_OUTBOX_ENABLE_POISONOUS_MESSAGE_PROTECTION=false
-TRX_ENABLE_POISONOUS_MESSAGE_PROTECTION=false
-TRX_INBOX_RESTART_DELAY_IN_MS=250
+
+# Outbox replication listener variables
+TRX_OUTBOX_RESTART_DELAY_IN_MS=250
 TRX_RESTART_DELAY_IN_MS=250
-TRX_INBOX_RESTART_DELAY_SLOT_IN_USE_IN_MS=10000
+TRX_OUTBOX_RESTART_DELAY_SLOT_IN_USE_IN_MS=10000
 TRX_RESTART_DELAY_SLOT_IN_USE_IN_MS=10000
-TRX_INBOX_DB_PUBLICATION=pg_transactional_outbox_pub
-TRX_DB_PUBLICATION=pg_transactional_outbox_pub
-TRX_INBOX_DB_REPLICATION_SLOT=pg_transactional_outbox_slot
-TRX_DB_REPLICATION_SLOT=pg_transactional_outbox_slot
+TRX_OUTBOX_DB_PUBLICATION=pg_transactional_outbox_pub
+TRX_OUTBOX_DB_REPLICATION_SLOT=pg_transactional_outbox_slot
 `;
 
       expect(settings).toBe(expected);

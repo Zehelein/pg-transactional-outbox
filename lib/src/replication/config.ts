@@ -54,11 +54,13 @@ const inboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
     constantName: 'DB_PUBLICATION',
     default: 'pg_transactional_inbox_pub',
     func: getEnvVariableString,
+    skipFallback: true,
   },
   {
     constantName: 'DB_REPLICATION_SLOT',
     default: 'pg_transactional_inbox_slot',
     func: getEnvVariableString,
+    skipFallback: true,
   },
 ];
 
@@ -67,11 +69,13 @@ const outboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
     constantName: 'DB_PUBLICATION',
     default: 'pg_transactional_outbox_pub',
     func: getEnvVariableString,
+    skipFallback: true,
   },
   {
     constantName: 'DB_REPLICATION_SLOT',
     default: 'pg_transactional_outbox_slot',
     func: getEnvVariableString,
+    skipFallback: true,
   },
 ];
 
@@ -139,13 +143,21 @@ export const getOutboxReplicationListenerSettings = (
  * @param envPrefixFallback The fallback prefix if the other is not found. Useful for defining settings that should be used for both outbox and inbox.
  * @returns
  */
-export const printInboxReplicationListenerEnvVariables = (): string =>
-  printInboxListenerEnvVariables() +
-  printConfigSettings(
+export const printInboxReplicationListenerEnvVariables = (
+  defaultOverrides?: Record<string, string>,
+): string => {
+  const il = printInboxListenerEnvVariables(defaultOverrides);
+  const cfg = printConfigSettings(
     [...basicSettingsMap, ...inboxSettingsMap],
     inboxEnvPrefix,
     fallbackEnvPrefix,
+    defaultOverrides,
   );
+  return `# Inbox listener variables
+${il}
+# Inbox replication listener variables
+${cfg}`;
+};
 
 /**
  * Shows the available env variables and their default values for the outbox
@@ -155,10 +167,19 @@ export const printInboxReplicationListenerEnvVariables = (): string =>
  * @param envPrefixFallback The fallback prefix if the other is not found. Useful for defining settings that should be used for both outbox and inbox.
  * @returns
  */
-export const printOutboxReplicationListenerEnvVariables = (): string =>
-  printOutboxListenerEnvVariables() +
-  printConfigSettings(
+export const printOutboxReplicationListenerEnvVariables = (
+  defaultOverrides?: Record<string, string>,
+): string => {
+  const ol = printOutboxListenerEnvVariables(defaultOverrides);
+  const cfg = printConfigSettings(
     [...basicSettingsMap, ...outboxSettingsMap],
-    inboxEnvPrefix,
+    outboxEnvPrefix,
     fallbackEnvPrefix,
+    defaultOverrides,
   );
+
+  return `# Outbox listener variables
+${ol}
+# Outbox replication listener variables
+${cfg}`;
+};
