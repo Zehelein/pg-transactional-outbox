@@ -156,7 +156,7 @@ describe('Listener settings', () => {
   describe('print polling listener settings', () => {
     it('printInboxPollingListenerEnvVariables', () => {
       const settings = printInboxListenerEnvVariables();
-      const expected = `TRX_INBOX_DB_SCHEMA=public
+      const expected = /* js */ `TRX_INBOX_DB_SCHEMA=public
 TRX_DB_SCHEMA=public
 TRX_INBOX_MESSAGE_PROCESSING_TIMEOUT_IN_MS=15000
 TRX_MESSAGE_PROCESSING_TIMEOUT_IN_MS=15000
@@ -181,7 +181,7 @@ TRX_INBOX_ENABLE_POISONOUS_MESSAGE_PROTECTION=true
 
     it('printOutboxPollingListenerEnvVariables', () => {
       const settings = printOutboxListenerEnvVariables();
-      const expected = `TRX_OUTBOX_DB_SCHEMA=public
+      const expected = /* js */ `TRX_OUTBOX_DB_SCHEMA=public
 TRX_DB_SCHEMA=public
 TRX_OUTBOX_MESSAGE_PROCESSING_TIMEOUT_IN_MS=15000
 TRX_MESSAGE_PROCESSING_TIMEOUT_IN_MS=15000

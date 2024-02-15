@@ -205,7 +205,7 @@ describe('Polling listener settings', () => {
   describe('print polling listener settings', () => {
     it('printInboxPollingListenerEnvVariables', () => {
       const settings = printInboxPollingListenerEnvVariables();
-      const expected = `# Inbox listener variables
+      const expected = /* sql */ `# Inbox listener variables
 TRX_INBOX_DB_SCHEMA=public
 TRX_DB_SCHEMA=public
 TRX_INBOX_MESSAGE_PROCESSING_TIMEOUT_IN_MS=15000
@@ -242,7 +242,7 @@ TRX_INBOX_NEXT_MESSAGES_FUNCTION_NAME=next_inbox_messages
 
     it('printOutboxPollingListenerEnvVariables', () => {
       const settings = printOutboxPollingListenerEnvVariables();
-      const expected = `# Outbox listener variables
+      const expected = /* js */ `# Outbox listener variables
 TRX_OUTBOX_DB_SCHEMA=public
 TRX_DB_SCHEMA=public
 TRX_OUTBOX_MESSAGE_PROCESSING_TIMEOUT_IN_MS=15000

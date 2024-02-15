@@ -199,9 +199,9 @@ export const dbSetupCli = async (): Promise<void> => {
       );
       sqlOutput += await buildPollingSql(
         outboxOrInbox,
+        table,
         nextMessagesName,
         nextMessagesSchema,
-        table,
       );
       envConfig += printOutboxPollingListenerEnvVariables({
         ...envOverrides,

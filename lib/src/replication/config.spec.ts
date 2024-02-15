@@ -197,7 +197,7 @@ describe('Replication listener settings', () => {
   describe('print polling listener settings', () => {
     it('printInboxPollingListenerEnvVariables', () => {
       const settings = printInboxReplicationListenerEnvVariables();
-      const expected = `# Inbox listener variables
+      const expected = /* js */ `# Inbox listener variables
 TRX_INBOX_DB_SCHEMA=public
 TRX_DB_SCHEMA=public
 TRX_INBOX_MESSAGE_PROCESSING_TIMEOUT_IN_MS=15000
@@ -231,7 +231,7 @@ TRX_INBOX_DB_REPLICATION_SLOT=pg_transactional_inbox_slot
 
     it('printOutboxPollingListenerEnvVariables', () => {
       const settings = printOutboxReplicationListenerEnvVariables();
-      const expected = `# Outbox listener variables
+      const expected = /* js */ `# Outbox listener variables
 TRX_OUTBOX_DB_SCHEMA=public
 TRX_DB_SCHEMA=public
 TRX_OUTBOX_MESSAGE_PROCESSING_TIMEOUT_IN_MS=15000
