@@ -1,7 +1,13 @@
 import { DatabaseClient } from '../common/database';
+import { OutboxOrInbox } from '../common/listener-config';
 import { TransactionalLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 import { PollingListenerSettings } from './config';
+
+const lastLogTime = {
+  inbox: 0,
+  outbox: 0,
+};
 
 /**
  * Gets the next inbox messages from the database and sets the locked_until
@@ -9,13 +15,15 @@ import { PollingListenerSettings } from './config';
  * @param client The database client to use for the query.
  * @param settings The settings object for the inbox table and function name.
  * @param logger The logger to use for logging.
+ * @param outboxOrInbox The outbox or inbox name
  * @returns A promise that resolves to the query result object.
  */
-export const getNextInboxMessages = async (
+export const getNextMessagesBatch = async (
   maxMessages: number,
   client: DatabaseClient,
   settings: PollingListenerSettings,
   logger: TransactionalLogger,
+  outboxOrInbox: OutboxOrInbox,
 ): Promise<StoredTransactionalMessage[]> => {
   const schema = settings.nextMessagesFunctionSchema ?? settings.dbSchema;
   const func = settings.nextMessagesFunctionName;
@@ -25,10 +33,20 @@ export const getNextInboxMessages = async (
     /* sql */ `SELECT * FROM ${schema}.${func}(${maxMessages}, ${lock});`,
   );
 
-  logger.debug(
-    messagesResult.rows.map((m) => m.id),
-    `Found ${messagesResult.rowCount}`,
-  );
+  if (messagesResult.rowCount ?? 0 > 0) {
+    logger.debug(
+      messagesResult.rows.map((m) => m.id),
+      `Found ${messagesResult.rowCount} ${outboxOrInbox} message(s) to process.`,
+    );
+    lastLogTime[outboxOrInbox] = Date.now();
+  } else {
+    if (lastLogTime[outboxOrInbox] <= Date.now() - 60_000) {
+      logger.trace(
+        `Found no unprocessed ${outboxOrInbox} messages in the last minute.`,
+      );
+      lastLogTime[outboxOrInbox] = Date.now();
+    }
+  }
   return messagesResult.rows.map(mapInbox);
 };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

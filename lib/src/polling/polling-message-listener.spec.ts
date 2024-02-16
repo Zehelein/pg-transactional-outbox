@@ -10,7 +10,7 @@ import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { IsolationLevel, sleep } from '../common/utils';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 import { PollingListenerConfig } from './config';
-import * as getNextInboxMessagesImportSpy from './next-messages';
+import * as getNextMessagesBatchImportSpy from './next-messages';
 import { initializePollingMessageListener } from './polling-message-listener';
 import { PollingMessageStrategies } from './polling-strategies';
 
@@ -48,9 +48,9 @@ jest.mock('pg', () => {
   };
 });
 
-const getNextInboxMessagesSpy = jest.spyOn(
-  getNextInboxMessagesImportSpy,
-  'getNextInboxMessages',
+const getNextMessagesBatchSpy = jest.spyOn(
+  getNextMessagesBatchImportSpy,
+  'getNextMessagesBatch',
 );
 
 const aggregateType = 'test_type';
@@ -235,7 +235,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
     } as unknown as typeof client;
     poolEvents = {};
     clientEvents = {};
-    getNextInboxMessagesSpy.mockReset();
+    getNextMessagesBatchSpy.mockReset();
   });
 
   afterEach(async () => {
@@ -254,7 +254,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
       initiateMessageProcessingResponse: message,
     });
     client.query = jest.fn(response) as any;
-    getNextInboxMessagesSpy
+    getNextMessagesBatchSpy
       .mockResolvedValueOnce([
         { ...message, startedAttempts: message.startedAttempts + 1 },
       ])
@@ -300,7 +300,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
     expect(client.rollbacks).toBe(0);
     // 100ms max wait time between tests configured. The message takes 50ms
     // --> first call immediately, second after 50ms, third after 150ms
-    expect(getNextInboxMessagesSpy.mock.calls).toHaveLength(3);
+    expect(getNextMessagesBatchSpy.mock.calls).toHaveLength(3);
   });
 
   it('should call the correct messageHandler and increase the finished attempts when an error is thrown', async () => {
@@ -313,7 +313,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
       initiateMessageProcessingResponse: message,
     });
     client.query = jest.fn(response) as any;
-    getNextInboxMessagesSpy
+    getNextMessagesBatchSpy
       .mockResolvedValueOnce([
         { ...message, startedAttempts: message.startedAttempts + 1 },
       ])
@@ -425,7 +425,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
       },
     });
     client.query = jest.fn(response) as any;
-    getNextInboxMessagesSpy
+    getNextMessagesBatchSpy
       .mockResolvedValueOnce([nextMessage])
       .mockResolvedValue([]);
     const timeoutMock = jest.fn(() => 100);
@@ -465,7 +465,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
       initiateMessageProcessingResponse: undefined,
     });
     client.query = jest.fn(response) as any;
-    getNextInboxMessagesSpy
+    getNextMessagesBatchSpy
       .mockResolvedValueOnce([notProcessedMessage])
       .mockResolvedValue([]);
     const [shutdown] = initializePollingMessageListener(
@@ -503,7 +503,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
       initiateMessageProcessingResponse: notProcessedMessage,
     });
     client.query = jest.fn(response) as any;
-    getNextInboxMessagesSpy
+    getNextMessagesBatchSpy
       .mockResolvedValueOnce([notProcessedMessage])
       .mockResolvedValue([]);
     const timeoutMock = jest.fn(() => 100);
@@ -561,7 +561,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
       },
     });
     client.query = jest.fn(response) as any;
-    getNextInboxMessagesSpy
+    getNextMessagesBatchSpy
       .mockResolvedValueOnce([nextMessage])
       .mockResolvedValue([]);
     const [shutdown] = initializePollingMessageListener(
@@ -602,7 +602,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
         initiateMessageProcessingResponse: message,
       });
       client.query = jest.fn(response) as any;
-      getNextInboxMessagesSpy
+      getNextMessagesBatchSpy
         .mockResolvedValueOnce([
           { ...message, startedAttempts: message.startedAttempts + 1 },
         ])
@@ -675,7 +675,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
       },
     });
     client.query = jest.fn(response) as any;
-    getNextInboxMessagesSpy
+    getNextMessagesBatchSpy
       .mockResolvedValueOnce([nextMessage])
       .mockResolvedValue([]);
     const [shutdown] = initializePollingMessageListener(
@@ -730,7 +730,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
       },
     });
     client.query = jest.fn(response) as any;
-    getNextInboxMessagesSpy
+    getNextMessagesBatchSpy
       .mockResolvedValueOnce([nextMessage])
       .mockResolvedValue([]);
     const [shutdown] = initializePollingMessageListener(
@@ -776,7 +776,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
       },
     });
     client.query = jest.fn(response) as any;
-    getNextInboxMessagesSpy
+    getNextMessagesBatchSpy
       .mockResolvedValueOnce([nextMessage])
       .mockResolvedValue([]);
     const [shutdown] = initializePollingMessageListener(
@@ -844,7 +844,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
       },
     });
     client.query = jest.fn(response) as any;
-    getNextInboxMessagesSpy
+    getNextMessagesBatchSpy
       .mockResolvedValueOnce([nextMessage])
       .mockResolvedValue([]);
     const [shutdown] = initializePollingMessageListener(
@@ -906,7 +906,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
       },
     });
     client.query = jest.fn(response) as any;
-    getNextInboxMessagesSpy
+    getNextMessagesBatchSpy
       .mockResolvedValueOnce([nextMessage])
       .mockResolvedValue([]);
     const [shutdown] = initializePollingMessageListener(
@@ -950,7 +950,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
       initiateMessageProcessingResponse: message,
     });
     client.query = jest.fn(response) as any;
-    getNextInboxMessagesSpy
+    getNextMessagesBatchSpy
       .mockResolvedValueOnce([
         { ...message, startedAttempts: message.startedAttempts + 1 },
       ])
@@ -1020,7 +1020,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
   it('should correctly handle database event callbacks', async () => {
     // Arrange
     const messageHandler = jest.fn(() => Promise.resolve(sleep(50)));
-    getNextInboxMessagesSpy.mockResolvedValue([]);
+    getNextMessagesBatchSpy.mockResolvedValue([]);
     client.query = jest.fn(getQueryFunction({})) as any;
     const [shutdown] = initializePollingMessageListener(
       config,
@@ -1040,7 +1040,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
   it('should restart the polling functionality in case of an error', async () => {
     // Arrange
     const messageHandler = jest.fn(() => Promise.resolve(sleep(50)));
-    // do not resolve the mock --> getNextInboxMessagesSpy.mockResolvedValue([]);
+    // do not resolve the mock --> getNextMessagesBatchSpy.mockResolvedValue([]);
     client.query = jest.fn(getQueryFunction({})) as any;
     const logger = getDisabledLogger();
     logger.error = jest.fn();
@@ -1068,8 +1068,8 @@ describe('Polling message listener unit tests - initializePollingMessageListener
     // Assert
     await sleep(1_200);
     expect(logger.error).toHaveBeenCalledWith(
-      expect.any(Error),
-      'Error polling for inbox messages.',
+      expect.any(Object),
+      'Error when working on a batch of inbox messages.',
     );
   });
 });

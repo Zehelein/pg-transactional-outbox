@@ -21,7 +21,7 @@ import { defaultMessageProcessingTransactionLevelStrategy } from '../strategies/
 import { defaultMessageRetryStrategy } from '../strategies/message-retry-strategy';
 import { defaultPoisonousMessageRetryStrategy } from '../strategies/poisonous-message-retry-strategy';
 import { PollingListenerConfig } from './config';
-import { getNextInboxMessages } from './next-messages';
+import { getNextMessagesBatch } from './next-messages';
 import { PollingMessageStrategies } from './polling-strategies';
 import { defaultPollingListenerBatchSizeStrategy } from './strategies/batch-size-strategy';
 
@@ -172,11 +172,12 @@ const processBatch = async (
 ): Promise<Promise<void>[]> => {
   let messages: StoredTransactionalMessage[] = [];
   try {
-    messages = await getNextInboxMessages(
+    messages = await getNextMessagesBatch(
       batchSize,
       pool,
       config.settings,
       logger,
+      config.outboxOrInbox,
     );
     // Messages can be processed in parallel
     const batchPromises = messages.map(async (message) => {
@@ -214,7 +215,7 @@ const processBatch = async (
     return batchPromises;
   } catch (batchError) {
     const error = ensureExtendedError(batchError, 'BATCH_PROCESSING_ERROR');
-    logger.trace(
+    logger.error(
       { ...error, messages },
       `Error when working on a batch of ${config.outboxOrInbox} messages.`,
     );
