@@ -456,7 +456,7 @@ describe('createMessageHandler', () => {
     expect(strategies.messageRetryStrategy).not.toHaveBeenCalled();
   });
 
-  it('Should double check that a message is not processed if max attempts are exceeded', async () => {
+  it('Should not double check that a message is not processed if max attempts are exceeded', async () => {
     // Arrange
     const client = getClient({ finished_attempts: 6 });
     const config: FullReplicationListenerConfig = {
@@ -511,13 +511,12 @@ describe('createMessageHandler', () => {
     await messageHandler(mockMessage, cancellation);
 
     // Assert
-    expect(handler.handle).not.toHaveBeenCalled();
+    expect(handler.handle).toHaveBeenCalled();
     expect(client.startedAttemptsIncrement).toBe(1);
     expect(client.initiateMessageProcessing).toBe(1);
-    expect(client.markMessageCompleted).toBe(0);
+    expect(client.markMessageCompleted).toBe(1);
     expect(
       strategies.messageProcessingTransactionLevelStrategy,
     ).toHaveBeenCalledWith(mockMessage);
-    expect(strategies.poisonousMessageRetryStrategy).not.toHaveBeenCalled();
   });
 });

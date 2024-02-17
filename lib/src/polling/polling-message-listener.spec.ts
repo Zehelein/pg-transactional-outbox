@@ -718,50 +718,6 @@ describe('Polling message listener unit tests - initializePollingMessageListener
     expect(client.rollbacks).toBe(1); // error handler
   });
 
-  it('should not process a message when the attempts are exceeded', async () => {
-    // Arrange
-    const messageHandler = jest.fn();
-    const nextMessage = {
-      ...lastAttemptMessage,
-      startedAttempts: lastAttemptMessage.startedAttempts + 1,
-      finishedAttempts: lastAttemptMessage.finishedAttempts + 1, // exceeded last attempt now
-    };
-    const response = getQueryFunction({
-      initiateMessageProcessingResponse: {
-        ...nextMessage,
-      },
-    });
-    client.query = jest.fn(response) as any;
-    getNextMessagesBatchSpy
-      .mockResolvedValueOnce([nextMessage])
-      .mockResolvedValue([]);
-    const [shutdown] = initializePollingMessageListener(
-      config,
-      [
-        {
-          aggregateType,
-          messageType,
-          handle: messageHandler,
-        },
-      ],
-      getDisabledLogger(),
-    );
-    cleanup = shutdown;
-
-    // Act
-    await sleep(150);
-
-    // Assert
-    expect(messageHandler).not.toHaveBeenCalled();
-    expect(client.initiateMessageProcessing).toBe(1);
-    expect(client.increaseMessageFinishedAttempts).toBe(0);
-    expect(client.markMessageCompleted).toBe(0);
-    expect(client.markMessageAbandoned).toBe(1);
-    expect(client.transactionStarts).toBe(1);
-    expect(client.commits).toBe(1);
-    expect(client.rollbacks).toBe(0);
-  });
-
   it('a messageHandler throws an error and the error handler throws an error as well the message should still increase attempts', async () => {
     // Arrange
     const messageHandler = jest.fn(() => Promise.reject(new Error('Handler')));
@@ -1014,7 +970,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
     expect(
       strategies.messageProcessingTransactionLevelStrategy,
     ).toHaveBeenCalled();
-    expect(strategies.messageRetryStrategy).toHaveBeenCalled();
+    expect(strategies.messageRetryStrategy).not.toHaveBeenCalled();
     expect(strategies.poisonousMessageRetryStrategy).not.toHaveBeenCalled();
     expect(strategies.batchSizeStrategy).toHaveBeenCalled();
   });

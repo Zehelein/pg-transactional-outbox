@@ -1,3 +1,4 @@
+import { ExtendedError } from '../common/error';
 import { FullListenerConfig } from '../common/listener-config';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 
@@ -13,17 +14,30 @@ export interface MessageRetryStrategy {
    * @param message The stored message
    * @returns true if the message should be retried, otherwise false.
    */
-  (message: StoredTransactionalMessage): boolean;
+  (message: StoredTransactionalMessage, error: ExtendedError): boolean;
 }
 
 /**
  * Get the default message retry strategy. This strategy checks that the maximum
  * of finished attempts is not exceeded. The number can be defined in the
- * `config.settings.maxAttempts` variable.
+ * `config.settings.maxAttempts` variable. If the error is a PostgreSQL
+ * serialization error it will always be retried.
  */
 export const defaultMessageRetryStrategy = (
   config: FullListenerConfig,
 ): MessageRetryStrategy => {
-  return (message: StoredTransactionalMessage): boolean =>
-    message.finishedAttempts < config.settings.maxAttempts;
+  return (
+    message: StoredTransactionalMessage,
+    error: ExtendedError,
+  ): boolean => {
+    if (
+      error.innerError &&
+      'code' in error.innerError &&
+      error.innerError.code === '40001'
+    ) {
+      // always retry PostgreSQL serialization_failure
+      return true;
+    }
+    return message.finishedAttempts < config.settings.maxAttempts;
+  };
 };

@@ -47,7 +47,7 @@ export const createErrorHandler = (
         await strategies.messageProcessingDbClientStrategy.getClient(message),
         async (client) => {
           message.finishedAttempts++;
-          shouldRetry = strategies.messageRetryStrategy(message);
+          shouldRetry = strategies.messageRetryStrategy(message, error);
           if (handler?.handleError) {
             await handler.handleError(error, message, client, shouldRetry);
           }

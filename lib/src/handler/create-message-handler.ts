@@ -174,17 +174,6 @@ const processMessage = async (
           );
           return;
         }
-        if (
-          message.finishedAttempts > 0 &&
-          !strategies.messageRetryStrategy(message)
-        ) {
-          logger.warn(
-            message,
-            `The received ${config.outboxOrInbox} message should not be retried`,
-          );
-          await markMessageAbandoned(message, client, config);
-          return;
-        }
         await handler.handle(message, client);
       }
       if (!timedOut) {
