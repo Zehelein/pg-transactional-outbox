@@ -2,7 +2,10 @@ import { EventEmitter } from 'events';
 import { DatabaseClient } from '../common/database';
 import { getDisabledLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
-import { ReplicationListenerConfig } from '../replication/config';
+import {
+  FullReplicationListenerConfig,
+  ReplicationListenerConfig,
+} from '../replication/config';
 import { defaultMessageRetryStrategy } from '../strategies/message-retry-strategy';
 import { ListenerType, createMessageHandler } from './create-message-handler';
 import { TransactionalMessageHandler } from './transactional-message-handler';
@@ -456,8 +459,9 @@ describe('createMessageHandler', () => {
   it('Should double check that a message is not processed if max attempts are exceeded', async () => {
     // Arrange
     const client = getClient({ finished_attempts: 6 });
-    const config: ReplicationListenerConfig = {
+    const config: FullReplicationListenerConfig = {
       outboxOrInbox: 'inbox',
+      dbHandlerConfig: {},
       dbListenerConfig: {},
       settings: {
         dbSchema: 'test_schema',
@@ -467,6 +471,14 @@ describe('createMessageHandler', () => {
         enablePoisonousMessageProtection: true,
         enableMaxAttemptsProtection: true,
         maxAttempts: 5,
+        restartDelayInMs: 200,
+        restartDelaySlotInUseInMs: 4000,
+        messageProcessingTimeoutInMs: 500,
+        maxPoisonousAttempts: 3,
+        messageCleanupIntervalInMs: 0,
+        messageCleanupProcessedInSec: 20000,
+        messageCleanupAbandonedInSec: 20000,
+        messageCleanupAllInSec: 20000,
       },
     };
     const strategies = {

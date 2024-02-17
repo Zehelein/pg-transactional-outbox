@@ -1,5 +1,5 @@
 import { ClientBase, Pool } from 'pg';
-import { ListenerConfig } from '../common/listener-config';
+import { FullListenerConfig } from '../common/listener-config';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 import { defaultMessageProcessingDbClientStrategy } from './message-processing-db-client-strategy';
@@ -32,7 +32,7 @@ describe('defaultMessageProcessingDbClientStrategy', () => {
 
   it('should return a DB client', async () => {
     const strategy = defaultMessageProcessingDbClientStrategy(
-      {} as ListenerConfig,
+      {} as FullListenerConfig,
       getDisabledLogger(),
     );
     const client = await strategy.getClient({
@@ -45,7 +45,7 @@ describe('defaultMessageProcessingDbClientStrategy', () => {
     // Arrange
     const [logger, logs] = getInMemoryLogger('test');
     const strategy = defaultMessageProcessingDbClientStrategy(
-      {} as ListenerConfig,
+      {} as FullListenerConfig,
       logger,
     );
     const error = new Error('unit test');
@@ -61,7 +61,7 @@ describe('defaultMessageProcessingDbClientStrategy', () => {
 
   it('should remove all listeners and end the pool on shutdown', async () => {
     const strategy = defaultMessageProcessingDbClientStrategy(
-      {} as ListenerConfig,
+      {} as FullListenerConfig,
       getDisabledLogger(),
     );
     await strategy.shutdown();
@@ -76,7 +76,7 @@ describe('defaultMessageProcessingDbClientStrategy', () => {
     pool.end = jest.fn().mockRejectedValue(error);
     const [logger, logs] = getInMemoryLogger('test');
     const strategy = defaultMessageProcessingDbClientStrategy(
-      {} as ListenerConfig,
+      {} as FullListenerConfig,
       logger,
     );
 

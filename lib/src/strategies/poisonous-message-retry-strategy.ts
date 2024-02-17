@@ -1,4 +1,4 @@
-import { ListenerConfig } from '../common/listener-config';
+import { FullListenerConfig } from '../common/listener-config';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 
 /**
@@ -17,12 +17,11 @@ export interface PoisonousMessageRetryStrategy {
  * Get the default message retry strategy for poisonous messages. This strategy
  * checks that the difference between started attempts and finished attempts is
  * not exceeded. The number can be defined in the
- * `config.settings.maxPoisonousAttempts` variable and defaults to 3 poisonous
- * retry attempts.
+ * `config.settings.maxPoisonousAttempts` variable.
  */
 export const defaultPoisonousMessageRetryStrategy =
-  (config: ListenerConfig): PoisonousMessageRetryStrategy =>
+  (config: FullListenerConfig): PoisonousMessageRetryStrategy =>
   (message: StoredTransactionalMessage): boolean => {
     const diff = message.startedAttempts - message.finishedAttempts;
-    return diff <= (config.settings.maxPoisonousAttempts ?? 3);
+    return diff <= config.settings.maxPoisonousAttempts;
   };

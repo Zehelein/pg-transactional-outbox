@@ -1,4 +1,7 @@
 import {
+  FullReplicationListenerConfig,
+  ReplicationListenerConfig,
+  applyDefaultReplicationListenerConfigValues,
   getInboxReplicationListenerSettings,
   getOutboxReplicationListenerSettings,
   printInboxReplicationListenerEnvVariables,
@@ -6,6 +9,74 @@ import {
 } from './config';
 
 describe('Replication listener settings', () => {
+  describe('applyDefaultReplicationListenerConfigValues', () => {
+    const baseConfig: ReplicationListenerConfig = {
+      outboxOrInbox: 'outbox',
+      dbListenerConfig: { connectionString: 'my-listener-connection' },
+      settings: {
+        dbSchema: 'public',
+        dbTable: 'my-table',
+        enableMaxAttemptsProtection: true,
+        enablePoisonousMessageProtection: false,
+        dbPublication: 'pub',
+        dbReplicationSlot: 'slot',
+      },
+    };
+
+    it('should return a configuration with default values applied for missing values', () => {
+      const result = applyDefaultReplicationListenerConfigValues(baseConfig);
+      const expected: FullReplicationListenerConfig = {
+        ...baseConfig,
+        dbHandlerConfig: baseConfig.dbListenerConfig,
+        settings: {
+          dbTable: 'my-table',
+          dbSchema: 'public',
+          messageProcessingTimeoutInMs: 15_000,
+          maxAttempts: 5,
+          enableMaxAttemptsProtection: true,
+          maxPoisonousAttempts: 3,
+          enablePoisonousMessageProtection: false,
+          messageCleanupIntervalInMs: 300000,
+          messageCleanupProcessedInSec: 604800,
+          messageCleanupAbandonedInSec: 1209600,
+          messageCleanupAllInSec: 5184000,
+          dbPublication: 'pub',
+          dbReplicationSlot: 'slot',
+          restartDelayInMs: 250,
+          restartDelaySlotInUseInMs: 10000,
+        },
+      };
+      expect(result).toEqual(expected);
+    });
+
+    it('should keep full input config without applying defaults', () => {
+      const fullConfig: FullReplicationListenerConfig = {
+        outboxOrInbox: 'outbox',
+        dbHandlerConfig: { connectionString: 'my-handler-connection' },
+        dbListenerConfig: { connectionString: 'my-listener-connection' },
+        settings: {
+          dbTable: 'my-table',
+          dbSchema: 'private',
+          messageProcessingTimeoutInMs: 10,
+          maxAttempts: 20,
+          enableMaxAttemptsProtection: false,
+          maxPoisonousAttempts: 30,
+          enablePoisonousMessageProtection: false,
+          messageCleanupIntervalInMs: 40,
+          messageCleanupProcessedInSec: 50,
+          messageCleanupAbandonedInSec: 60,
+          messageCleanupAllInSec: 70,
+          dbPublication: 'full_pub',
+          dbReplicationSlot: 'full_slot',
+          restartDelayInMs: 80,
+          restartDelaySlotInUseInMs: 90,
+        },
+      };
+      const result = applyDefaultReplicationListenerConfigValues(fullConfig);
+      expect(result).toStrictEqual(fullConfig);
+    });
+  });
+
   describe('getInboxReplicationListenerSettings', () => {
     // Mocking environment object
     const mockEnv = {
@@ -194,8 +265,8 @@ describe('Replication listener settings', () => {
     });
   });
 
-  describe('print polling listener settings', () => {
-    it('printInboxPollingListenerEnvVariables', () => {
+  describe('print replication listener settings', () => {
+    it('printInboxReplicationListenerEnvVariables', () => {
       const settings = printInboxReplicationListenerEnvVariables();
       const expected = /* js */ `# Inbox listener variables
 TRX_INBOX_DB_SCHEMA=public
@@ -229,7 +300,7 @@ TRX_INBOX_DB_REPLICATION_SLOT=pg_transactional_inbox_slot
       expect(settings).toBe(expected);
     });
 
-    it('printOutboxPollingListenerEnvVariables', () => {
+    it('printOutboxReplicationListenerEnvVariables', () => {
       const settings = printOutboxReplicationListenerEnvVariables();
       const expected = /* js */ `# Outbox listener variables
 TRX_OUTBOX_DB_SCHEMA=public

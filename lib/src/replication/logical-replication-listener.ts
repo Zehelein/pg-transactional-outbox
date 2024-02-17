@@ -20,8 +20,8 @@ import { MessageProcessingTimeoutStrategy } from '../strategies/message-processi
 import { createAcknowledgeManager } from './acknowledge-manager';
 import { ReplicationConcurrencyController } from './concurrency-controller/concurrency-controller';
 import {
-  ReplicationListenerConfig,
-  ReplicationListenerSettings,
+  FullReplicationListenerConfig,
+  FullReplicationListenerSettings,
 } from './config';
 import { ReplicationStrategies } from './replication-strategies';
 
@@ -40,7 +40,7 @@ type ReplicationClient = Client & {
  * @returns A function to stop the logical replication listener
  */
 export const createLogicalReplicationListener = (
-  config: ReplicationListenerConfig,
+  config: FullReplicationListenerConfig,
   messageHandler: (
     message: StoredTransactionalMessage,
     cancellation: EventEmitter,
@@ -137,7 +137,7 @@ export const createLogicalReplicationListener = (
 /** Get and map the outbox/inbox message if the WAL log entry is such a message. Otherwise returns undefined. */
 const getRelevantMessage = (
   log: Pgoutput.Message,
-  { dbSchema, dbTable }: ReplicationListenerConfig['settings'],
+  { dbSchema, dbTable }: FullReplicationListenerConfig['settings'],
 ): StoredTransactionalMessage | undefined =>
   log.tag === 'insert' &&
   log.relation.schema === dbSchema &&
@@ -308,7 +308,7 @@ const KEEP_ALIVE_FLAG = 0x6b; // 107 in base 10
 const handleIncomingData = (
   client: ReplicationClient,
   plugin: AbstractPlugin,
-  config: ReplicationListenerSettings,
+  config: FullReplicationListenerSettings,
   messageHandler: (
     message: StoredTransactionalMessage,
     cancellation: EventEmitter,

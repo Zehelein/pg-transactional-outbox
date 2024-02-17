@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { DatabaseClient } from '../common/database';
-import { ListenerConfig } from '../common/listener-config';
+import { ListenerConfig, ListenerSettings } from '../common/listener-config';
 import { getInMemoryLogger } from '../common/logger';
 import { sleep } from '../common/utils';
 import {
@@ -18,12 +18,14 @@ describe('deleteMessagesCompleted', () => {
 
   it('generates the correct SQL query when all three values are provided', async () => {
     // Arrange
-    const settings = {
+    const settings: ListenerSettings = {
       dbSchema: 'inbox',
       dbTable: 'inbox',
       messageCleanupProcessedInSec: 5000,
       messageCleanupAbandonedInSec: 10000,
       messageCleanupAllInSec: 20000,
+      enableMaxAttemptsProtection: true,
+      enablePoisonousMessageProtection: true,
     };
     const client = {
       query: jest.fn().mockReturnValue({ rowCount: 12 }),
@@ -46,11 +48,13 @@ describe('deleteMessagesCompleted', () => {
 
   it('generates the correct SQL query when one value is missing', async () => {
     // Arrange
-    const settings = {
+    const settings: ListenerSettings = {
       dbSchema: 'inbox',
       dbTable: 'inbox',
       messageCleanupAbandonedInSec: 10000,
       messageCleanupAllInSec: 20000,
+      enableMaxAttemptsProtection: true,
+      enablePoisonousMessageProtection: true,
     };
     const client = {
       query: jest.fn().mockReturnValue({ rowCount: 0 }),
@@ -68,9 +72,11 @@ describe('deleteMessagesCompleted', () => {
 
   it('does not call the query function when no properties were provided', async () => {
     // Mock input parameters (seconds)
-    const settings = {
+    const settings: ListenerSettings = {
       dbSchema: 'inbox',
       dbTable: 'inbox',
+      enableMaxAttemptsProtection: true,
+      enablePoisonousMessageProtection: true,
     };
     const client = {
       query: jest.fn(),

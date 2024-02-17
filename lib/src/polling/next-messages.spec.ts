@@ -2,7 +2,7 @@ import { ClientBase } from 'pg';
 import { BaseLogger } from 'pino';
 import { getDisabledLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
-import { PollingListenerSettings } from './config';
+import { FullPollingListenerSettings } from './config';
 import { getNextMessagesBatch } from './next-messages';
 
 describe('getNextMessagesBatch', () => {
@@ -19,7 +19,7 @@ describe('getNextMessagesBatch', () => {
         nextMessagesFunctionSchema: 'test',
         nextMessagesFunctionName: 'test_load_next_messages',
       },
-    } as unknown as PollingListenerSettings;
+    } as unknown as FullPollingListenerSettings;
     const logger = {
       debug: jest.fn(),
       trace: jest.fn(),
@@ -71,7 +71,7 @@ describe('getNextMessagesBatch', () => {
         nextMessagesFunctionSchema: 'test',
         nextMessagesFunctionName: 'test_load_next_messages',
       },
-    } as unknown as PollingListenerSettings;
+    } as unknown as FullPollingListenerSettings;
     const logger = {
       debug: jest.fn(),
       trace: jest.fn(),
@@ -141,7 +141,7 @@ describe('getNextMessagesBatch', () => {
         nextMessagesFunctionSchema: 'test',
         nextMessagesFunctionName: 'test_load_next_messages',
       },
-    } as unknown as PollingListenerSettings;
+    } as unknown as FullPollingListenerSettings;
 
     // Act
     const result = await getNextMessagesBatch(
@@ -208,7 +208,7 @@ describe('getNextMessagesBatch', () => {
         nextMessagesFunctionSchema: 'test',
         nextMessagesFunctionName: 'test_load_next_messages',
       },
-    } as unknown as PollingListenerSettings;
+    } as unknown as FullPollingListenerSettings;
     const logger = {
       debug: jest.fn(),
       trace: jest.fn(),

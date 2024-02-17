@@ -44,6 +44,8 @@ const config: ListenerConfig = {
     dbSchema: 'test_schema',
     dbTable: 'test_table',
     maxAttempts: 7,
+    enableMaxAttemptsProtection: true,
+    enablePoisonousMessageProtection: true,
   },
 };
 

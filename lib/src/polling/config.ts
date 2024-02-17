@@ -11,6 +11,7 @@ import {
 import {
   ListenerConfig,
   ListenerSettings,
+  applyDefaultListenerConfigValues,
   fallbackEnvPrefix,
   getInboxListenerSettings,
   getOutboxListenerSettings,
@@ -19,6 +20,12 @@ import {
   printInboxListenerEnvVariables,
   printOutboxListenerEnvVariables,
 } from '../common/listener-config';
+
+export type FullPollingListenerConfig = Required<PollingListenerConfig> & {
+  settings: FullPollingListenerSettings;
+};
+
+export type FullPollingListenerSettings = Required<PollingListenerSettings>;
 
 export interface PollingListenerConfig extends ListenerConfig {
   /** Polling listener specific settings */
@@ -44,25 +51,54 @@ export interface PollingListenerSettings extends ListenerSettings {
   nextMessagesPollingIntervalInMs?: number;
 }
 
+const defaultSettings: Required<
+  Omit<
+    PollingListenerSettings,
+    keyof ListenerSettings | 'nextMessagesFunctionName'
+  >
+> = {
+  nextMessagesFunctionSchema: 'public',
+  nextMessagesBatchSize: 5,
+  nextMessagesLockInMs: 5000,
+  nextMessagesPollingIntervalInMs: 500,
+};
+
+export const applyDefaultPollingListenerConfigValues = (
+  config: PollingListenerConfig,
+): FullPollingListenerConfig => {
+  const listenerConfig = applyDefaultListenerConfigValues(config);
+  const filledConfig: FullPollingListenerConfig = {
+    ...listenerConfig,
+    ...config,
+    settings: {
+      ...listenerConfig.settings,
+      ...defaultSettings,
+      ...config.settings,
+    },
+  };
+
+  return filledConfig;
+};
+
 const basicSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
   {
     constantName: 'NEXT_MESSAGES_FUNCTION_SCHEMA',
-    default: 'public',
+    default: defaultSettings.nextMessagesFunctionSchema,
     func: getEnvVariableString,
   },
   {
     constantName: 'NEXT_MESSAGES_BATCH_SIZE',
-    default: 5,
+    default: defaultSettings.nextMessagesBatchSize,
     func: getEnvVariableNumber,
   },
   {
     constantName: 'NEXT_MESSAGES_LOCK_IN_MS',
-    default: 5000,
+    default: defaultSettings.nextMessagesLockInMs,
     func: getEnvVariableNumber,
   },
   {
     constantName: 'NEXT_MESSAGES_POLLING_INTERVAL_IN_MS',
-    default: 500,
+    default: defaultSettings.nextMessagesPollingIntervalInMs,
     func: getEnvVariableNumber,
   },
 ];

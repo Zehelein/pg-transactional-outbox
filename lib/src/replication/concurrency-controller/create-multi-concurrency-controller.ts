@@ -14,7 +14,7 @@ export type ReplicationMultiConcurrencyType =
 /**
  * Use different mutex controllers depending on the desired concurrency level
  * for different messages. If a semaphore concurrency controller should be used,
- * the `maxSemaphoreParallelism` should be set (it defaults to 5);
+ * the `maxSemaphoreParallelism` should be set.
  * @param getConcurrencyType Implements the logic which concurrency controller should be used e.g. based on the aggregate and message type
  * @returns The controller to acquire and release the mutex
  */

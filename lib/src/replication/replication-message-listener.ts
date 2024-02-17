@@ -8,7 +8,11 @@ import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-p
 import { defaultMessageProcessingTransactionLevelStrategy } from '../strategies/message-processing-transaction-level-strategy';
 import { defaultMessageRetryStrategy } from '../strategies/message-retry-strategy';
 import { defaultPoisonousMessageRetryStrategy } from '../strategies/poisonous-message-retry-strategy';
-import { ReplicationListenerConfig } from './config';
+import {
+  FullReplicationListenerConfig,
+  ReplicationListenerConfig,
+  applyDefaultReplicationListenerConfigValues,
+} from './config';
 import { createLogicalReplicationListener } from './logical-replication-listener';
 import { ReplicationMessageStrategies } from './replication-strategies';
 import { defaultReplicationConcurrencyStrategy } from './strategies/concurrency-strategy';
@@ -29,22 +33,23 @@ export const initializeReplicationMessageListener = (
   logger: TransactionalLogger,
   strategies?: Partial<ReplicationMessageStrategies>,
 ): [shutdown: { (): Promise<void> }] => {
-  const allStrategies = applyDefaultStrategies(strategies, config, logger);
+  const fullConfig = applyDefaultReplicationListenerConfigValues(config);
+  const allStrategies = applyDefaultStrategies(strategies, fullConfig, logger);
   const messageHandler = createMessageHandler(
     messageHandlers,
     allStrategies,
-    config,
+    fullConfig,
     logger,
     'replication',
   );
   const errorHandler = createErrorHandler(
     messageHandlers,
     allStrategies,
-    config,
+    fullConfig,
     logger,
   );
   const [shutdown] = createLogicalReplicationListener(
-    config,
+    fullConfig,
     messageHandler,
     errorHandler,
     logger,
@@ -62,7 +67,7 @@ export const initializeReplicationMessageListener = (
 
 const applyDefaultStrategies = (
   strategies: Partial<ReplicationMessageStrategies> | undefined,
-  config: ReplicationListenerConfig,
+  config: FullReplicationListenerConfig,
   logger: TransactionalLogger,
 ): ReplicationMessageStrategies => ({
   concurrencyStrategy:

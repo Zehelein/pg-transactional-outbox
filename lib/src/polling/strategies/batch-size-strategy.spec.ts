@@ -1,14 +1,14 @@
-import { PollingListenerConfig } from '../config';
+import { FullPollingListenerConfig } from '../config';
 import { defaultPollingListenerBatchSizeStrategy } from './batch-size-strategy';
 
 describe('defaultPollingListenerBatchSizeStrategy', () => {
-  it('should return the configured batch size', async () => {
+  it('should return a batch size of one for the first 3 attempts and then the full size of 3', async () => {
     // Arrange
     const mockConfig = {
       settings: {
         nextMessagesBatchSize: 3,
       },
-    } as PollingListenerConfig;
+    } as FullPollingListenerConfig;
     const strategy = defaultPollingListenerBatchSizeStrategy(mockConfig);
 
     // Act and assert
@@ -17,22 +17,5 @@ describe('defaultPollingListenerBatchSizeStrategy', () => {
     expect(await strategy(1)).toBe(1);
     expect(await strategy(1)).toBe(3);
     expect(await strategy(1)).toBe(3);
-  });
-
-  it('should increment the default size of 5 if not configured', async () => {
-    // Arrange
-    const mockConfig = {
-      settings: {},
-    } as PollingListenerConfig;
-    const strategy = defaultPollingListenerBatchSizeStrategy(mockConfig);
-
-    // Act and assert
-    expect(await strategy(1)).toBe(1);
-    expect(await strategy(1)).toBe(1);
-    expect(await strategy(1)).toBe(1);
-    expect(await strategy(1)).toBe(1);
-    expect(await strategy(1)).toBe(1);
-    expect(await strategy(1)).toBe(5);
-    expect(await strategy(1)).toBe(5);
   });
 });

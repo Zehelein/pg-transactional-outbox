@@ -29,7 +29,7 @@ export const runMessageCleanupOnce = async (
       dbTable,
       messageCleanupProcessedInSec,
       messageCleanupAbandonedInSec,
-      messageCleanupAllInSec: messageCleanupAllInSec,
+      messageCleanupAllInSec,
     },
   }: Pick<ListenerConfig, 'settings'>,
 ): Promise<number> => {

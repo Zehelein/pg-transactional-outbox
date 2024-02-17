@@ -2,7 +2,7 @@ import { DatabaseError, Pool } from 'pg';
 import { BaseLogger } from 'pino';
 import { ErrorCode, ExtendedError, MessageError } from '../../common/error';
 import { TransactionalMessage } from '../../message/transactional-message';
-import { ReplicationListenerConfig } from '../config';
+import { FullReplicationListenerConfig } from '../config';
 import {
   defaultReplicationListenerAndSlotRestartStrategy,
   defaultReplicationListenerRestartStrategy,
@@ -42,7 +42,7 @@ describe.each([
       restartDelayInMs: 123,
       restartDelaySlotInUseInMs: 1234,
     },
-  } as ReplicationListenerConfig;
+  } as FullReplicationListenerConfig;
   let logger: BaseLogger;
 
   beforeEach(() => {
@@ -50,7 +50,8 @@ describe.each([
       trace: jest.fn(),
       error: jest.fn(),
     } as unknown as BaseLogger;
-    jest.restoreAllMocks();
+    query.mockReset();
+    end.mockReset();
   });
 
   it('should return restartDelaySlotInUseInMs for PostgreSQL replication slot in use error', async () => {
@@ -96,41 +97,6 @@ describe.each([
       expect.any(Error),
       'Failed to create the replication slot for the inbox which does not exist.',
     );
-  });
-
-  it('should use default delays if they are not set', async () => {
-    // Arrange
-    const config = {
-      settings: {},
-    } as ReplicationListenerConfig;
-    const strategy = strategyFunction(config);
-
-    // Act + Assert
-    let pgError = createPgError('55006');
-    let result = await strategy(pgError, logger, 'outbox');
-    expect(result).toBe(10_000);
-
-    pgError = createPgError('42704');
-    result = await strategy(pgError, logger, 'outbox');
-    expect(result).toBe(250);
-
-    pgError = createPgError('12345');
-    result = await strategy(pgError, logger, 'outbox');
-    expect(result).toBe(250);
-
-    const messageError = new MessageError(
-      'some_other_code',
-      'MESSAGE_HANDLING_FAILED',
-      {} as TransactionalMessage,
-      new Error('test'),
-    );
-    result = await strategy(messageError, logger, 'outbox');
-    expect(result).toBe(250);
-
-    const error = new Error('other error') as ExtendedError;
-    error.errorCode = 'MESSAGE_STORAGE_FAILED';
-    result = await strategy(error, logger, 'outbox');
-    expect(result).toBe(250);
   });
 
   it('should return restartDelayInMs for other errors', async () => {

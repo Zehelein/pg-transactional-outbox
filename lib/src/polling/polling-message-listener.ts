@@ -20,7 +20,11 @@ import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-p
 import { defaultMessageProcessingTransactionLevelStrategy } from '../strategies/message-processing-transaction-level-strategy';
 import { defaultMessageRetryStrategy } from '../strategies/message-retry-strategy';
 import { defaultPoisonousMessageRetryStrategy } from '../strategies/poisonous-message-retry-strategy';
-import { PollingListenerConfig } from './config';
+import {
+  FullPollingListenerConfig,
+  PollingListenerConfig,
+  applyDefaultPollingListenerConfigValues,
+} from './config';
 import { getNextMessagesBatch } from './next-messages';
 import { PollingMessageStrategies } from './polling-strategies';
 import { defaultPollingListenerBatchSizeStrategy } from './strategies/batch-size-strategy';
@@ -40,33 +44,33 @@ export const initializePollingMessageListener = (
   logger: TransactionalLogger,
   strategies?: Partial<PollingMessageStrategies>,
 ): [shutdown: { (): Promise<void> }] => {
-  const allStrategies = applyDefaultStrategies(strategies, config, logger);
+  const fullConfig = applyDefaultPollingListenerConfigValues(config);
+  const allStrategies = applyDefaultStrategies(strategies, fullConfig, logger);
   const messageHandler = createMessageHandler(
     messageHandlers,
     allStrategies,
-    config,
+    fullConfig,
     logger,
     'polling',
   );
   const errorHandler = createErrorHandler(
     messageHandlers,
     allStrategies,
-    config,
+    fullConfig,
     logger,
   );
   let pool: Pool = undefined as unknown as Pool;
   let cleanupTimeout: NodeJS.Timeout | undefined;
 
   // Start the asynchronous background polling loop
-  // TODO: add an event emitter for a global stop on shutdown
   // TODO: implement LISTEN/NOTIFY to immediately run the next interval (when workers are free)
   const signal = { stopped: false };
   (function start() {
-    logger.debug(`Start polling for ${config.outboxOrInbox} messages.`);
+    logger.debug(`Start polling for ${fullConfig.outboxOrInbox} messages.`);
     if (pool) {
       justDoIt(pool.end);
     }
-    pool = new Pool(config.dbListenerConfig);
+    pool = new Pool(fullConfig.dbListenerConfig);
     pool.on('error', (error) => {
       logger.error(
         ensureExtendedError(error, 'DB_ERROR'),
@@ -80,14 +84,14 @@ export const initializePollingMessageListener = (
       });
     });
 
-    cleanupTimeout = runScheduledMessageCleanup(pool, config, logger);
+    cleanupTimeout = runScheduledMessageCleanup(pool, fullConfig, logger);
 
     const applyRestart = (promise: Promise<unknown>) => {
       void promise.catch(async (e) => {
         const err = ensureExtendedError(e, 'LISTENER_STOPPED');
         logger.error(
           err,
-          `Error polling for ${config.outboxOrInbox} messages.`,
+          `Error polling for ${fullConfig.outboxOrInbox} messages.`,
         );
         if (!signal.stopped) {
           await sleep(1000);
@@ -99,7 +103,7 @@ export const initializePollingMessageListener = (
     const getNextBatch = async (batchSize: number) =>
       processBatch(
         batchSize,
-        config,
+        fullConfig,
         pool,
         messageHandler,
         errorHandler,
@@ -114,7 +118,7 @@ export const initializePollingMessageListener = (
         getNextBatch,
         allStrategies.batchSizeStrategy,
         signal,
-        config.settings.nextMessagesPollingIntervalInMs ?? 500,
+        fullConfig.settings.nextMessagesPollingIntervalInMs,
       ),
     );
   })();
@@ -133,7 +137,7 @@ export const initializePollingMessageListener = (
 
 const applyDefaultStrategies = (
   strategies: Partial<PollingMessageStrategies> | undefined,
-  config: PollingListenerConfig,
+  config: FullPollingListenerConfig,
   logger: TransactionalLogger,
 ): PollingMessageStrategies => ({
   messageProcessingDbClientStrategy:
@@ -157,7 +161,7 @@ const applyDefaultStrategies = (
 
 const processBatch = async (
   batchSize: number,
-  config: PollingListenerConfig,
+  config: FullPollingListenerConfig,
   pool: Pool,
   messageHandler: (
     message: StoredTransactionalMessage,

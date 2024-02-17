@@ -18,7 +18,10 @@ import {
   TransactionalMessage,
 } from '../message/transactional-message';
 import { defaultMessageProcessingDbClientStrategy } from '../strategies/message-processing-db-client-strategy';
-import { ReplicationListenerConfig } from './config';
+import {
+  FullReplicationListenerConfig,
+  ReplicationListenerConfig,
+} from './config';
 import { initializeReplicationMessageListener } from './replication-message-listener';
 import { ReplicationMessageStrategies } from './replication-strategies';
 
@@ -238,7 +241,7 @@ const messageByFlag = (buffer: Buffer) => {
   }
 };
 
-const config: ReplicationListenerConfig = {
+const config: FullReplicationListenerConfig = {
   outboxOrInbox: 'inbox',
   dbHandlerConfig: {
     host: 'test_host',
@@ -259,6 +262,17 @@ const config: ReplicationListenerConfig = {
     dbTable: 'test_table',
     dbPublication: 'test_pub',
     dbReplicationSlot: 'test_slot',
+    enableMaxAttemptsProtection: true,
+    enablePoisonousMessageProtection: true,
+    restartDelayInMs: 100,
+    restartDelaySlotInUseInMs: 200,
+    messageProcessingTimeoutInMs: 300,
+    maxAttempts: 5,
+    maxPoisonousAttempts: 3,
+    messageCleanupIntervalInMs: 400,
+    messageCleanupProcessedInSec: 500,
+    messageCleanupAbandonedInSec: 600,
+    messageCleanupAllInSec: 700,
   },
 };
 
@@ -283,7 +297,9 @@ const relation: Pgoutput.MessageRelation = {
 };
 
 describe('Replication message listener unit tests - initializeReplicationMessageListener', () => {
+  let afterCleanup: (() => Promise<void>) | undefined = undefined;
   beforeEach(() => {
+    afterCleanup = undefined;
     const connection = new EventEmitter();
     (connection as any).sendCopyFromChunk = jest.fn();
 
@@ -355,6 +371,11 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     markMessageCompletedSpy.mockReset();
     increaseMessageFinishedAttemptsSpy.mockReset();
   });
+  afterEach(async () => {
+    if (afterCleanup) {
+      await afterCleanup();
+    }
+  });
 
   it('should call the correct messageHandler and acknowledge the WAL message when no errors are thrown', async () => {
     // Arrange
@@ -414,6 +435,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     );
     expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
+    expect(client.end).toHaveBeenCalledTimes(0);
     await cleanup();
     expect(client.end).toHaveBeenCalledTimes(1);
   });
@@ -466,6 +488,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       ],
       getDisabledLogger(),
     );
+    afterCleanup = cleanup;
 
     // Act
     sendReplicationChunk('processed_id');
@@ -479,8 +502,6 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     expect(markMessageCompletedSpy).not.toHaveBeenCalled();
     expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
-    await cleanup();
-    expect(client.end).toHaveBeenCalledTimes(1);
   });
 
   it('should not call a messageHandler but acknowledge the WAL message when the DB message was somehow process by another process after the started attempts increment.', async () => {
@@ -523,6 +544,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       ],
       getDisabledLogger(),
     );
+    afterCleanup = cleanup;
 
     // Act
     sendReplicationChunk('processed_id');
@@ -535,8 +557,6 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     expect(markMessageCompletedSpy).not.toHaveBeenCalled();
     expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
-    await cleanup();
-    expect(client.end).toHaveBeenCalledTimes(1);
   });
 
   it('should not call a messageHandler and not acknowledge the WAL message when the DB message was not found.', async () => {
@@ -559,6 +579,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       ],
       getDisabledLogger(),
     );
+    afterCleanup = cleanup;
 
     // Act
     sendReplicationChunk('not_found' as MessageIdType);
@@ -572,8 +593,6 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     expect(markMessageCompletedSpy).not.toHaveBeenCalled();
     expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
-    await cleanup();
-    expect(client.end).toHaveBeenCalledTimes(1);
   });
 
   it('should call a messageHandler on a not processed message but not acknowledge the WAL message when the message handler throws an error', async () => {
@@ -616,6 +635,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       ],
       getDisabledLogger(),
     );
+    afterCleanup = cleanup;
 
     // Act
     sendReplicationChunk('not_processed_id');
@@ -643,8 +663,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       true,
     );
     expect(client.connect).toHaveBeenCalledTimes(1);
-    await cleanup();
-    expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
+    expect(client.end).toHaveBeenCalledTimes(1); // as part of error handling
   });
 
   it('on a message handler timeout the client should do a ROLLBACK and not commit', async () => {
@@ -680,6 +699,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
         messageProcessingTimeoutStrategy: () => 100,
       },
     );
+    afterCleanup = cleanup;
 
     // Act
     sendReplicationChunk('not_processed_id');
@@ -706,8 +726,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       true,
     );
     expect(client.connect).toHaveBeenCalledTimes(1);
-    await cleanup();
-    expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
+    expect(client.end).toHaveBeenCalledTimes(1); // as part of error handling
   });
 
   it('should call the messageHandler and acknowledge the WAL message even if the started attempts are much higher than the finished when poisonous message protection is disabled', async () => {
@@ -765,6 +784,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       getDisabledLogger(),
       strategies,
     );
+    afterCleanup = cleanup;
 
     // Act
     sendReplicationChunk('poisonous_message_exceeded');
@@ -789,8 +809,6 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     );
     expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
-    await cleanup();
-    expect(client.end).toHaveBeenCalledTimes(1);
   });
 
   it('should not call the messageHandler on a poisonous message that already has exceeded the maximum poisonous retries', async () => {
@@ -822,6 +840,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       ],
       getDisabledLogger(),
     );
+    afterCleanup = cleanup;
 
     // Act
     sendReplicationChunk('poisonous_message_exceeded');
@@ -833,8 +852,6 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     expect(markMessageCompletedSpy).not.toHaveBeenCalled();
     expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
-    await cleanup();
-    expect(client.end).toHaveBeenCalledTimes(1);
   });
 
   it('should not retry a message when there is an error and the attempts are exceeded', async () => {
@@ -873,6 +890,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       ],
       getDisabledLogger(),
     );
+    afterCleanup = cleanup;
 
     // Act
     sendReplicationChunk('last_attempt');
@@ -892,8 +910,6 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       expect.any(Object),
     );
     expect(client.connect).toHaveBeenCalledTimes(1);
-    await cleanup();
-    expect(client.end).toHaveBeenCalledTimes(1);
   });
 
   it('should not process a message when the attempts are exceeded', async () => {
@@ -911,6 +927,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       ],
       getDisabledLogger(),
     );
+    afterCleanup = cleanup;
 
     // Act
     sendReplicationChunk('last_attempt');
@@ -922,8 +939,6 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     expect(markMessageCompletedSpy).not.toHaveBeenCalled();
     expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
-    await cleanup();
-    expect(client.end).toHaveBeenCalledTimes(1);
   });
 
   it('a messageHandler throws an error and the error handler throws an error as well the message should still increase attempts', async () => {
@@ -961,6 +976,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       ],
       logger,
     );
+    afterCleanup = cleanup;
 
     // Act
     sendReplicationChunk('not_processed_id');
@@ -993,8 +1009,6 @@ describe('Replication message listener unit tests - initializeReplicationMessage
         'The error handling of the inbox message failed. Please make sure that your error handling code does not throw an error!',
     );
     expect(log).toHaveLength(1);
-    await cleanup();
-    expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
   });
 
   it('a messageHandler throws an error and the error handler throws an error and the best effort increment fails also then do not retry the message', async () => {
@@ -1047,9 +1061,11 @@ describe('Replication message listener unit tests - initializeReplicationMessage
         },
       },
     );
+    afterCleanup = cleanup;
     increaseMessageFinishedAttemptsSpy.mockRejectedValueOnce(
       new Error('Finished Attempts Increase'),
     );
+
     // Act
     sendReplicationChunk('not_processed_id');
     await continueEventLoop();
@@ -1087,7 +1103,6 @@ describe('Replication message listener unit tests - initializeReplicationMessage
         "The 'best-effort' logic to increase the inbox message finished attempts failed as well.",
     );
     expect(bestEffortLog).toHaveLength(1);
-    await cleanup();
   });
 
   it('should log a debug message when no messageHandler was found for a message', async () => {
@@ -1116,6 +1131,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       ],
       logger,
     );
+    afterCleanup = cleanup;
 
     // Act
     sendReplicationChunk('not_processed_id');
@@ -1137,8 +1153,6 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     );
     expect(log).toHaveLength(1);
     expect(client.connect).toHaveBeenCalledTimes(1);
-    await cleanup();
-    expect(client.end).toHaveBeenCalledTimes(1);
   });
 
   it('should raise an error if no message handlers are defined', () => {
@@ -1198,6 +1212,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       getDisabledLogger(),
       strategies,
     );
+    afterCleanup = cleanup;
 
     // Act
     sendReplicationChunk('not_processed_id');
@@ -1237,7 +1252,5 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     );
     expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
-    await cleanup();
-    expect(client.end).toHaveBeenCalledTimes(1);
   });
 });

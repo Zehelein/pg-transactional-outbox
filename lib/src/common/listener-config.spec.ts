@@ -1,4 +1,7 @@
 import {
+  FullListenerConfig,
+  ListenerConfig,
+  applyDefaultListenerConfigValues,
   getInboxListenerSettings,
   getOutboxListenerSettings,
   printInboxListenerEnvVariables,
@@ -6,6 +9,78 @@ import {
 } from './listener-config';
 
 describe('Listener settings', () => {
+  describe('applyDefaultListenerConfigValues', () => {
+    const baseConfig: ListenerConfig = {
+      outboxOrInbox: 'outbox',
+      dbListenerConfig: { connectionString: 'my-listener-connection' },
+      settings: {
+        dbSchema: 'public',
+        dbTable: 'my-table',
+        enableMaxAttemptsProtection: true,
+        enablePoisonousMessageProtection: false,
+      },
+    };
+
+    it('should return a configuration with default values applied for missing values', () => {
+      const result = applyDefaultListenerConfigValues(baseConfig);
+      const expected: FullListenerConfig = {
+        ...baseConfig,
+        dbHandlerConfig: baseConfig.dbListenerConfig,
+        settings: {
+          dbTable: 'my-table',
+          dbSchema: 'public',
+          messageProcessingTimeoutInMs: 15_000,
+          maxAttempts: 5,
+          enableMaxAttemptsProtection: true,
+          maxPoisonousAttempts: 3,
+          enablePoisonousMessageProtection: false,
+          messageCleanupIntervalInMs: 300000,
+          messageCleanupProcessedInSec: 604800,
+          messageCleanupAbandonedInSec: 1209600,
+          messageCleanupAllInSec: 5184000,
+        },
+      };
+      expect(result).toEqual(expected);
+    });
+
+    it('should prioritize dbHandlerConfig over dbListenerConfig', () => {
+      const customDbHandlerConfig = {
+        connectionString: 'my-handler-connection',
+      };
+      const configWithDbHandlerConfig: ListenerConfig = {
+        ...baseConfig,
+        dbHandlerConfig: customDbHandlerConfig,
+      };
+      const result = applyDefaultListenerConfigValues(
+        configWithDbHandlerConfig,
+      );
+      expect(result.dbHandlerConfig).toEqual(customDbHandlerConfig);
+    });
+
+    it('should keep full input config without applying defaults', () => {
+      const fullConfig: ListenerConfig = {
+        outboxOrInbox: 'outbox',
+        dbHandlerConfig: { connectionString: 'my-handler-connection' },
+        dbListenerConfig: { connectionString: 'my-listener-connection' },
+        settings: {
+          dbTable: 'my-table',
+          dbSchema: 'private',
+          messageProcessingTimeoutInMs: 10,
+          maxAttempts: 20,
+          enableMaxAttemptsProtection: false,
+          maxPoisonousAttempts: 30,
+          enablePoisonousMessageProtection: false,
+          messageCleanupIntervalInMs: 40,
+          messageCleanupProcessedInSec: 50,
+          messageCleanupAbandonedInSec: 60,
+          messageCleanupAllInSec: 70,
+        },
+      };
+      const result = applyDefaultListenerConfigValues(fullConfig);
+      expect(result).toStrictEqual(fullConfig);
+    });
+  });
+
   describe('getInboxListenerSettings', () => {
     // Mocking environment object
     const mockEnv = {

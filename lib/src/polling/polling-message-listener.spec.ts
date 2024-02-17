@@ -123,6 +123,8 @@ const config: PollingListenerConfig = {
     nextMessagesBatchSize: 2,
     nextMessagesFunctionName: 'next_inbox_messages',
     nextMessagesPollingIntervalInMs: 100,
+    enableMaxAttemptsProtection: true,
+    enablePoisonousMessageProtection: true,
   },
 };
 

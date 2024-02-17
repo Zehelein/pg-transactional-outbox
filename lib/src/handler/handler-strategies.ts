@@ -7,7 +7,7 @@ import { PoisonousMessageRetryStrategy } from '../strategies/poisonous-message-r
 export interface HandlerStrategies {
   /**
    * Defines the message processing timeout strategy. By default, it uses the
-   * configured messageProcessingTimeoutInMs or falls back to a 15-second timeout.
+   * configured messageProcessingTimeoutInMs.
    */
   messageProcessingTimeoutStrategy: MessageProcessingTimeoutStrategy;
 

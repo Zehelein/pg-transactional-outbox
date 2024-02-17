@@ -1,4 +1,4 @@
-import { ListenerConfig } from '../common/listener-config';
+import { FullListenerConfig } from '../common/listener-config';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 
 /**
@@ -13,10 +13,10 @@ export interface MessageProcessingTimeoutStrategy {
 
 /**
  * Get the default message processing timeout strategy which uses the
- * messageProcessingTimeoutInMs setting if this is defined or 2 seconds.
+ * messageProcessingTimeoutInMs setting.
  */
 export const defaultMessageProcessingTimeoutStrategy =
-  (config: ListenerConfig): MessageProcessingTimeoutStrategy =>
+  (config: FullListenerConfig): MessageProcessingTimeoutStrategy =>
   () => {
-    return config.settings.messageProcessingTimeoutInMs ?? 2_000;
+    return config.settings.messageProcessingTimeoutInMs;
   };

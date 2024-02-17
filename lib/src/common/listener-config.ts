@@ -13,6 +13,12 @@ import {
 
 export type OutboxOrInbox = 'outbox' | 'inbox';
 
+export type FullListenerConfig = Required<ListenerConfig> & {
+  settings: FullListenerSettings;
+};
+
+export type FullListenerSettings = Required<ListenerSettings>;
+
 export interface ListenerConfig {
   /**
    * Defines if this listener is used for the transactional outbox or inbox
@@ -56,7 +62,7 @@ export interface ListenerSettings {
    * Enable max attempts protection. Might be disabled when using it for the
    * outbox scenario. Defaults to true.
    */
-  enableMaxAttemptsProtection?: boolean;
+  enableMaxAttemptsProtection: boolean;
   /**
    * Defines the maximum number of times a message is going to be processed
    * when it is (likely) a poisonous message which is causing a server crash.
@@ -69,7 +75,7 @@ export interface ListenerSettings {
    * true. Enabling it will take a little bit more time but will prevent an
    * infinite service crash loop if there is a poisonous message.
    */
-  enablePoisonousMessageProtection?: boolean;
+  enablePoisonousMessageProtection: boolean;
   /**
    * Time in milliseconds between the execution of the old message cleanups.
    * Leave it undefined or zero to disable automatic message cleanup.
@@ -83,41 +89,73 @@ export interface ListenerSettings {
   messageCleanupAllInSec?: number;
 }
 
+const defaultSettings: Omit<FullListenerSettings, 'dbTable'> = {
+  dbSchema: 'public',
+  messageProcessingTimeoutInMs: 15_000,
+  maxAttempts: 5,
+  enableMaxAttemptsProtection: true,
+  maxPoisonousAttempts: 3,
+  enablePoisonousMessageProtection: true,
+  messageCleanupIntervalInMs: 5 * 60 * 1000,
+  messageCleanupProcessedInSec: 7 * 24 * 60 * 60,
+  messageCleanupAbandonedInSec: 14 * 24 * 60 * 60,
+  messageCleanupAllInSec: 60 * 24 * 60 * 60,
+};
+
+export const applyDefaultListenerConfigValues = (
+  config: ListenerConfig,
+): FullListenerConfig => {
+  const filledConfig: FullListenerConfig = {
+    ...config,
+    dbHandlerConfig: config.dbHandlerConfig ?? config.dbListenerConfig,
+    settings: {
+      ...defaultSettings,
+      ...config.settings,
+    },
+  };
+
+  return filledConfig;
+};
+
 const basicSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
   {
     constantName: 'DB_SCHEMA',
-    default: 'public',
+    default: defaultSettings.dbSchema,
     func: getEnvVariableString,
   },
   {
     constantName: 'MESSAGE_PROCESSING_TIMEOUT_IN_MS',
-    default: 15_000,
+    default: defaultSettings.messageProcessingTimeoutInMs,
     func: getEnvVariableNumber,
   },
-  { constantName: 'MAX_ATTEMPTS', func: getEnvVariableNumber, default: 5 },
+  {
+    constantName: 'MAX_ATTEMPTS',
+    func: getEnvVariableNumber,
+    default: defaultSettings.maxAttempts,
+  },
   {
     constantName: 'MAX_POISONOUS_ATTEMPTS',
-    default: 3,
+    default: defaultSettings.maxPoisonousAttempts,
     func: getEnvVariableNumber,
   },
   {
     constantName: 'MESSAGE_CLEANUP_INTERVAL_IN_MS',
-    default: 5 * 60 * 1000,
+    default: defaultSettings.messageCleanupIntervalInMs,
     func: getEnvVariableNumber,
   },
   {
     constantName: 'MESSAGE_CLEANUP_PROCESSED_IN_SEC',
-    default: 7 * 24 * 60 * 60,
+    default: defaultSettings.messageCleanupProcessedInSec,
     func: getEnvVariableNumber,
   },
   {
     constantName: 'MESSAGE_CLEANUP_ABANDONED_IN_SEC',
-    default: 14 * 24 * 60 * 60,
+    default: defaultSettings.messageCleanupAbandonedInSec,
     func: getEnvVariableNumber,
   },
   {
     constantName: 'MESSAGE_CLEANUP_ALL_IN_SEC',
-    default: 60 * 24 * 60 * 60,
+    default: defaultSettings.messageCleanupAllInSec,
     func: getEnvVariableNumber,
   },
 ];
@@ -156,7 +194,6 @@ const outboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
     func: getEnvVariableBoolean,
     skipFallback: true,
   },
-
   {
     constantName: 'ENABLE_POISONOUS_MESSAGE_PROTECTION',
     default: false,

@@ -6,7 +6,7 @@ import {
 } from '../../common/error';
 import { OutboxOrInbox } from '../../common/listener-config';
 import { TransactionalLogger } from '../../common/logger';
-import { ReplicationListenerConfig } from '../config';
+import { FullReplicationListenerConfig } from '../config';
 
 /**
  * When some error is caught in the outbox or inbox listener this strategy will
@@ -33,11 +33,11 @@ export interface ReplicationListenerRestartStrategy {
  * The default listener restart strategy checks if the error is a PostgreSQL
  * error. If the PostgreSQL error is about the replication slot being in use, it
  * logs a trace entry and waits for the configured `restartDelaySlotInUseInMs`
- * (default: 10sec) time. Otherwise, it logs an error entry and waits for the
- * configured `restartDelayInMs` (default: 250ms).
+ * time. Otherwise, it logs an error entry and waits for the configured
+ * `restartDelayInMs`.
  */
 export const defaultReplicationListenerRestartStrategy = (
-  config: ReplicationListenerConfig,
+  config: FullReplicationListenerConfig,
 ): ReplicationListenerRestartStrategy => {
   return handleError(config);
 };
@@ -47,11 +47,10 @@ export const defaultReplicationListenerRestartStrategy = (
  * `defaultListenerRestartStrategy`. In addition, it checks if a PostgreSQL error
  * is about the replication slot not existing (e.g. after a DB failover). Then
  * it tries to create the replication slot with the connection details of the
- * replication user slot and waits for the configured `restartDelayInMs` (default:
- * 250ms).
+ * replication user slot and waits for the configured `restartDelayInMs`.
  */
 export const defaultReplicationListenerAndSlotRestartStrategy = (
-  config: ReplicationListenerConfig,
+  config: FullReplicationListenerConfig,
 ): ReplicationListenerRestartStrategy => {
   return handleError(config, createReplicationSlot);
 };
@@ -64,7 +63,7 @@ const handleError = (
       dbReplicationSlot,
     },
     dbListenerConfig: pgReplicationConfig,
-  }: ReplicationListenerConfig,
+  }: FullReplicationListenerConfig,
   replicationSlotNotFoundCallback?: typeof createReplicationSlot,
 ): ReplicationListenerRestartStrategy => {
   return async (
@@ -78,7 +77,7 @@ const handleError = (
           error,
           `The replication slot for the ${outboxOrInbox} listener is currently in use.`,
         );
-        return restartDelaySlotInUseInMs ?? 10_000;
+        return restartDelaySlotInUseInMs;
       } else if ('code' in error && error.code === '42704') {
         // replication slot not found - best effort to create it again
         logger.error(error, error.message);
@@ -89,7 +88,7 @@ const handleError = (
           outboxOrInbox,
         );
       }
-      return restartDelayInMs ?? 250;
+      return restartDelayInMs;
     }
 
     if (
@@ -99,7 +98,7 @@ const handleError = (
       // Message based errors are already logged
       logger.error(error, `Transactional ${outboxOrInbox} listener error`);
     }
-    return restartDelayInMs ?? 250;
+    return restartDelayInMs;
   };
 };
 

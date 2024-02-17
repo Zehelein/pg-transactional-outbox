@@ -11,6 +11,7 @@ import {
 import {
   ListenerConfig,
   ListenerSettings,
+  applyDefaultListenerConfigValues,
   fallbackEnvPrefix,
   getInboxListenerSettings,
   getOutboxListenerSettings,
@@ -19,6 +20,14 @@ import {
   printInboxListenerEnvVariables,
   printOutboxListenerEnvVariables,
 } from '../common/listener-config';
+
+export type FullReplicationListenerConfig =
+  Required<ReplicationListenerConfig> & {
+    settings: FullReplicationListenerSettings;
+  };
+
+export type FullReplicationListenerSettings =
+  Required<ReplicationListenerSettings>;
 
 export interface ReplicationListenerConfig extends ListenerConfig {
   /** Replication listener specific configurations */
@@ -36,15 +45,42 @@ export interface ReplicationListenerSettings extends ListenerSettings {
   restartDelaySlotInUseInMs?: number;
 }
 
+const defaultSettings: Required<
+  Omit<
+    ReplicationListenerSettings,
+    keyof ListenerSettings | 'dbPublication' | 'dbReplicationSlot'
+  >
+> = {
+  restartDelayInMs: 250,
+  restartDelaySlotInUseInMs: 10_000,
+};
+
+export const applyDefaultReplicationListenerConfigValues = (
+  config: ReplicationListenerConfig,
+): FullReplicationListenerConfig => {
+  const listenerConfig = applyDefaultListenerConfigValues(config);
+  const filledConfig: FullReplicationListenerConfig = {
+    ...listenerConfig,
+    ...config,
+    settings: {
+      ...listenerConfig.settings,
+      ...defaultSettings,
+      ...config.settings,
+    },
+  };
+
+  return filledConfig;
+};
+
 const basicSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
   {
     constantName: 'RESTART_DELAY_IN_MS',
-    default: 250,
+    default: defaultSettings.restartDelayInMs,
     func: getEnvVariableNumber,
   },
   {
     constantName: 'RESTART_DELAY_SLOT_IN_USE_IN_MS',
-    default: 10000,
+    default: defaultSettings.restartDelaySlotInUseInMs,
     func: getEnvVariableNumber,
   },
 ];

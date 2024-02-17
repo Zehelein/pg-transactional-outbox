@@ -1,4 +1,4 @@
-import { ListenerConfig } from '../common/listener-config';
+import { FullListenerConfig } from '../common/listener-config';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 
 /**
@@ -19,12 +19,11 @@ export interface MessageRetryStrategy {
 /**
  * Get the default message retry strategy. This strategy checks that the maximum
  * of finished attempts is not exceeded. The number can be defined in the
- * `config.settings.maxAttempts` variable and defaults to 5 attempts.
+ * `config.settings.maxAttempts` variable.
  */
 export const defaultMessageRetryStrategy = (
-  config: ListenerConfig,
+  config: FullListenerConfig,
 ): MessageRetryStrategy => {
-  const maxAttempts = config.settings.maxAttempts ?? 5;
   return (message: StoredTransactionalMessage): boolean =>
-    message.finishedAttempts < maxAttempts;
+    message.finishedAttempts < config.settings.maxAttempts;
 };

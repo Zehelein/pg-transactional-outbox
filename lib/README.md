@@ -1081,7 +1081,7 @@ The `messageProcessingTimeoutStrategy` allows you to define a message-based
 timeout on how long the message is allowed to be processed (in milliseconds).
 This allows you to give more time to process "expensive" messages while still
 processing others on a short timeout. By default, it uses the configured
-`messageProcessingTimeoutInMs` or falls back to a 15-second timeout.
+`messageProcessingTimeoutInMs`.
 
 ### Message processing Transaction level strategy
 
@@ -1110,8 +1110,7 @@ catches that error and needs to decide if the message should be processed
 again - or not. The `messageRetryStrategy` offers the possibility to customize
 the decision if a message should be retried or not. By default, the
 `defaultMessageRetryStrategy` is used. It will retry the message up the
-configured value in the `maxAttempts` setting or as a fallback five times
-(including the initial attempt).
+configured value in the `maxAttempts` setting (including the initial attempt).
 
 ### Poisonous message retry strategy
 
@@ -1125,13 +1124,12 @@ of attempts.
 You can customize the behavior of the service by changing the following options:
 
 - `settings.maxPoisonousAttempts`: This is the maximum number of times the
-  service will retry a message before marking it as poisonous. The default value
-  is 3, but you can change it to any positive integer.
+  service will retry a message before marking it as poisonous.
 - `poisonousMessageRetryStrategy`: This is a function that determines whether a
   message should be retried or not, based on the started and finished counts.
-  The default function is (started, finished) => started - finished >= 3, but
-  you can implement your own logic and pass it as an argument to the service
-  constructor.
+  The default function is (started, finished) => started - finished >=
+  `maxPoisonousAttempts`, but you can implement your own logic and pass it as an
+  argument to the service constructor.
 
 ## Replication listener strategies
 
@@ -1170,15 +1168,15 @@ track the caught error.
 The `defaultListenerRestartStrategy` checks if the error message is a PostgreSQL
 error. If the PostgreSQL error is about the replication slot being in use, it
 logs a trace entry and waits for the configured `restartDelaySlotInUseInMs`
-(default: 10sec) time. Otherwise, it logs an error entry and waits for the
-configured `restartDelayInMs` (default: 250ms).
+time. Otherwise, it logs an error entry and waits for the configured
+`restartDelayInMs`.
 
 The `defaultListenerAndSlotRestartStrategy` uses the same logic as the
 `defaultListenerRestartStrategy`. In addition, it checks if a PostgreSQL error
 is about the replication slot not existing (e.g. after a DB failover). Then it
 tries to create the replication slot with the connection details of the
-replication user slot and waits for the configured `restartDelayInMs` (default:
-250ms) to restart the listener.
+replication user slot and waits for the configured `restartDelayInMs` to restart
+the listener.
 
 ## Polling listener strategies
 
@@ -1188,11 +1186,11 @@ The `PollingListenerBatchSizeStrategy` defines the batch size strategy how many
 messages should be loaded at once.
 
 When using the default `defaultPollingListenerBatchSizeStrategy` batch size
-strategy it returns the configured value from the `nextMessagesBatchSize`. The
-default is 5. But the first few times until the batch size is reached it will
-respond to return only one message. This protects against poisonous messages: if
-5 messages would be taken during startup all those 5 would be marked as
-poisonous if one of them fails.
+strategy it returns the configured value from the `nextMessagesBatchSize`. But
+the first few times until the batch size is reached it will respond to return
+only one message. This protects against poisonous messages: if 5 messages would
+be taken during startup all those 5 would be marked as poisonous if one of them
+fails.
 
 # Outlook
 

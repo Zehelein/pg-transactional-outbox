@@ -1,4 +1,4 @@
-import { PollingListenerConfig } from '../config';
+import { FullPollingListenerConfig } from '../config';
 
 /**
  * Define the batch size strategy how many messages should be loaded at once.
@@ -14,19 +14,18 @@ export interface PollingListenerBatchSizeStrategy {
 
 /**
  * The default batch size strategy returns the configured value from the
- * `nextMessagesBatchSize`. Default is 5. But the first few times until the
- * batch size is reached it will tell to return only one message. This protects
- * against poisonous messages: if 5 messages would be taken during startup all
- * those 5 would be marked as poisonous if one of them fails.
+ * `nextMessagesBatchSize`. But the first few times until the batch size is
+ * reached it will tell to return only one message. This protects against
+ * poisonous messages: if the full batch size would be taken during startup all
+ * those messages would be marked as poisonous if one of them fails.
  */
 export const defaultPollingListenerBatchSizeStrategy = (
-  config: PollingListenerConfig,
+  config: FullPollingListenerConfig,
 ): PollingListenerBatchSizeStrategy => {
-  const max = config.settings.nextMessagesBatchSize ?? 5;
   let callsSinceStart = 1;
   return () => {
-    let batchSize = max;
-    if (callsSinceStart <= max) {
+    let batchSize = config.settings.nextMessagesBatchSize;
+    if (callsSinceStart <= config.settings.nextMessagesBatchSize) {
       batchSize = 1;
       callsSinceStart++;
     }

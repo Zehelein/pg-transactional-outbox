@@ -2,7 +2,7 @@ import { DatabaseClient } from '../common/database';
 import { OutboxOrInbox } from '../common/listener-config';
 import { TransactionalLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
-import { PollingListenerSettings } from './config';
+import { FullPollingListenerSettings } from './config';
 
 const lastLogTime = {
   inbox: 0,
@@ -21,13 +21,13 @@ const lastLogTime = {
 export const getNextMessagesBatch = async (
   maxMessages: number,
   client: DatabaseClient,
-  settings: PollingListenerSettings,
+  settings: FullPollingListenerSettings,
   logger: TransactionalLogger,
   outboxOrInbox: OutboxOrInbox,
 ): Promise<StoredTransactionalMessage[]> => {
-  const schema = settings.nextMessagesFunctionSchema ?? settings.dbSchema;
+  const schema = settings.nextMessagesFunctionSchema;
   const func = settings.nextMessagesFunctionName;
-  const lock = settings.nextMessagesLockInMs ?? 5000;
+  const lock = settings.nextMessagesLockInMs;
 
   const messagesResult = await client.query(
     /* sql */ `SELECT * FROM ${schema}.${func}(${maxMessages}, ${lock});`,

@@ -1,7 +1,7 @@
 import { Pool } from 'pg';
 import { DatabaseClient } from '../common/database';
 import { ensureExtendedError } from '../common/error';
-import { ListenerConfig } from '../common/listener-config';
+import { FullListenerConfig } from '../common/listener-config';
 import { TransactionalLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 
@@ -27,10 +27,10 @@ export interface MessageProcessingDbClientStrategy {
  * `pgConfig` settings.
  */
 export const defaultMessageProcessingDbClientStrategy = (
-  config: ListenerConfig,
+  config: FullListenerConfig,
   logger: TransactionalLogger,
 ): MessageProcessingDbClientStrategy => {
-  const pool = new Pool(config.dbHandlerConfig ?? config.dbListenerConfig);
+  const pool = new Pool(config.dbHandlerConfig);
   pool.on('error', (error) => {
     logger.error(
       ensureExtendedError(error, 'DB_ERROR'),

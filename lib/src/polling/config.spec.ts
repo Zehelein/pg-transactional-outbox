@@ -1,4 +1,7 @@
 import {
+  FullPollingListenerConfig,
+  PollingListenerConfig,
+  applyDefaultPollingListenerConfigValues,
   getInboxPollingListenerSettings,
   getOutboxPollingListenerSettings,
   printInboxPollingListenerEnvVariables,
@@ -6,6 +9,75 @@ import {
 } from './config';
 
 describe('Polling listener settings', () => {
+  describe('applyDefaultPollingListenerConfigValues', () => {
+    const baseConfig: PollingListenerConfig = {
+      outboxOrInbox: 'outbox',
+      dbListenerConfig: { connectionString: 'my-listener-connection' },
+      settings: {
+        dbSchema: 'public',
+        dbTable: 'my-table',
+        enableMaxAttemptsProtection: true,
+        enablePoisonousMessageProtection: false,
+        nextMessagesFunctionName: 'next_default_messages_function',
+      },
+    };
+
+    it('should return a configuration with default values applied for missing values', () => {
+      const result = applyDefaultPollingListenerConfigValues(baseConfig);
+      const expected: FullPollingListenerConfig = {
+        ...baseConfig,
+        dbHandlerConfig: baseConfig.dbListenerConfig,
+        settings: {
+          dbTable: 'my-table',
+          dbSchema: 'public',
+          messageProcessingTimeoutInMs: 15_000,
+          maxAttempts: 5,
+          enableMaxAttemptsProtection: true,
+          maxPoisonousAttempts: 3,
+          enablePoisonousMessageProtection: false,
+          messageCleanupIntervalInMs: 300000,
+          messageCleanupProcessedInSec: 604800,
+          messageCleanupAbandonedInSec: 1209600,
+          messageCleanupAllInSec: 5184000,
+          nextMessagesFunctionName: 'next_default_messages_function',
+          nextMessagesFunctionSchema: 'public',
+          nextMessagesBatchSize: 5,
+          nextMessagesLockInMs: 5000,
+          nextMessagesPollingIntervalInMs: 500,
+        },
+      };
+      expect(result).toEqual(expected);
+    });
+
+    it('should keep full input config without applying defaults', () => {
+      const fullConfig: FullPollingListenerConfig = {
+        outboxOrInbox: 'outbox',
+        dbHandlerConfig: { connectionString: 'my-handler-connection' },
+        dbListenerConfig: { connectionString: 'my-listener-connection' },
+        settings: {
+          dbTable: 'my-table',
+          dbSchema: 'private',
+          messageProcessingTimeoutInMs: 10,
+          maxAttempts: 20,
+          enableMaxAttemptsProtection: false,
+          maxPoisonousAttempts: 30,
+          enablePoisonousMessageProtection: false,
+          messageCleanupIntervalInMs: 40,
+          messageCleanupProcessedInSec: 50,
+          messageCleanupAbandonedInSec: 60,
+          messageCleanupAllInSec: 70,
+          nextMessagesFunctionName: 'next',
+          nextMessagesFunctionSchema: 'private',
+          nextMessagesBatchSize: 80,
+          nextMessagesLockInMs: 90,
+          nextMessagesPollingIntervalInMs: 100,
+        },
+      };
+      const result = applyDefaultPollingListenerConfigValues(fullConfig);
+      expect(result).toStrictEqual(fullConfig);
+    });
+  });
+
   describe('getInboxPollingListenerSettings', () => {
     // Mocking environment object
     const mockEnv = {

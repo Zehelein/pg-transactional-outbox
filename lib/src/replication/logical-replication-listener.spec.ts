@@ -7,7 +7,10 @@ import { Pgoutput } from 'pg-logical-replication';
 import { getDisabledLogger, getInMemoryLogger } from '../common/logger';
 import { sleep } from '../common/utils';
 import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
-import { ReplicationListenerConfig } from './config';
+import {
+  FullReplicationListenerConfig,
+  FullReplicationListenerSettings,
+} from './config';
 import {
   createLogicalReplicationListener,
   __only_for_unit_tests__ as tests,
@@ -122,11 +125,22 @@ const sendReplicationChunk = (chunk: Buffer) => {
   });
 };
 
-const settings = {
+const settings: FullReplicationListenerSettings = {
   dbSchema: 'test_schema',
   dbTable: 'test_table',
   dbPublication: 'test_pub',
   dbReplicationSlot: 'test_slot',
+  enableMaxAttemptsProtection: true,
+  enablePoisonousMessageProtection: true,
+  restartDelayInMs: 100,
+  restartDelaySlotInUseInMs: 200,
+  messageProcessingTimeoutInMs: 300,
+  maxAttempts: 5,
+  maxPoisonousAttempts: 3,
+  messageCleanupIntervalInMs: 0, // disable for test
+  messageCleanupProcessedInSec: 500,
+  messageCleanupAbandonedInSec: 600,
+  messageCleanupAllInSec: 700,
 };
 
 const dbMessage = {
@@ -180,13 +194,13 @@ const relation: Pgoutput.MessageRelation = {
 };
 
 const getStrategies = (
-  config?: ReplicationListenerConfig,
+  config?: FullReplicationListenerConfig,
 ): ReplicationStrategies => {
   const cfg =
     config ??
     ({
       settings: { ...settings, messageProcessingTimeoutInMs: 2_000 },
-    } as ReplicationListenerConfig);
+    } as FullReplicationListenerConfig);
   return {
     concurrencyStrategy: defaultReplicationConcurrencyStrategy(),
     messageProcessingTimeoutStrategy:
@@ -196,8 +210,15 @@ const getStrategies = (
 };
 
 describe('Local replication listener unit tests', () => {
+  let afterCleanup: (() => Promise<void>) | undefined = undefined;
   beforeEach(() => {
     clientEvents = {};
+    afterCleanup = undefined;
+  });
+  afterEach(async () => {
+    if (afterCleanup) {
+      await afterCleanup();
+    }
   });
   describe('getRelevantMessage', () => {
     it('should return undefined if log tag is not "insert"', () => {
@@ -375,8 +396,9 @@ describe('Local replication listener unit tests', () => {
 
     it('should call the messageHandler and acknowledge the message when no errors are thrown', async () => {
       // Arrange
-      const config: ReplicationListenerConfig = {
+      const config: FullReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
+        dbHandlerConfig: {},
         dbListenerConfig: {},
         settings,
       };
@@ -401,14 +423,17 @@ describe('Local replication listener unit tests', () => {
       expect(errorHandler).not.toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
       expect(client.connect).toHaveBeenCalledTimes(1);
+      expect(client.end).toHaveBeenCalledTimes(0);
+      // verify that the client is ended in the cleanup
       await cleanup();
       expect(client.end).toHaveBeenCalledTimes(1);
     });
 
     it('should call the messageHandler but not acknowledge the message when a transient error is thrown', async () => {
       // Arrange
-      const config: ReplicationListenerConfig = {
+      const config: FullReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
+        dbHandlerConfig: {},
         dbListenerConfig: {},
         settings,
       };
@@ -428,6 +453,7 @@ describe('Local replication listener unit tests', () => {
         getDisabledLogger(),
         getStrategies(),
       );
+      afterCleanup = cleanup;
       await continueEventLoop();
 
       // Act
@@ -439,14 +465,14 @@ describe('Local replication listener unit tests', () => {
       expect(errorHandler).not.toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
       expect(client.connect).toHaveBeenCalledTimes(1);
-      await cleanup();
-      expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
+      expect(client.end).toHaveBeenCalledTimes(1); // as part of error handling
     });
 
     it('should call the messageHandler and acknowledge the message when a permanent error is thrown', async () => {
       // Arrange
-      const config: ReplicationListenerConfig = {
+      const config: FullReplicationListenerConfig = {
         outboxOrInbox: 'outbox',
+        dbHandlerConfig: {},
         dbListenerConfig: {},
         settings,
       };
@@ -466,6 +492,7 @@ describe('Local replication listener unit tests', () => {
         getDisabledLogger(),
         getStrategies(config),
       );
+      afterCleanup = cleanup;
       await continueEventLoop();
 
       // Act
@@ -477,14 +504,13 @@ describe('Local replication listener unit tests', () => {
       expect(errorHandler).not.toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).toHaveBeenCalledTimes(1);
       expect(client.connect).toHaveBeenCalledTimes(1);
-      await cleanup();
-      expect(client.end).toHaveBeenCalledTimes(1);
     });
 
     it('A keep alive to which the listener should respond is acknowledged', async () => {
       // Arrange
-      const config: ReplicationListenerConfig = {
+      const config: FullReplicationListenerConfig = {
         outboxOrInbox: 'outbox',
+        dbHandlerConfig: {},
         dbListenerConfig: {},
         settings,
       };
@@ -495,6 +521,7 @@ describe('Local replication listener unit tests', () => {
         getDisabledLogger(),
         getStrategies(config),
       );
+      afterCleanup = cleanup;
       await continueEventLoop();
 
       // Act
@@ -509,14 +536,13 @@ describe('Local replication listener unit tests', () => {
       expect(errorHandler).not.toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
       expect(client.connect).toHaveBeenCalledTimes(1);
-      await cleanup();
-      expect(client.end).toHaveBeenCalledTimes(1);
     });
 
     it('A keep alive to which the listener is not required to respond is not acknowledged', async () => {
       // Arrange
-      const config: ReplicationListenerConfig = {
+      const config: FullReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
+        dbHandlerConfig: {},
         dbListenerConfig: {},
         settings,
       };
@@ -527,6 +553,7 @@ describe('Local replication listener unit tests', () => {
         getDisabledLogger(),
         getStrategies(config),
       );
+      afterCleanup = cleanup;
       await continueEventLoop();
 
       // Act
@@ -541,15 +568,14 @@ describe('Local replication listener unit tests', () => {
       expect(errorHandler).not.toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
       expect(client.connect).toHaveBeenCalledTimes(1);
-      await cleanup();
-      expect(client.end).toHaveBeenCalledTimes(1);
     });
 
     it('Parallel messages wait to be executed sequentially', async () => {
       // Arrange
       const sleepTime = 50;
-      const config: ReplicationListenerConfig = {
+      const config: FullReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
+        dbHandlerConfig: {},
         dbListenerConfig: {},
         settings,
       };
@@ -565,6 +591,7 @@ describe('Local replication listener unit tests', () => {
         getDisabledLogger(),
         getStrategies(config),
       );
+      afterCleanup = cleanup;
       await continueEventLoop();
 
       // Act
@@ -582,14 +609,13 @@ describe('Local replication listener unit tests', () => {
       expect(errorHandler).not.toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).toHaveBeenCalledTimes(10);
       expect(client.connect).toHaveBeenCalledTimes(1);
-      await cleanup();
-      expect(client.end).toHaveBeenCalledTimes(1);
     });
 
     it('should call the messageHandler and then the errorHandler when the configured timeout is exceeded', async () => {
       // Arrange
-      const config: ReplicationListenerConfig = {
+      const config: FullReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
+        dbHandlerConfig: {},
         dbListenerConfig: {},
         settings: { ...settings, messageProcessingTimeoutInMs: 100 },
       };
@@ -612,6 +638,7 @@ describe('Local replication listener unit tests', () => {
         getDisabledLogger(),
         getStrategies(config),
       );
+      afterCleanup = cleanup;
       await continueEventLoop();
 
       // Act
@@ -622,13 +649,13 @@ describe('Local replication listener unit tests', () => {
       expect(messageHandlerCalled).toBe(true);
       expect(errorHandlerCalled).toBe(true);
       expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
-      await cleanup();
     });
 
     it('should call the messageHandler and then the errorHandler when the timeout strategy value is exceeded', async () => {
       // Arrange
-      const config: ReplicationListenerConfig = {
+      const config: FullReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
+        dbHandlerConfig: {},
         dbListenerConfig: {},
         settings: { ...settings, messageProcessingTimeoutInMs: 2_000 },
       };
@@ -656,6 +683,7 @@ describe('Local replication listener unit tests', () => {
             defaultReplicationListenerRestartStrategy(config),
         },
       );
+      afterCleanup = cleanup;
       await continueEventLoop();
 
       // Act
@@ -666,13 +694,13 @@ describe('Local replication listener unit tests', () => {
       expect(messageHandlerCalled).toBe(true);
       expect(errorHandlerCalled).toBe(true);
       expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
-      await cleanup();
     });
 
     it('should call the messageHandler and acknowledge the message when the message does not run into a timeout', async () => {
       // Arrange
-      const config: ReplicationListenerConfig = {
+      const config: FullReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
+        dbHandlerConfig: {},
         dbListenerConfig: {},
         settings: { ...settings, messageProcessingTimeoutInMs: 200 },
       };
@@ -688,6 +716,7 @@ describe('Local replication listener unit tests', () => {
             defaultReplicationListenerRestartStrategy(config),
         },
       );
+      afterCleanup = cleanup;
       await continueEventLoop();
 
       // Act
@@ -702,14 +731,13 @@ describe('Local replication listener unit tests', () => {
       expect(errorHandler).not.toHaveBeenCalled();
       expect(client.connection.sendCopyFromChunk).toHaveBeenCalled();
       expect(client.connect).toHaveBeenCalledTimes(1);
-      await cleanup();
-      expect(client.end).toHaveBeenCalledTimes(1);
     });
 
     it('should log that an unknown message appeared when an invalid chunk was sent', async () => {
       // Arrange
-      const config: ReplicationListenerConfig = {
+      const config: FullReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
+        dbHandlerConfig: {},
         dbListenerConfig: {},
         settings,
       };
@@ -721,6 +749,7 @@ describe('Local replication listener unit tests', () => {
         logger,
         getStrategies(),
       );
+      afterCleanup = cleanup;
       await continueEventLoop();
       const chunks = getReplicationChunk(0);
       chunks[0] = 3;
@@ -735,8 +764,6 @@ describe('Local replication listener unit tests', () => {
       expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
       expect(client.connect).toHaveBeenCalledTimes(1);
       expect(logs[1].args[1]).toBe('Unknown message');
-      await cleanup();
-      expect(client.end).toHaveBeenCalledTimes(1);
     });
 
     it('logs an error if the error caught in the listener was not of type MessageError (= did not come from a message handler)', async () => {
@@ -744,8 +771,9 @@ describe('Local replication listener unit tests', () => {
       client.connect = jest.fn().mockImplementation(() => {
         throw new Error('something something');
       });
-      const config: ReplicationListenerConfig = {
+      const config: FullReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
+        dbHandlerConfig: {},
         dbListenerConfig: {},
         settings,
       };
@@ -757,6 +785,7 @@ describe('Local replication listener unit tests', () => {
         logger,
         getStrategies(),
       );
+      afterCleanup = cleanup;
       await continueEventLoop();
 
       // Act
@@ -769,8 +798,7 @@ describe('Local replication listener unit tests', () => {
       expect(client.connection.sendCopyFromChunk).not.toHaveBeenCalled();
       expect(client.connect).toHaveBeenCalledTimes(1);
       expect(logs[1].args[1]).toBe('Transactional inbox listener error');
-      await cleanup();
-      expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
+      expect(client.end).toHaveBeenCalledTimes(1); // as part of error handling
     });
 
     it('logs a trace message if the listener caught error was about replication slot in use', async () => {
@@ -784,8 +812,9 @@ describe('Local replication listener unit tests', () => {
       client.connect = jest.fn().mockImplementation(() => {
         throw error;
       });
-      const config: ReplicationListenerConfig = {
+      const config: FullReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
+        dbHandlerConfig: {},
         dbListenerConfig: {},
         settings,
       };
@@ -797,6 +826,7 @@ describe('Local replication listener unit tests', () => {
         logger,
         getStrategies(),
       );
+      afterCleanup = cleanup;
       await continueEventLoop();
 
       // Act
@@ -811,14 +841,14 @@ describe('Local replication listener unit tests', () => {
       expect(logs[1].args[1]).toBe(
         'The replication slot for the inbox listener is currently in use.',
       );
-      await cleanup();
-      expect(client.end).toHaveBeenCalledTimes(2); // once as part of error handling - once via shutdown
+      expect(client.end).toHaveBeenCalledTimes(1); // as part of error handling
     });
 
     it('should correctly handle database event callbacks', async () => {
       // Arrange
-      const config: ReplicationListenerConfig = {
+      const config: FullReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
+        dbHandlerConfig: {},
         dbListenerConfig: {},
         settings,
       };
@@ -830,6 +860,7 @@ describe('Local replication listener unit tests', () => {
         logger,
         getStrategies(),
       );
+      afterCleanup = cleanup;
       await continueEventLoop();
 
       // Assert
@@ -839,7 +870,6 @@ describe('Local replication listener unit tests', () => {
       expect(() => client.connection.emit('replicationStart')).not.toThrow();
       expect(() => clientEvents['error'](new Error('test'))).not.toThrow();
       expect(() => clientEvents['notice']('some message')).not.toThrow();
-      await cleanup();
     });
   });
 });
