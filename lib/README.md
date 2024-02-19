@@ -380,104 +380,26 @@ You can manually create the required database structure or (suggested) use this
 library to help you with this task.
 
 The easiest way is to use the CLI tool to generate the SQL scripts and the .ENV
-settings file for you:
+settings file for you. You can find the CLI tool in the `./examples/setup/`
+folder. It will guide you by asking the required values from you.
 
 ```shell
-npx pg-transactional-outbox
+yarn dev:watch
 ```
 
-This will guide you by asking the required values from you. This uses the
-`DatabaseSetupExporter` which writes that you can also call from some code.
+You can find the example SQL scripts in the following two files which you can
+also use and adjust.
 
-The library offers you also a `DatabaseSetup` helper to create the required
-tables etc. in your database. You can do this from within your codebase based on
-the configuration settings that you provide. Both the inbox and outbox structure
-are created in the same way so you call the same functions but with different
-configurations.
+- `examples/setup/out/example-trx-polling.sql` (for polling listener)
+- `examples/setup/out/example-trx-replication.sql` (for replication listener)
 
-You can find the example usage in the following two files. Please notice that
-they create both the logical replication AND the polling-based structure as an
-example. In your code, you should only create one of the two.
-
-- `examples/rabbitmq/producer/setup/init-db.ts`
-- `examples/rabbitmq/consumer/setup/init-db.ts`
-
-```TypeScript
-import fs from 'node:fs/promises';
-import {
-  DatabasePollingSetupConfig,
-  DatabaseReplicationSetupConfig,
-  DatabaseSetupConfig,
-  DatabaseSetupExporter,
-} from 'pg-transactional-outbox';
-const { createReplicationScript, createPollingScript } = DatabaseSetupExporter;
-
-(async () => {
-  try {
-    console.log(
-      'Creating SQL setup scripts for the replication or polling based approach',
-    );
-
-    const baseConfig: Omit<DatabaseSetupConfig, 'outboxOrInbox' | 'table'> = {
-      database: 'my_database',
-      schema: 'trx',
-      listenerRole: 'my_transactional_listener',
-      handlerRole: 'my_transactional_handler',
-    };
-
-    // Use those two sections to create SQL scripts for the replication based approach
-    const inboxReplConfig: DatabaseReplicationSetupConfig = {
-      ...baseConfig,
-      outboxOrInbox: 'inbox',
-      table: 'inbox',
-      publication: 'my_inbox_publication',
-      replicationSlot: 'my_inbox_replication_slot',
-    };
-    const inboxReplSql = createReplicationScript(inboxReplConfig);
-    const inboxReplFile = './create-inbox-replication.sql';
-    await fs.writeFile(inboxReplFile, inboxReplSql);
-    console.log(`Created the ${inboxReplFile}`);
-
-    const outboxReplConfig: DatabaseReplicationSetupConfig = {
-      ...baseConfig,
-      outboxOrInbox: 'outbox',
-      table: 'outbox',
-      publication: 'my_outbox_publication',
-      replicationSlot: 'my_outbox_replication_slot',
-    };
-    const outboxReplSql = createReplicationScript(outboxReplConfig);
-    const outboxReplFile = './create-outbox-replication.sql';
-    await fs.writeFile(outboxReplFile, outboxReplSql);
-    console.log(`Created the ${outboxReplFile}`);
-
-    // Use those two sections to create SQL scripts for the polling based approach
-    const inboxPollConfig: DatabasePollingSetupConfig = {
-      ...baseConfig,
-      outboxOrInbox: 'inbox',
-      table: 'inbox',
-      nextMessagesName: 'my_inbox_get_messages',
-    };
-    const inboxPollSql = createPollingScript(inboxPollConfig);
-    const inboxPollFile = './setup/example-create-polling-inbox.sql';
-    await fs.writeFile(inboxPollFile, inboxPollSql);
-    console.log(`Created the ${inboxPollFile}`);
-
-    const outboxPollConfig: DatabasePollingSetupConfig = {
-      ...baseConfig,
-      outboxOrInbox: 'outbox',
-      table: 'outbox',
-      nextMessagesName: 'my_outbox_get_messages',
-    };
-    const outboxPollSql = createPollingScript(outboxPollConfig);
-    const outboxPollFile = './setup/example-create-polling-outbox.sql';
-    await fs.writeFile(outboxPollFile, outboxPollSql);
-    console.log(`Created the ${outboxPollFile}`);
-  } catch (err) {
-    console.error(err);
-    process.exit(1);
-  }
-})();
-```
+If you do not want to run the generated SQL scripts e.g. as part of your
+application migration you can also set up the database from a node.js
+application. The library offers you a `DatabaseSetup` helper to create the
+required tables etc. in your database. You can do this from within your codebase
+based on the configuration settings that you provide. Both the inbox and outbox
+structure are created in the same way so you call the same functions but with
+different configurations.
 
 ### Logical Replication Setup
 
@@ -513,8 +435,8 @@ import process from 'node:process';
 import { Pool } from 'pg';
 import {
   GeneralMessageHandler,
-  PollingConfig,
-  ReplicationConfig,
+  PollingListenerConfig,
+  ReplicationListenerConfig,
   TransactionalMessage,
   createReplicationMutexConcurrencyController,
   getDefaultLogger,
@@ -546,8 +468,10 @@ import {
   const baseSettings = {
     dbSchema: 'public',
     dbTable: 'outbox',
+    enableMaxAttemptsProtection: false,
+    enablePoisonousMessageProtection: false,
   };
-  const replicationConfig: ReplicationConfig = {
+  const replicationConfig: ReplicationListenerConfig = {
     outboxOrInbox: 'outbox',
     dbListenerConfig,
     settings: {
@@ -556,7 +480,7 @@ import {
       dbReplicationSlot: 'pg_transactional_outbox_slot',
     },
   };
-  const pollingConfig: PollingConfig = {
+  const pollingConfig: PollingListenerConfig = {
     outboxOrInbox: 'outbox',
     dbListenerConfig,
     settings: {
@@ -681,38 +605,92 @@ input parameter and calls it to send out messages. Other parameters are the
 `config` object, a `logger` instance and an optional strategies object to
 fine-tune and customize specific aspects of the outbox listener.
 
-You can build the configuration object from your code. Alternatively you can use
-`process.env` variables to provide the configuration values.
-
-The easiest way to generate the .ENV files is to use the CLI tool which also
-generates the SQL scripts file:
-
-```shell
-npx pg-transactional-outbox
-```
-
-- `getOutboxReplicationListenerSettings` is used to create the outbox
-  replication listener settings from the ENV variables.
-- `printOutboxReplicationListenerEnvVariables` shows a list of all ENV variables
-  that are available. There are the ones prefixed with "TRX\_" and
-  "TRX_OUTBOX\_". The first env variable type is shared between outbox and inbox
-  settings. The latter only for the outbox settings.
-
 The second option is to use the `initializePollingMessageListener` to use the
 database polling approach to query for unprocessed outbox messages. It uses the
 same handler to send out the message and the same logger. It has a (partly)
 different configuration object and can optionally define also different
 strategies.
 
-You can again build the configuration objects from your code or use the
-`process.env` variables.
+You can build the configuration object from your code. Alternatively, you can
+use `process.env` variables to provide the configuration values.
 
-- `getOutboxPollingListenerSettings` is used to create the outbox polling
-  listener settings from the ENV variables.
-- `printOutboxPollingListenerEnvVariables` shows a list of all ENV variables
-  that are available. There are the ones prefixed with "TRX\_" and
-  "TRX_OUTBOX\_". The first env variable type is shared between outbox and inbox
-  settings. The latter only for the outbox settings.
+The easiest way to generate the .ENV files is to use the CLI tool which also
+generates the SQL scripts file. You can find the CLI tool in the
+`./examples/setup/` folder.
+
+```shell
+yarn dev:watch
+```
+
+You can find the example ENV files here:
+
+- `examples/setup/out/example-trx-polling.env` (for polling listener)
+- `examples/setup/out/example-trx-replication.sql` (for replication listener)
+
+All ENV variables use one of the following three prefixes:
+
+- `TRX_OUTBOX_<variable>` - those variables are used to build the outbox
+  specific settings for the desired listener.
+- `TRX_INBOX_<variable>` - those variables are used to build the inbox specific
+  settings for the desired listener.
+- `TRX_<variable>` - those variable values are used for both the outbox and
+  inbox settings when no outbox or inbox specific value is provided.
+
+| \<PREFIX\> + Variable Name          | Type    | Description                                                                                                                                        |
+| ----------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DB_SCHEMA                           | string  | The database schema name where the table is located.                                                                                               |
+| DB_TABLE                            | string  | The name of the database outbox/inbox table.                                                                                                       |
+| MESSAGE_PROCESSING_TIMEOUT_IN_MS    | number  | Stop the message handler after this time has passed.                                                                                               |
+| MAX_ATTEMPTS                        | number  | The maximum number of attempts to handle a message. With max 5 attempts a message is handled once initially and up to four more times for retries. |
+| ENABLE_MAX_ATTEMPTS_PROTECTION      | boolean | Enable the max attempts protection (could be disabled for the outbox)                                                                              |
+| MAX_POISONOUS_ATTEMPTS              | number  | The maximum number of times a message should be attempted which was started but did not finish (neither error nor success).                        |
+| ENABLE_POISONOUS_MESSAGE_PROTECTION | boolean | Enable the max poisonous attempts protection (could be disabled for the outbox)                                                                    |
+| MESSAGE_CLEANUP_INTERVAL_IN_MS      | number  | Time in milliseconds between the execution of the old message cleanups. Set it to zero to disable automatic message cleanup.                       |
+| MESSAGE_CLEANUP_PROCESSED_IN_SEC    | number  | Delete messages that were successfully processed after X seconds.                                                                                  |
+| MESSAGE_CLEANUP_ABANDONED_IN_SEC    | number  | Delete messages that could not be processed after X seconds.                                                                                       |
+| MESSAGE_CLEANUP_ALL_IN_SEC          | number  | Delete all old messages after X seconds.                                                                                                           |
+
+The replication listener approach supports the following variables in addition
+to the above ones:
+
+| \<PREFIX\> + Variable Name           | Type   | Description                                                                          |
+| ------------------------------------ | ------ | ------------------------------------------------------------------------------------ |
+| NEXT_MESSAGES_FUNCTION_NAME          | string | The database function name to get the next batch of outbox or inbox messages.        |
+| NEXT_MESSAGES_FUNCTION_SCHEMA        | string | The database schema of the next messages function.                                   |
+| NEXT_MESSAGES_BATCH_SIZE             | number | The (maximum) amount of messages to retrieve in one query.                           |
+| NEXT_MESSAGES_LOCK_IN_MS             | number | How long the retrieved messages should be locked before they can be retrieved again. |
+| NEXT_MESSAGES_POLLING_INTERVAL_IN_MS | number | How often should the next messages function be executed                              |
+
+The polling listener approach supports the following variables in addition to
+the above ones:
+
+| \<PREFIX\> + Variable Name      | Type   | Description                                                                                          |
+| ------------------------------- | ------ | ---------------------------------------------------------------------------------------------------- |
+| RESTART_DELAY_IN_MS             | number | When there is a message handling error, how long the listener should wait to restart the processing. |
+| RESTART_DELAY_SLOT_IN_USE_IN_MS | number | If the replication slot is in used, how long the listener should wait to connect again.              |
+| DB_PUBLICATION                  | string | The name of the PostgreSQL publication that should be used.                                          |
+| DB_REPLICATION_SLOT             | string | The name of the PostgreSQL replication slot that should be used.                                     |
+
+An example ENV file can then be:
+
+```shell
+TRX_DB_SCHEMA=messaging
+TRX_MESSAGE_PROCESSING_TIMEOUT_IN_MS=30000
+
+TRX_OUTBOX_DB_TABLE=outbox
+TRX_OUTBOX_ENABLE_MAX_ATTEMPTS_PROTECTION=false
+TRX_OUTBOX_ENABLE_POISONOUS_MESSAGE_PROTECTION=false
+
+TRX_INBOX_DB_TABLE=inbox
+TRX_INBOX_ENABLE_MAX_ATTEMPTS_PROTECTION=true
+TRX_INBOX_MAX_ATTEMPTS=5
+TRX_INBOX_ENABLE_POISONOUS_MESSAGE_PROTECTION=true
+TRX_INBOX_MAX_POISONOUS_ATTEMPTS=3
+...
+```
+
+| MAX_POISONOUS_ATTEMPTS | number | xxx | | MAX_POISONOUS_ATTEMPTS | number |
+xxx | | MAX_POISONOUS_ATTEMPTS | number | xxx |
 
 ### Message Publisher
 
@@ -747,8 +725,8 @@ import { Pool } from 'pg';
 import {
   DatabaseClient,
   IsolationLevel,
-  PollingConfig,
-  ReplicationConfig,
+  PollingListenerConfig,
+  ReplicationListenerConfig,
   TransactionalMessage,
   TransactionalMessageHandler,
   createReplicationMultiConcurrencyController,
@@ -762,7 +740,7 @@ import {
 
 /** The main entry point of the message producer. */
 (async () => {
-  const logger = getDefaultLogger('outbox');
+  const logger = getDefaultLogger('inbox');
 
   // You can also use ENV variables via getInboxReplicationListenerSettings and
   // getInboxPollingListenerSettings to create the settings objects.
@@ -791,19 +769,21 @@ import {
   };
   const baseSettings = {
     dbSchema: 'public',
-    dbTable: 'outbox',
+    dbTable: 'inbox',
+    enableMaxAttemptsProtection: true,
+    enablePoisonousMessageProtection: true,
   };
-  const replicationConfig: ReplicationConfig = {
+  const replicationConfig: ReplicationListenerConfig = {
     outboxOrInbox: 'inbox',
     dbHandlerConfig,
     dbListenerConfig,
     settings: {
       ...baseSettings,
       dbPublication: 'pg_transactional_inbox_pub',
-      dbReplicationSlot: 'pg_transactional_outbox_slot',
+      dbReplicationSlot: 'pg_transactional_inbox_slot',
     },
   };
-  const pollingConfig: PollingConfig = {
+  const pollingConfig: PollingListenerConfig = {
     outboxOrInbox: 'inbox',
     dbListenerConfig,
     settings: {
@@ -967,37 +947,12 @@ input parameter and calls it to send out messages. Other parameters are the
 `config` object, a `logger` instance and an optional strategies object to
 fine-tune and customize specific aspects of the inbox listener.
 
-You can build the configuration object from your code. Alternatively you can use
-`process.env` variables to provide the configuration values.
+It uses the same logic and settings as the outbox listener. Please check that
+section for further explanations and available configuration values.
 
-The easiest way to generate the .ENV files is to use the CLI tool which also
-generates the SQL scripts file:
-
-```shell
-npx pg-transactional-outbox
-```
-
-- `getInboxReplicationListenerSettings` is used to create the inbox replication
-  listener settings from the ENV variables.
-- `printInboxReplicationListenerEnvVariables` shows a list of all ENV variables
-  that are available. There are the ones prefixed with "TRX\_" and
-  "TRX_INBOX\_". The first env variable type is shared between outbox and inbox
-  settings. The latter only for the inbox settings.
-
-The second option is to use the `initializePollingMessageListener` to use the
-database polling approach to query unprocessed inbox messages. It uses the same
-handler to send out the message and the same logger. It has a (partly) different
-configuration object and can optionally define also different strategies.
-
-You can again build the configuration objects from your code or use the
-`process.env` variables.
-
-- `getInboxPollingListenerSettings` is used to create the inbox polling listener
-  settings from the ENV variables.
-- `printInboxPollingListenerEnvVariables` shows a list of all ENV variables that
-  are available. There are the ones prefixed with "TRX\_" and "TRX_INBOX\_". The
-  first env variable type is shared between outbox and inbox settings. The
-  latter only for the inbox settings.
+The inbox listener starts the actual message handling logic. This is most often
+more complex and longer running. Therefor it is suggested to always enable the
+maximum attempts protection and the poisonous message protection.
 
 ### Message Handler
 

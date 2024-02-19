@@ -41,6 +41,7 @@
   "workspaces": [
     "lib",
     "examples/rabbitmq/*",
+    "examples/setup",
     "__tests__"
   ],
   "devDependencies": {

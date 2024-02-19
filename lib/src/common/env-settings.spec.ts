@@ -5,10 +5,10 @@ import {
   StringSetting,
   constantToCamel,
   getConfigSettings,
+  getConfigSettingsEnvTemplate,
   getEnvVariableBoolean,
   getEnvVariableNumber,
   getEnvVariableString,
-  printConfigSettings,
 } from './env-settings';
 
 describe('Env Settings Unit Tests', () => {
@@ -248,7 +248,7 @@ describe('Env Settings Unit Tests', () => {
     });
   });
 
-  describe('printConfigSettings', () => {
+  describe('getConfigSettingsEnvTemplate', () => {
     const inboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] =
       [
         {
@@ -268,8 +268,8 @@ describe('Env Settings Unit Tests', () => {
         },
       ];
 
-    it('should print the config settings with the default values', () => {
-      const settings = printConfigSettings(
+    it('should get the config settings with the default values', () => {
+      const settings = getConfigSettingsEnvTemplate(
         inboxSettingsMap,
         'MAIN_',
         'FALLBACK_',

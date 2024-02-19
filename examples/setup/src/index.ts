@@ -1,20 +1,16 @@
 #! /usr/bin/env node
 
 import { writeFile } from 'node:fs/promises';
-import { Interface, createInterface } from 'readline';
-import {
-  printInboxPollingListenerEnvVariables,
-  printOutboxPollingListenerEnvVariables,
-} from '../polling/config';
-import {
-  printInboxReplicationListenerEnvVariables,
-  printOutboxReplicationListenerEnvVariables,
-} from '../replication/config';
 import {
   DatabasePollingSetupConfig,
   DatabaseReplicationSetupConfig,
-} from './database-setup';
-import { DatabaseSetupExporter } from './database-setup-exporter';
+  DatabaseSetupExporter,
+  getInboxPollingListenerEnvTemplate,
+  getInboxReplicationListenerEnvTemplate,
+  getOutboxPollingListenerEnvTemplate,
+  getOutboxReplicationListenerEnvTemplate,
+} from 'pg-transactional-outbox';
+import { Interface, createInterface } from 'readline';
 const { createPollingScript, createReplicationScript } = DatabaseSetupExporter;
 
 /** Async way to ask a question from the CLI */
@@ -123,7 +119,7 @@ export const dbSetupCli = async (): Promise<void> => {
     ['o', 'i', 'b'],
   );
 
-  const buildReplicationSql = async (
+  const buildReplicationSql = (
     outboxOrInbox: 'outbox' | 'inbox',
     table: string,
     publication: string,
@@ -143,7 +139,7 @@ export const dbSetupCli = async (): Promise<void> => {
     return createReplicationScript(config, skipRoles);
   };
 
-  const buildPollingSql = async (
+  const buildPollingSql = (
     outboxOrInbox: 'outbox' | 'inbox',
     table: string,
     nextMessagesName: string,
@@ -185,7 +181,7 @@ export const dbSetupCli = async (): Promise<void> => {
         publication,
         replicationSlot,
       );
-      envConfig += printOutboxReplicationListenerEnvVariables({
+      envConfig += getOutboxReplicationListenerEnvTemplate({
         ...envOverrides,
         TRX_OUTBOX_DB_TABLE: table,
         DB_PUBLICATION: publication,
@@ -203,7 +199,7 @@ export const dbSetupCli = async (): Promise<void> => {
         nextMessagesName,
         nextMessagesSchema,
       );
-      envConfig += printOutboxPollingListenerEnvVariables({
+      envConfig += getOutboxPollingListenerEnvTemplate({
         ...envOverrides,
         TRX_OUTBOX_DB_TABLE: table,
         NEXT_MESSAGES_FUNCTION_SCHEMA: nextMessagesSchema,
@@ -230,7 +226,7 @@ export const dbSetupCli = async (): Promise<void> => {
         replicationSlot,
         outboxInboxBoth === 'b',
       );
-      envConfig += printInboxReplicationListenerEnvVariables({
+      envConfig += getInboxReplicationListenerEnvTemplate({
         ...envOverrides,
         TRX_INBOX_DB_TABLE: table,
         DB_PUBLICATION: publication,
@@ -249,7 +245,7 @@ export const dbSetupCli = async (): Promise<void> => {
         nextMessagesSchema,
         outboxInboxBoth === 'b',
       );
-      envConfig += printInboxPollingListenerEnvVariables({
+      envConfig += getInboxPollingListenerEnvTemplate({
         ...envOverrides,
         TRX_INBOX_DB_TABLE: table,
         NEXT_MESSAGES_FUNCTION_SCHEMA: nextMessagesSchema,
@@ -260,9 +256,9 @@ export const dbSetupCli = async (): Promise<void> => {
   const filename = await getValue(
     'What should the filename without extension for the SQL script (*.sql) and the config (*.env) be?',
     undefined,
-    'transactional',
+    `example-trx-${listener === 'r' ? 'replication' : 'polling'}`,
   );
-  await writeFile(`${filename}.sql`, sqlOutput);
+  await writeFile(`out/${filename}.sql`, sqlOutput);
 
   // Write the .env File
   envConfig = `# Select the variables that you want to adjust and copy them to your .ENV file/store
@@ -272,7 +268,8 @@ export const dbSetupCli = async (): Promise<void> => {
 # the outbox and inbox specific "TRX_OUTBOX_***" and "TRX_INBOX_***" ones.
 
 ${sortEnv(envConfig)}`;
-  await writeFile(`${filename}.env`, envConfig);
+
+  await writeFile(`out/${filename}.env`, envConfig);
 
   console.log(`File \x1b[92m${filename}\x1b[0m successfully created.`);
   rli.close();
@@ -296,3 +293,8 @@ ${outboxLines.join('\n')}
 # Inbox specific settings - overrides the general settings
 ${inboxLines.join('\n')}`;
 };
+
+// Execute the CLI
+(async () => {
+  await dbSetupCli();
+})();

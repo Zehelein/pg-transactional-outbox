@@ -142,7 +142,7 @@ export const getConfigSettings = (
  * @param envPrefixFallback The fallback prefix if the other is not found. Useful for defining settings that should be used for both outbox and inbox.
  * @returns A string with all the ENV config keys and their default values.
  */
-export const printConfigSettings = (
+export const getConfigSettingsEnvTemplate = (
   map: (StringSetting | NumberSetting | BooleanSetting)[],
   envPrefix: string,
   envPrefixFallback: string,

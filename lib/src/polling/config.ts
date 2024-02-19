@@ -4,21 +4,21 @@ import {
   NumberSetting,
   StringSetting,
   getConfigSettings,
+  getConfigSettingsEnvTemplate,
   getEnvVariableNumber,
   getEnvVariableString,
-  printConfigSettings,
 } from '../common/env-settings';
 import {
   ListenerConfig,
   ListenerSettings,
   applyDefaultListenerConfigValues,
   fallbackEnvPrefix,
+  getInboxListenerEnvTemplate,
   getInboxListenerSettings,
+  getOutboxListenerEnvTemplate,
   getOutboxListenerSettings,
   inboxEnvPrefix,
   outboxEnvPrefix,
-  printInboxListenerEnvVariables,
-  printOutboxListenerEnvVariables,
 } from '../common/listener-config';
 
 export type FullPollingListenerConfig = Required<PollingListenerConfig> & {
@@ -124,7 +124,7 @@ const outboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
 /**
  * Loads the environment variables into the polling listener settings object. It
  * supports reading an inbox specific setting or a general one.
- * Please use the `printInboxPollingListenerEnvVariables` functions to get a
+ * Please use the `getInboxPollingListenerEnvTemplate` functions to get a
  * list of all the inbox relevant settings for the polling listener.
  * @example
  * TRX_DB_SCHEMA=trx_schema
@@ -152,7 +152,7 @@ export const getInboxPollingListenerSettings = (
 /**
  * Loads the environment variables into the polling listener settings object. It
  * supports reading an outbox specific setting or a general one.
- * Please use the `printOutboxPollingListenerEnvVariables` functions to get a
+ * Please use the `getOutboxPollingListenerEnvTemplate` functions to get a
  * list of all the outbox relevant settings for the polling listener.
  * @example
  * TRX_DB_SCHEMA=trx_schema
@@ -185,11 +185,11 @@ export const getOutboxPollingListenerSettings = (
  * @param envPrefixFallback The fallback prefix if the other is not found. Useful for defining settings that should be used for both outbox and inbox.
  * @returns
  */
-export const printInboxPollingListenerEnvVariables = (
+export const getInboxPollingListenerEnvTemplate = (
   defaultOverrides?: Record<string, string>,
 ): string => {
-  const il = printInboxListenerEnvVariables(defaultOverrides);
-  const cfg = printConfigSettings(
+  const il = getInboxListenerEnvTemplate(defaultOverrides);
+  const cfg = getConfigSettingsEnvTemplate(
     [...basicSettingsMap, ...inboxSettingsMap],
     inboxEnvPrefix,
     fallbackEnvPrefix,
@@ -208,11 +208,11 @@ ${cfg}`;
  * @param envPrefixFallback The fallback prefix if the other is not found. Useful for defining settings that should be used for both outbox and inbox.
  * @returns
  */
-export const printOutboxPollingListenerEnvVariables = (
+export const getOutboxPollingListenerEnvTemplate = (
   defaultOverrides?: Record<string, string>,
 ): string => {
-  const ol = printOutboxListenerEnvVariables(defaultOverrides);
-  const cfg = printConfigSettings(
+  const ol = getOutboxListenerEnvTemplate(defaultOverrides);
+  const cfg = getConfigSettingsEnvTemplate(
     [...basicSettingsMap, ...outboxSettingsMap],
     outboxEnvPrefix,
     fallbackEnvPrefix,

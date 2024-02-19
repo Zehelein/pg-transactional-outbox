@@ -1,5 +1,3 @@
-import { dbSetupCli } from './setup/db-setup-cli';
-
 export { DatabaseClient } from './common/database';
 export {
   ErrorCode,
@@ -13,12 +11,12 @@ export {
   ListenerSettings,
   OutboxOrInbox,
   fallbackEnvPrefix,
+  getInboxListenerEnvTemplate,
   getInboxListenerSettings,
+  getOutboxListenerEnvTemplate,
   getOutboxListenerSettings,
   inboxEnvPrefix,
   outboxEnvPrefix,
-  printInboxListenerEnvVariables,
-  printOutboxListenerEnvVariables,
 } from './common/listener-config';
 export {
   InMemoryLogEntry,
@@ -47,10 +45,10 @@ export {
 export {
   PollingListenerConfig,
   PollingListenerSettings,
+  getInboxPollingListenerEnvTemplate,
   getInboxPollingListenerSettings,
+  getOutboxPollingListenerEnvTemplate,
   getOutboxPollingListenerSettings,
-  printInboxPollingListenerEnvVariables,
-  printOutboxPollingListenerEnvVariables,
 } from './polling/config';
 export { initializePollingMessageListener } from './polling/polling-message-listener';
 export { PollingMessageStrategies } from './polling/polling-strategies';
@@ -66,10 +64,10 @@ export { createReplicationSemaphoreConcurrencyController } from './replication/c
 export {
   ReplicationListenerConfig,
   ReplicationListenerSettings,
+  getInboxReplicationListenerEnvTemplate,
   getInboxReplicationListenerSettings,
+  getOutboxReplicationListenerEnvTemplate,
   getOutboxReplicationListenerSettings,
-  printInboxReplicationListenerEnvVariables,
-  printOutboxReplicationListenerEnvVariables,
 } from './replication/config';
 export { initializeReplicationMessageListener } from './replication/replication-message-listener';
 export { ReplicationMessageStrategies } from './replication/replication-strategies';
@@ -106,10 +104,3 @@ export {
   PoisonousMessageRetryStrategy,
   defaultPoisonousMessageRetryStrategy,
 } from './strategies/poisonous-message-retry-strategy';
-
-// Execute the CLI
-if (require.main === module) {
-  (async () => {
-    await dbSetupCli();
-  })();
-}

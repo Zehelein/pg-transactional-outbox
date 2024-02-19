@@ -2,10 +2,10 @@ import {
   FullReplicationListenerConfig,
   ReplicationListenerConfig,
   applyDefaultReplicationListenerConfigValues,
+  getInboxReplicationListenerEnvTemplate,
   getInboxReplicationListenerSettings,
+  getOutboxReplicationListenerEnvTemplate,
   getOutboxReplicationListenerSettings,
-  printInboxReplicationListenerEnvVariables,
-  printOutboxReplicationListenerEnvVariables,
 } from './config';
 
 describe('Replication listener settings', () => {
@@ -265,9 +265,9 @@ describe('Replication listener settings', () => {
     });
   });
 
-  describe('print replication listener settings', () => {
-    it('printInboxReplicationListenerEnvVariables', () => {
-      const settings = printInboxReplicationListenerEnvVariables();
+  describe('get replication listener settings ENV template', () => {
+    it('getInboxReplicationListenerEnvTemplate', () => {
+      const settings = getInboxReplicationListenerEnvTemplate();
       const expected = /* js */ `# Inbox listener variables
 TRX_INBOX_DB_SCHEMA=public
 TRX_DB_SCHEMA=public
@@ -300,8 +300,8 @@ TRX_INBOX_DB_REPLICATION_SLOT=pg_transactional_inbox_slot
       expect(settings).toBe(expected);
     });
 
-    it('printOutboxReplicationListenerEnvVariables', () => {
-      const settings = printOutboxReplicationListenerEnvVariables();
+    it('getOutboxReplicationListenerEnvTemplate', () => {
+      const settings = getOutboxReplicationListenerEnvTemplate();
       const expected = /* js */ `# Outbox listener variables
 TRX_OUTBOX_DB_SCHEMA=public
 TRX_DB_SCHEMA=public

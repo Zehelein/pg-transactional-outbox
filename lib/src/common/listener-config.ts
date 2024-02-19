@@ -5,10 +5,10 @@ import {
   NumberSetting,
   StringSetting,
   getConfigSettings,
+  getConfigSettingsEnvTemplate,
   getEnvVariableBoolean,
   getEnvVariableNumber,
   getEnvVariableString,
-  printConfigSettings,
 } from './env-settings';
 
 export type OutboxOrInbox = 'outbox' | 'inbox';
@@ -59,7 +59,7 @@ export interface ListenerSettings {
    */
   maxAttempts?: number;
   /**
-   * Enable max attempts protection. Might be disabled when using it for the
+   * Enable max poisonous attempts protection. Might be disabled when using it for the
    * outbox scenario. Defaults to true.
    */
   enableMaxAttemptsProtection: boolean;
@@ -209,7 +209,7 @@ export const outboxEnvPrefix = 'TRX_OUTBOX_';
 /**
  * Loads the environment variables into the listener settings object. It
  * supports reading an inbox specific setting or a general one.
- * Please use the `printXxxxListenerEnvVariables` functions to get a list of all
+ * Please use the `getXxxxListenerEnvTemplate` functions to get a list of all
  * the outbox and inbox relevant settings for the replication or polling
  * listener.
  * @example
@@ -232,7 +232,7 @@ export const getInboxListenerSettings = (
 /**
  * Loads the environment variables into the listener settings object. It
  * supports reading an outbox specific setting or a general one.
- * Please use the `printXxxxListenerEnvVariables` functions to get a list of all
+ * Please use the `getXxxxListenerEnvTemplate` functions to get a list of all
  * the outbox and outbox relevant settings for the replication or polling
  * listener.
  * @example
@@ -253,13 +253,13 @@ export const getOutboxListenerSettings = (
   ) as unknown as ListenerSettings;
 
 /**
- * Prints the available env variables and their default values for the basic
+ * Creates the available env variables and their default values for the basic
  * inbox listener env variables.
  */
-export const printInboxListenerEnvVariables = (
+export const getInboxListenerEnvTemplate = (
   defaultOverrides?: Record<string, string>,
 ): string =>
-  printConfigSettings(
+  getConfigSettingsEnvTemplate(
     [...basicSettingsMap, ...inboxSettingsMap],
     inboxEnvPrefix,
     fallbackEnvPrefix,
@@ -267,13 +267,13 @@ export const printInboxListenerEnvVariables = (
   );
 
 /**
- * Prints the available env variables and their default values for the basic
+ * Creates the available env variables and their default values for the basic
  * outbox listener env variables.
  */
-export const printOutboxListenerEnvVariables = (
+export const getOutboxListenerEnvTemplate = (
   defaultOverrides?: Record<string, string>,
 ): string =>
-  printConfigSettings(
+  getConfigSettingsEnvTemplate(
     [...basicSettingsMap, ...outboxSettingsMap],
     outboxEnvPrefix,
     fallbackEnvPrefix,

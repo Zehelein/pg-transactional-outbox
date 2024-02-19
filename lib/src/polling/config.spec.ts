@@ -2,10 +2,10 @@ import {
   FullPollingListenerConfig,
   PollingListenerConfig,
   applyDefaultPollingListenerConfigValues,
+  getInboxPollingListenerEnvTemplate,
   getInboxPollingListenerSettings,
+  getOutboxPollingListenerEnvTemplate,
   getOutboxPollingListenerSettings,
-  printInboxPollingListenerEnvVariables,
-  printOutboxPollingListenerEnvVariables,
 } from './config';
 
 describe('Polling listener settings', () => {
@@ -274,9 +274,9 @@ describe('Polling listener settings', () => {
     });
   });
 
-  describe('print polling listener settings', () => {
-    it('printInboxPollingListenerEnvVariables', () => {
-      const settings = printInboxPollingListenerEnvVariables();
+  describe('get polling listener settings ENV template', () => {
+    it('getInboxPollingListenerEnvTemplate', () => {
+      const settings = getInboxPollingListenerEnvTemplate();
       const expected = /* sql */ `# Inbox listener variables
 TRX_INBOX_DB_SCHEMA=public
 TRX_DB_SCHEMA=public
@@ -312,8 +312,8 @@ TRX_INBOX_NEXT_MESSAGES_FUNCTION_NAME=next_inbox_messages
       expect(settings).toBe(expected);
     });
 
-    it('printOutboxPollingListenerEnvVariables', () => {
-      const settings = printOutboxPollingListenerEnvVariables();
+    it('getOutboxPollingListenerEnvTemplate', () => {
+      const settings = getOutboxPollingListenerEnvTemplate();
       const expected = /* js */ `# Outbox listener variables
 TRX_OUTBOX_DB_SCHEMA=public
 TRX_DB_SCHEMA=public

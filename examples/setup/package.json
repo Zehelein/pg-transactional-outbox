@@ -1,0 +1,25 @@
+{
+  "name": "setup",
+  "version": "1.0.0",
+  "description": "CLI to generate transactional outbox and inbox related SQL scripts and ENV settings",
+  "main": "./dist/index.js",
+  "author": "Frank Zehelein",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "yarn clean && tsc",
+    "start": "node dist/index.js",
+    "dev:watch": "tsc-watch --onSuccess \"node dist/index.js\"",
+    "debug:watch": "tsc-watch --onSuccess \"node --inspect dist/index.js\""
+  },
+  "devDependencies": {
+    "@types/node": "^20.9.4",
+    "jest": "^29.7.0",
+    "prettier": "^3.1.0",
+    "rimraf": "^5.0.5",
+    "ts-node": "^10.9.1",
+    "tsc-watch": "^6.0.4",
+    "typescript": "5.3.2"
+  }
+}

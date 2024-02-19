@@ -2,10 +2,10 @@ import {
   FullListenerConfig,
   ListenerConfig,
   applyDefaultListenerConfigValues,
+  getInboxListenerEnvTemplate,
   getInboxListenerSettings,
+  getOutboxListenerEnvTemplate,
   getOutboxListenerSettings,
-  printInboxListenerEnvVariables,
-  printOutboxListenerEnvVariables,
 } from './listener-config';
 
 describe('Listener settings', () => {
@@ -228,9 +228,9 @@ describe('Listener settings', () => {
     });
   });
 
-  describe('print polling listener settings', () => {
-    it('printInboxPollingListenerEnvVariables', () => {
-      const settings = printInboxListenerEnvVariables();
+  describe('get polling listener env settings', () => {
+    it('getInboxPollingListenerEnvTemplate', () => {
+      const settings = getInboxListenerEnvTemplate();
       const expected = /* js */ `TRX_INBOX_DB_SCHEMA=public
 TRX_DB_SCHEMA=public
 TRX_INBOX_MESSAGE_PROCESSING_TIMEOUT_IN_MS=15000
@@ -254,8 +254,8 @@ TRX_INBOX_ENABLE_POISONOUS_MESSAGE_PROTECTION=true
       expect(settings).toBe(expected);
     });
 
-    it('printOutboxPollingListenerEnvVariables', () => {
-      const settings = printOutboxListenerEnvVariables();
+    it('getOutboxPollingListenerEnvTemplate', () => {
+      const settings = getOutboxListenerEnvTemplate();
       const expected = /* js */ `TRX_OUTBOX_DB_SCHEMA=public
 TRX_DB_SCHEMA=public
 TRX_OUTBOX_MESSAGE_PROCESSING_TIMEOUT_IN_MS=15000
