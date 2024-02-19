@@ -37,10 +37,11 @@ export const awaitWithTimeout = <T>(
     );
   });
 
-  return Promise.race([promise(), timeoutPromise]).then((result) => {
-    clearTimeout(timeoutHandle);
-    return result;
-  });
+  return Promise.race([promise(), timeoutPromise])
+    .then((result) => {
+      return result;
+    })
+    .finally(() => clearTimeout(timeoutHandle));
 };
 
 /**

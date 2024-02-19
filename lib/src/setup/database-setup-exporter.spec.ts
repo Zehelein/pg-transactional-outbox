@@ -169,7 +169,7 @@ BEGIN
 
     RETURN QUERY 
       UPDATE test_schema.test_outbox
-        SET locked_until = NOW() + (lock_ms || ' milliseconds')::INTERVAL, started_attempts = started_attempts + 1
+        SET locked_until = clock_timestamp() + (lock_ms || ' milliseconds')::INTERVAL, started_attempts = started_attempts + 1
         WHERE ID = ANY(ids)
         RETURNING *;
 
@@ -319,7 +319,7 @@ BEGIN
 
     RETURN QUERY 
       UPDATE test_schema.test_inbox
-        SET locked_until = NOW() + (lock_ms || ' milliseconds')::INTERVAL, started_attempts = started_attempts + 1
+        SET locked_until = clock_timestamp() + (lock_ms || ' milliseconds')::INTERVAL, started_attempts = started_attempts + 1
         WHERE ID = ANY(ids)
         RETURNING *;
 

@@ -1,6 +1,7 @@
 import { DatabaseClient } from '../common/database';
 import { OutboxOrInbox } from '../common/listener-config';
 import { TransactionalLogger } from '../common/logger';
+import { IsolationLevel, executeTransaction } from '../common/utils';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 import { FullPollingListenerSettings } from './config';
 
@@ -29,8 +30,13 @@ export const getNextMessagesBatch = async (
   const func = settings.nextMessagesFunctionName;
   const lock = settings.nextMessagesLockInMs;
 
-  const messagesResult = await client.query(
-    /* sql */ `SELECT * FROM ${schema}.${func}(${maxMessages}, ${lock});`,
+  const messagesResult = await executeTransaction(
+    client,
+    async (client) =>
+      await client.query(
+        /* sql */ `SELECT * FROM ${schema}.${func}(${maxMessages}, ${lock});`,
+      ),
+    IsolationLevel.RepeatableRead,
   );
 
   if (messagesResult.rowCount ?? 0 > 0) {

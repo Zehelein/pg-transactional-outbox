@@ -14,7 +14,7 @@ export const markMessageAbandoned = async (
   { settings }: Pick<ListenerConfig, 'settings'>,
 ): Promise<void> => {
   await client.query(
-    /* sql */ `UPDATE ${settings.dbSchema}.${settings.dbTable} SET abandoned_at = NOW(), finished_attempts = finished_attempts + 1 WHERE id = $1;`,
+    /* sql */ `UPDATE ${settings.dbSchema}.${settings.dbTable} SET abandoned_at = clock_timestamp(), finished_attempts = finished_attempts + 1 WHERE id = $1;`,
     [id],
   );
 };

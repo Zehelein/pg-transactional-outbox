@@ -26,6 +26,8 @@ export const getConfigs = (port: number) => {
       dbTable: 'inbox',
       maxAttempts: 5,
       maxPoisonousAttempts: 3,
+      enableMaxAttemptsProtection: true,
+      enablePoisonousMessageProtection: true,
       // Replication
       dbPublication: 'pg_transactional_inbox_tests_pub',
       dbReplicationSlot: 'pg_transactional_inbox_tests_slot',
@@ -33,6 +35,7 @@ export const getConfigs = (port: number) => {
       // Polling
       nextMessagesBatchSize: 2,
       nextMessagesFunctionName: 'next_test_inbox_messages',
+      nextMessagesFunctionSchema: 'inbox',
       nextMessagesPollingIntervalInMs: 100,
       nextMessagesLockInMs: 200,
     },
@@ -57,6 +60,7 @@ export const getConfigs = (port: number) => {
       // Polling
       nextMessagesBatchSize: 2,
       nextMessagesFunctionName: 'next_test_outbox_messages',
+      nextMessagesFunctionSchema: 'outbox',
       nextMessagesPollingIntervalInMs: 100,
     },
   };

@@ -27,7 +27,7 @@ describe('markMessageCompleted', () => {
 
     // Assert
     expect(client.query).toHaveBeenCalledWith(
-      `UPDATE ${config.settings.dbSchema}.${config.settings.dbTable} SET processed_at = NOW(), finished_attempts = finished_attempts + 1 WHERE id = $1`,
+      `UPDATE ${config.settings.dbSchema}.${config.settings.dbTable} SET processed_at = clock_timestamp(), finished_attempts = finished_attempts + 1 WHERE id = $1`,
       [storedMessage.id],
     );
   });

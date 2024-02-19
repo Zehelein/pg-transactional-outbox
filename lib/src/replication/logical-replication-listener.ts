@@ -77,6 +77,7 @@ export const createLogicalReplicationListener = (
     } as ClientConfig) as ReplicationClient;
     pool = new Pool(dbListenerConfig);
 
+    clearTimeout(cleanupTimeout);
     cleanupTimeout = runScheduledMessageCleanup(pool, config, logger);
 
     const applyRestart = (promise: Promise<unknown>) => {

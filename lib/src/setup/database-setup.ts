@@ -207,7 +207,7 @@ BEGIN
 
     RETURN QUERY 
       UPDATE ${schema}.${table}
-        SET locked_until = NOW() + (lock_ms || ' milliseconds')::INTERVAL, started_attempts = started_attempts + 1
+        SET locked_until = clock_timestamp() + (lock_ms || ' milliseconds')::INTERVAL, started_attempts = started_attempts + 1
         WHERE ID = ANY(ids)
         RETURNING *;
 

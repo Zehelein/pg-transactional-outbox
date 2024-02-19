@@ -178,6 +178,11 @@ describe('getNextMessagesBatch', () => {
     const mockClient: ClientBase = {
       query: jest
         .fn()
+        // Start transaction
+        .mockResolvedValueOnce({
+          rows: [],
+          rowCount: 0,
+        })
         .mockResolvedValueOnce({
           rows: [
             {

@@ -84,6 +84,7 @@ export const initializePollingMessageListener = (
       });
     });
 
+    clearTimeout(cleanupTimeout);
     cleanupTimeout = runScheduledMessageCleanup(pool, fullConfig, logger);
 
     const applyRestart = (promise: Promise<unknown>) => {

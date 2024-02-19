@@ -62,7 +62,7 @@ function getClient({
         );
       } else if (
         sql.includes(
-          'UPDATE test_schema.test_table SET abandoned_at = NOW(), finished_attempts = finished_attempts + 1 WHERE id = $1;',
+          'UPDATE test_schema.test_table SET abandoned_at = clock_timestamp(), finished_attempts = finished_attempts + 1 WHERE id = $1;',
         )
       ) {
         client.abandonedMessage++;
