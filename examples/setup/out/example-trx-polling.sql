@@ -20,10 +20,10 @@
 
 -- Drop and create the outbox table and ensure the schema exists
 
-CREATE SCHEMA IF NOT EXISTS messaging;
+CREATE SCHEMA IF NOT EXISTS public;
 
-DROP TABLE IF EXISTS messaging.outbox CASCADE;
-CREATE TABLE messaging.outbox (
+DROP TABLE IF EXISTS public.outbox CASCADE;
+CREATE TABLE public.outbox (
   id uuid PRIMARY KEY,
   aggregate_type TEXT NOT NULL,
   aggregate_id TEXT NOT NULL,
@@ -39,31 +39,31 @@ CREATE TABLE messaging.outbox (
   started_attempts smallint NOT NULL DEFAULT 0,
   finished_attempts smallint NOT NULL DEFAULT 0
 );
-ALTER TABLE messaging.outbox ADD CONSTRAINT outbox_concurrency_check
+ALTER TABLE public.outbox ADD CONSTRAINT outbox_concurrency_check
   CHECK (concurrency IN ('sequential', 'parallel'));
 
 -- Grant permissions for the handler and listener role 
 
-GRANT USAGE ON SCHEMA messaging TO messaging_listener;
-GRANT USAGE ON SCHEMA messaging TO messaging_listener;
+GRANT USAGE ON SCHEMA public TO messaging_listener;
+GRANT USAGE ON SCHEMA public TO messaging_listener;
 
-GRANT SELECT, INSERT, DELETE ON messaging.outbox TO messaging_listener;
-GRANT UPDATE (locked_until, processed_at, abandoned_at, started_attempts, finished_attempts) ON messaging.outbox TO messaging_listener;
-GRANT SELECT, INSERT, UPDATE, DELETE ON messaging.outbox TO messaging_listener;
+GRANT SELECT, INSERT, DELETE ON public.outbox TO messaging_listener;
+GRANT UPDATE (locked_until, processed_at, abandoned_at, started_attempts, finished_attempts) ON public.outbox TO messaging_listener;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.outbox TO messaging_listener;
 
 
 -- Create the function to get the next batch of messages from the outbox table.
 
-DROP FUNCTION IF EXISTS messaging.next_outbox_messages(integer, integer);
-CREATE OR REPLACE FUNCTION messaging.next_outbox_messages(
+DROP FUNCTION IF EXISTS public.next_outbox_messages(integer, integer);
+CREATE OR REPLACE FUNCTION public.next_outbox_messages(
   max_size integer, lock_ms integer)
-    RETURNS SETOF messaging.outbox 
+    RETURNS SETOF public.outbox 
     LANGUAGE 'plpgsql'
 
 AS $BODY$
 DECLARE 
-  loop_row messaging.outbox%ROWTYPE;
-  message_row messaging.outbox%ROWTYPE;
+  loop_row public.outbox%ROWTYPE;
+  message_row public.outbox%ROWTYPE;
   ids uuid[] := '{}';
 BEGIN
 
@@ -73,8 +73,8 @@ BEGIN
 
   -- get (only) the oldest message of every segment but only return it if it is not locked
   FOR loop_row IN
-    SELECT * FROM messaging.outbox m WHERE m.id in (SELECT DISTINCT ON (segment) id
-      FROM messaging.outbox
+    SELECT * FROM public.outbox m WHERE m.id in (SELECT DISTINCT ON (segment) id
+      FROM public.outbox
       WHERE processed_at IS NULL AND abandoned_at IS NULL
       ORDER BY segment, created_at) order by created_at
   LOOP
@@ -83,7 +83,7 @@ BEGIN
     
       SELECT id, locked_until
         INTO message_row
-        FROM messaging.outbox
+        FROM public.outbox
         WHERE id = loop_row.id
         FOR NO KEY UPDATE NOWAIT;
       
@@ -100,7 +100,7 @@ BEGIN
   -- if max_size not reached: get the oldest parallelizable message independent of segment
   IF cardinality(ids) < max_size THEN
     FOR loop_row IN
-      SELECT * FROM messaging.outbox
+      SELECT * FROM public.outbox
         WHERE concurrency = 'parallel' AND processed_at IS NULL AND abandoned_at IS NULL AND locked_until < NOW() 
           AND id NOT IN (SELECT UNNEST(ids))
         order by created_at
@@ -110,7 +110,7 @@ BEGIN
 
         SELECT *
           INTO message_row
-          FROM messaging.outbox
+          FROM public.outbox
           WHERE id = loop_row.id
           FOR NO KEY UPDATE NOWAIT;
 
@@ -125,7 +125,7 @@ BEGIN
   IF cardinality(ids) > 0 THEN
 
     RETURN QUERY 
-      UPDATE messaging.outbox
+      UPDATE public.outbox
         SET locked_until = clock_timestamp() + (lock_ms || ' milliseconds')::INTERVAL, started_attempts = started_attempts + 1
         WHERE ID = ANY(ids)
         RETURNING *;
@@ -137,10 +137,10 @@ $BODY$;
 
 -- Create indexes for the outbox table to improve polling performance
 
-CREATE INDEX outbox_segment_idx ON messaging.outbox (segment);
-CREATE INDEX outbox_created_at_idx ON messaging.outbox (created_at);
-CREATE INDEX outbox_processed_at_idx ON messaging.outbox (processed_at);
-CREATE INDEX outbox_abandoned_at_idx ON messaging.outbox (abandoned_at);
+CREATE INDEX outbox_segment_idx ON public.outbox (segment);
+CREATE INDEX outbox_created_at_idx ON public.outbox (created_at);
+CREATE INDEX outbox_processed_at_idx ON public.outbox (processed_at);
+CREATE INDEX outbox_abandoned_at_idx ON public.outbox (abandoned_at);
 
 
 -- ____  _  _  ___   ___  __  __
@@ -152,10 +152,10 @@ CREATE INDEX outbox_abandoned_at_idx ON messaging.outbox (abandoned_at);
 
 -- Drop and create the inbox table and ensure the schema exists
 
-CREATE SCHEMA IF NOT EXISTS messaging;
+CREATE SCHEMA IF NOT EXISTS public;
 
-DROP TABLE IF EXISTS messaging.inbox CASCADE;
-CREATE TABLE messaging.inbox (
+DROP TABLE IF EXISTS public.inbox CASCADE;
+CREATE TABLE public.inbox (
   id uuid PRIMARY KEY,
   aggregate_type TEXT NOT NULL,
   aggregate_id TEXT NOT NULL,
@@ -171,31 +171,31 @@ CREATE TABLE messaging.inbox (
   started_attempts smallint NOT NULL DEFAULT 0,
   finished_attempts smallint NOT NULL DEFAULT 0
 );
-ALTER TABLE messaging.inbox ADD CONSTRAINT inbox_concurrency_check
+ALTER TABLE public.inbox ADD CONSTRAINT inbox_concurrency_check
   CHECK (concurrency IN ('sequential', 'parallel'));
 
 -- Grant permissions for the handler and listener role 
 
-GRANT USAGE ON SCHEMA messaging TO messaging_listener;
-GRANT USAGE ON SCHEMA messaging TO messaging_listener;
+GRANT USAGE ON SCHEMA public TO messaging_listener;
+GRANT USAGE ON SCHEMA public TO messaging_listener;
 
-GRANT SELECT, INSERT, DELETE ON messaging.inbox TO messaging_listener;
-GRANT UPDATE (locked_until, processed_at, abandoned_at, started_attempts, finished_attempts) ON messaging.inbox TO messaging_listener;
-GRANT SELECT, INSERT, UPDATE, DELETE ON messaging.inbox TO messaging_listener;
+GRANT SELECT, INSERT, DELETE ON public.inbox TO messaging_listener;
+GRANT UPDATE (locked_until, processed_at, abandoned_at, started_attempts, finished_attempts) ON public.inbox TO messaging_listener;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.inbox TO messaging_listener;
 
 
 -- Create the function to get the next batch of messages from the inbox table.
 
-DROP FUNCTION IF EXISTS messaging.next_inbox_messages(integer, integer);
-CREATE OR REPLACE FUNCTION messaging.next_inbox_messages(
+DROP FUNCTION IF EXISTS public.next_inbox_messages(integer, integer);
+CREATE OR REPLACE FUNCTION public.next_inbox_messages(
   max_size integer, lock_ms integer)
-    RETURNS SETOF messaging.inbox 
+    RETURNS SETOF public.inbox 
     LANGUAGE 'plpgsql'
 
 AS $BODY$
 DECLARE 
-  loop_row messaging.inbox%ROWTYPE;
-  message_row messaging.inbox%ROWTYPE;
+  loop_row public.inbox%ROWTYPE;
+  message_row public.inbox%ROWTYPE;
   ids uuid[] := '{}';
 BEGIN
 
@@ -205,8 +205,8 @@ BEGIN
 
   -- get (only) the oldest message of every segment but only return it if it is not locked
   FOR loop_row IN
-    SELECT * FROM messaging.inbox m WHERE m.id in (SELECT DISTINCT ON (segment) id
-      FROM messaging.inbox
+    SELECT * FROM public.inbox m WHERE m.id in (SELECT DISTINCT ON (segment) id
+      FROM public.inbox
       WHERE processed_at IS NULL AND abandoned_at IS NULL
       ORDER BY segment, created_at) order by created_at
   LOOP
@@ -215,7 +215,7 @@ BEGIN
     
       SELECT id, locked_until
         INTO message_row
-        FROM messaging.inbox
+        FROM public.inbox
         WHERE id = loop_row.id
         FOR NO KEY UPDATE NOWAIT;
       
@@ -232,7 +232,7 @@ BEGIN
   -- if max_size not reached: get the oldest parallelizable message independent of segment
   IF cardinality(ids) < max_size THEN
     FOR loop_row IN
-      SELECT * FROM messaging.inbox
+      SELECT * FROM public.inbox
         WHERE concurrency = 'parallel' AND processed_at IS NULL AND abandoned_at IS NULL AND locked_until < NOW() 
           AND id NOT IN (SELECT UNNEST(ids))
         order by created_at
@@ -242,7 +242,7 @@ BEGIN
 
         SELECT *
           INTO message_row
-          FROM messaging.inbox
+          FROM public.inbox
           WHERE id = loop_row.id
           FOR NO KEY UPDATE NOWAIT;
 
@@ -257,7 +257,7 @@ BEGIN
   IF cardinality(ids) > 0 THEN
 
     RETURN QUERY 
-      UPDATE messaging.inbox
+      UPDATE public.inbox
         SET locked_until = clock_timestamp() + (lock_ms || ' milliseconds')::INTERVAL, started_attempts = started_attempts + 1
         WHERE ID = ANY(ids)
         RETURNING *;
@@ -269,8 +269,8 @@ $BODY$;
 
 -- Create indexes for the inbox table to improve polling performance
 
-CREATE INDEX inbox_segment_idx ON messaging.inbox (segment);
-CREATE INDEX inbox_created_at_idx ON messaging.inbox (created_at);
-CREATE INDEX inbox_processed_at_idx ON messaging.inbox (processed_at);
-CREATE INDEX inbox_abandoned_at_idx ON messaging.inbox (abandoned_at);
+CREATE INDEX inbox_segment_idx ON public.inbox (segment);
+CREATE INDEX inbox_created_at_idx ON public.inbox (created_at);
+CREATE INDEX inbox_processed_at_idx ON public.inbox (processed_at);
+CREATE INDEX inbox_abandoned_at_idx ON public.inbox (abandoned_at);
 

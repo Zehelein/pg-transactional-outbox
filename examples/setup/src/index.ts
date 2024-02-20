@@ -49,13 +49,13 @@ const logicalReplicationValues = async (
     rli,
     `What should the name of the replication slot for the ${outboxOrInbox} be?`,
     undefined,
-    `transactional_${outboxOrInbox}_slot`,
+    `pg_transactional_${outboxOrInbox}_slot`,
   );
   const publication = await getValueFromInput(
     rli,
     `What should the name of the replication publication for the ${outboxOrInbox} be?`,
     undefined,
-    `transactional_${outboxOrInbox}_publication`,
+    `pg_transactional_${outboxOrInbox}_pub`,
   );
   return { replicationSlot, publication };
 };
@@ -102,7 +102,7 @@ export const dbSetupCli = async (): Promise<void> => {
   const schema = await getValue(
     'What should the name of the database schema be?',
     undefined,
-    'messaging',
+    'public',
   );
   const listenerRole = await getValue(
     'What is the name of your database role for the listener?',
@@ -261,15 +261,14 @@ export const dbSetupCli = async (): Promise<void> => {
   await writeFile(`out/${filename}.sql`, sqlOutput);
 
   // Write the .env File
-  envConfig = `# Select the variables that you want to adjust and copy them to your .ENV file/store
-# You can leave/skip the config variables that are already fine.
-# The defaults will be applied automatically for them.
-# If you use both outbox and inbox you can use the shared "TRX_***" variables or
-# the outbox and inbox specific "TRX_OUTBOX_***" and "TRX_INBOX_***" ones.
+  const envContent = `# Select the variables that you want to adjust and copy them to your .ENV file/store
+# You can leave/skip the config variables where you are fine with the default value.
+
+#| PREFIX + Variable Name | Type | Default | Description |
 
 ${sortEnv(envConfig)}`;
 
-  await writeFile(`out/${filename}.env`, envConfig);
+  await writeFile(`out/${filename}.env`, envContent);
 
   console.log(`File \x1b[92m${filename}\x1b[0m successfully created.`);
   rli.close();
@@ -280,16 +279,23 @@ const sortEnv = (envConfig: string) => {
   const genericLines = lines.filter(
     (l, i, all) =>
       !l.startsWith('TRX_INBOX_') &&
+      !l.startsWith('# | TRX_INBOX_') &&
       !l.startsWith('TRX_OUTBOX_') &&
-      !l.startsWith('#') &&
+      !l.startsWith('# | TRX_OUTBOX_') &&
       i === all.indexOf(l),
   );
-  const outboxLines = lines.filter((l) => l.startsWith('TRX_OUTBOX_'));
-  const inboxLines = lines.filter((l) => l.startsWith('TRX_INBOX_'));
+  const outboxLines = lines.filter(
+    (l) => l.startsWith('TRX_OUTBOX_') || l.startsWith('# | TRX_OUTBOX_'),
+  );
+  const inboxLines = lines.filter(
+    (l) => l.startsWith('TRX_INBOX_') || l.startsWith('# | TRX_INBOX_'),
+  );
   return `# General settings for both outbox and inbox
 ${genericLines.join('\n')}
+
 # Outbox specific settings - overrides the general settings
 ${outboxLines.join('\n')}
+
 # Inbox specific settings - overrides the general settings
 ${inboxLines.join('\n')}`;
 };

@@ -77,26 +77,15 @@ const basicSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
     constantName: 'RESTART_DELAY_IN_MS',
     default: defaultSettings.restartDelayInMs,
     func: getEnvVariableNumber,
+    description:
+      'When there is a message handling error, how long the listener should wait to restart the processing.',
   },
   {
     constantName: 'RESTART_DELAY_SLOT_IN_USE_IN_MS',
     default: defaultSettings.restartDelaySlotInUseInMs,
     func: getEnvVariableNumber,
-  },
-];
-
-const inboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
-  {
-    constantName: 'DB_PUBLICATION',
-    default: 'pg_transactional_inbox_pub',
-    func: getEnvVariableString,
-    skipFallback: true,
-  },
-  {
-    constantName: 'DB_REPLICATION_SLOT',
-    default: 'pg_transactional_inbox_slot',
-    func: getEnvVariableString,
-    skipFallback: true,
+    description:
+      'If the replication slot is in used, how long the listener should wait to connect again.',
   },
 ];
 
@@ -106,12 +95,35 @@ const outboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
     default: 'pg_transactional_outbox_pub',
     func: getEnvVariableString,
     skipFallback: true,
+    description:
+      'The name of the PostgreSQL publication that should be used for the outbox.',
   },
   {
     constantName: 'DB_REPLICATION_SLOT',
     default: 'pg_transactional_outbox_slot',
     func: getEnvVariableString,
     skipFallback: true,
+    description:
+      'The name of the PostgreSQL replication slot that should be used for the outbox.',
+  },
+];
+
+const inboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
+  {
+    constantName: 'DB_PUBLICATION',
+    default: 'pg_transactional_inbox_pub',
+    func: getEnvVariableString,
+    skipFallback: true,
+    description:
+      'The name of the PostgreSQL publication that should be used for the inbox.',
+  },
+  {
+    constantName: 'DB_REPLICATION_SLOT',
+    default: 'pg_transactional_inbox_slot',
+    func: getEnvVariableString,
+    skipFallback: true,
+    description:
+      'The name of the PostgreSQL replication slot that should be used for the inbox.',
   },
 ];
 
@@ -189,9 +201,7 @@ export const getInboxReplicationListenerEnvTemplate = (
     fallbackEnvPrefix,
     defaultOverrides,
   );
-  return `# Inbox listener variables
-${il}
-# Inbox replication listener variables
+  return `${il}
 ${cfg}`;
 };
 
@@ -214,8 +224,6 @@ export const getOutboxReplicationListenerEnvTemplate = (
     defaultOverrides,
   );
 
-  return `# Outbox listener variables
-${ol}
-# Outbox replication listener variables
+  return `${ol}
 ${cfg}`;
 };

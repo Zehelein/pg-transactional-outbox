@@ -169,16 +169,19 @@ describe('Env Settings Unit Tests', () => {
           constantName: 'STRING_VALUE',
           default: 'test-string',
           func: getEnvVariableString,
+          description: 'my string',
         },
         {
           constantName: 'NUMBER_VALUE',
           default: 123,
           func: getEnvVariableNumber,
+          description: 'my number',
         },
         {
           constantName: 'BOOLEAN_VALUE',
           default: true,
           func: getEnvVariableBoolean,
+          description: 'my boolean',
         },
       ];
 
@@ -255,30 +258,33 @@ describe('Env Settings Unit Tests', () => {
           constantName: 'STRING_VALUE',
           default: 'test-string',
           func: getEnvVariableString,
+          description: 'my string',
         },
         {
           constantName: 'NUMBER_VALUE',
           default: 123,
           func: getEnvVariableNumber,
+          description: 'my number',
         },
         {
           constantName: 'BOOLEAN_VALUE',
           default: true,
           func: getEnvVariableBoolean,
+          description: 'my boolean',
         },
       ];
 
-    it('should get the config settings with the default values', () => {
+    it('should get the config settings with the default fallback values', () => {
       const settings = getConfigSettingsEnvTemplate(
         inboxSettingsMap,
         'MAIN_',
         'FALLBACK_',
       );
-      const expected = `MAIN_STRING_VALUE=test-string
+      const expected = `# | FALLBACK_STRING_VALUE | string | "test-string" | my string |
 FALLBACK_STRING_VALUE=test-string
-MAIN_NUMBER_VALUE=123
+# | FALLBACK_NUMBER_VALUE | number | 123 | my number |
 FALLBACK_NUMBER_VALUE=123
-MAIN_BOOLEAN_VALUE=true
+# | FALLBACK_BOOLEAN_VALUE | boolean | true | my boolean |
 FALLBACK_BOOLEAN_VALUE=true
 `;
 

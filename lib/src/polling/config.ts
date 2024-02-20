@@ -85,30 +85,26 @@ const basicSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
     constantName: 'NEXT_MESSAGES_FUNCTION_SCHEMA',
     default: defaultSettings.nextMessagesFunctionSchema,
     func: getEnvVariableString,
+    description: 'The database schema of the next messages function.',
   },
   {
     constantName: 'NEXT_MESSAGES_BATCH_SIZE',
     default: defaultSettings.nextMessagesBatchSize,
     func: getEnvVariableNumber,
+    description: 'The (maximum) amount of messages to retrieve in one query.',
   },
   {
     constantName: 'NEXT_MESSAGES_LOCK_IN_MS',
     default: defaultSettings.nextMessagesLockInMs,
     func: getEnvVariableNumber,
+    description:
+      'How long the retrieved messages should be locked before they can be retrieved again.',
   },
   {
     constantName: 'NEXT_MESSAGES_POLLING_INTERVAL_IN_MS',
     default: defaultSettings.nextMessagesPollingIntervalInMs,
     func: getEnvVariableNumber,
-  },
-];
-
-const inboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
-  {
-    constantName: 'NEXT_MESSAGES_FUNCTION_NAME',
-    default: 'next_inbox_messages',
-    func: getEnvVariableString,
-    skipFallback: true,
+    description: 'How often should the next messages function be executed.',
   },
 ];
 
@@ -118,6 +114,19 @@ const outboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
     default: 'next_outbox_messages',
     func: getEnvVariableString,
     skipFallback: true,
+    description:
+      'The database function name to get the next batch of outbox messages.',
+  },
+];
+
+const inboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
+  {
+    constantName: 'NEXT_MESSAGES_FUNCTION_NAME',
+    default: 'next_inbox_messages',
+    func: getEnvVariableString,
+    skipFallback: true,
+    description:
+      'The database function name to get the next batch of inbox messages.',
   },
 ];
 
@@ -195,10 +204,7 @@ export const getInboxPollingListenerEnvTemplate = (
     fallbackEnvPrefix,
     defaultOverrides,
   );
-  return `# Inbox listener variables
-${il}
-# Inbox polling listener variables
-${cfg}`;
+  return `${il}${cfg}`;
 };
 /**
  * Shows the available env variables and their default values for the outbox
@@ -218,8 +224,5 @@ export const getOutboxPollingListenerEnvTemplate = (
     fallbackEnvPrefix,
     defaultOverrides,
   );
-  return `# Outbox listener variables
-${ol}
-# Outbox polling listener variables
-${cfg}`;
+  return `${ol}${cfg}`;
 };

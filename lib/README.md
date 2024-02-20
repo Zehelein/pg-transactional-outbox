@@ -627,49 +627,55 @@ You can find the example ENV files here:
 - `examples/setup/out/example-trx-polling.env` (for polling listener)
 - `examples/setup/out/example-trx-replication.sql` (for replication listener)
 
-All ENV variables use one of the following three prefixes:
+All ENV variables can use one of the following three prefixes:
 
-- `TRX_OUTBOX_<variable>` - those variables are used to build the outbox
-  specific settings for the desired listener.
-- `TRX_INBOX_<variable>` - those variables are used to build the inbox specific
+- `TRX_OUTBOX_<variable>` - those variables are used to build the
+  outbox-specific settings for the desired listener.
+- `TRX_INBOX_<variable>` - those variables are used to build the inbox-specific
   settings for the desired listener.
 - `TRX_<variable>` - those variable values are used for both the outbox and
-  inbox settings when no outbox or inbox specific value is provided.
+  inbox settings when no outbox or inbox-specific value is provided.
 
-| \<PREFIX\> + Variable Name          | Type    | Description                                                                                                                                        |
-| ----------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| DB_SCHEMA                           | string  | The database schema name where the table is located.                                                                                               |
-| DB_TABLE                            | string  | The name of the database outbox/inbox table.                                                                                                       |
-| MESSAGE_PROCESSING_TIMEOUT_IN_MS    | number  | Stop the message handler after this time has passed.                                                                                               |
-| MAX_ATTEMPTS                        | number  | The maximum number of attempts to handle a message. With max 5 attempts a message is handled once initially and up to four more times for retries. |
-| ENABLE_MAX_ATTEMPTS_PROTECTION      | boolean | Enable the max attempts protection (could be disabled for the outbox)                                                                              |
-| MAX_POISONOUS_ATTEMPTS              | number  | The maximum number of times a message should be attempted which was started but did not finish (neither error nor success).                        |
-| ENABLE_POISONOUS_MESSAGE_PROTECTION | boolean | Enable the max poisonous attempts protection (could be disabled for the outbox)                                                                    |
-| MESSAGE_CLEANUP_INTERVAL_IN_MS      | number  | Time in milliseconds between the execution of the old message cleanups. Set it to zero to disable automatic message cleanup.                       |
-| MESSAGE_CLEANUP_PROCESSED_IN_SEC    | number  | Delete messages that were successfully processed after X seconds.                                                                                  |
-| MESSAGE_CLEANUP_ABANDONED_IN_SEC    | number  | Delete messages that could not be processed after X seconds.                                                                                       |
-| MESSAGE_CLEANUP_ALL_IN_SEC          | number  | Delete all old messages after X seconds.                                                                                                           |
+| \<PREFIX\> + Variable Name                     | Type    | Default  | Description                                                                                                                                        |
+| ---------------------------------------------- | ------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TRX_DB_SCHEMA                                  | string  | "public" | The database schema name where the table is located.                                                                                               |
+| TRX_MESSAGE_PROCESSING_TIMEOUT_IN_MS           | number  | 15000    | Stop the message handler after this time has passed.                                                                                               |
+| TRX_MAX_ATTEMPTS                               | number  | 5        | The maximum number of attempts to handle a message. With max 5 attempts a message is handled once initially and up to four more times for retries. |
+| TRX_MAX_POISONOUS_ATTEMPTS                     | number  | 3        | The maximum number of times a message should be attempted which was started but did not finish (neither error nor success).                        |
+| TRX_MESSAGE_CLEANUP_INTERVAL_IN_MS             | number  | 300000   | Time in milliseconds between the execution of the old message cleanups. Set it to zero to disable automatic message cleanup.                       |
+| TRX_MESSAGE_CLEANUP_PROCESSED_IN_SEC           | number  | 604800   | Delete messages that were successfully processed after X seconds.                                                                                  |
+| TRX_MESSAGE_CLEANUP_ABANDONED_IN_SEC           | number  | 1209600  | Delete messages that could not be processed after X seconds.                                                                                       |
+| TRX_MESSAGE_CLEANUP_ALL_IN_SEC                 | number  | 5184000  | Delete all old messages after X seconds.                                                                                                           |
+| TRX_OUTBOX_DB_TABLE                            | string  | "outbox" | The name of the database outbox table.                                                                                                             |
+| TRX_OUTBOX_ENABLE_MAX_ATTEMPTS_PROTECTION      | boolean | false    | Enable the max attempts protection.                                                                                                                |
+| TRX_OUTBOX_ENABLE_POISONOUS_MESSAGE_PROTECTION | boolean | false    | Enable the max poisonous attempts protection.                                                                                                      |
+| TRX_INBOX_DB_TABLE                             | string  | "inbox"  | The name of the database inbox table.                                                                                                              |
+| TRX_INBOX_ENABLE_MAX_ATTEMPTS_PROTECTION       | boolean | true     | Enable the max attempts protection.                                                                                                                |
+| TRX_INBOX_ENABLE_POISONOUS_MESSAGE_PROTECTION  | boolean | true     | Enable the max poisonous attempts protection.                                                                                                      |
 
 The replication listener approach supports the following variables in addition
 to the above ones:
 
-| \<PREFIX\> + Variable Name           | Type   | Description                                                                          |
-| ------------------------------------ | ------ | ------------------------------------------------------------------------------------ |
-| NEXT_MESSAGES_FUNCTION_NAME          | string | The database function name to get the next batch of outbox or inbox messages.        |
-| NEXT_MESSAGES_FUNCTION_SCHEMA        | string | The database schema of the next messages function.                                   |
-| NEXT_MESSAGES_BATCH_SIZE             | number | The (maximum) amount of messages to retrieve in one query.                           |
-| NEXT_MESSAGES_LOCK_IN_MS             | number | How long the retrieved messages should be locked before they can be retrieved again. |
-| NEXT_MESSAGES_POLLING_INTERVAL_IN_MS | number | How often should the next messages function be executed                              |
+| \<PREFIX\> + Variable Name          | Type   | Default                            | Description                                                                                          |
+| ----------------------------------- | ------ | ---------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| TRX_RESTART_DELAY_IN_MS             | number | 250                                | When there is a message handling error, how long the listener should wait to restart the processing. |
+| TRX_RESTART_DELAY_SLOT_IN_USE_IN_MS | number | 10000                              | If the replication slot is in used, how long the listener should wait to connect again.              |
+| TRX_OUTBOX_DB_PUBLICATION           | string | "transactional_outbox_publication" | The name of the PostgreSQL publication that should be used for the outbox.                           |
+| TRX_OUTBOX_DB_REPLICATION_SLOT      | string | "transactional_outbox_slot"        | The name of the PostgreSQL replication slot that should be used for the outbox.                      |
+| TRX_INBOX_DB_PUBLICATION            | string | "transactional_inbox_publication"  | The name of the PostgreSQL publication that should be used for the inbox.                            |
+| TRX_INBOX_DB_REPLICATION_SLOT       | string | "transactional_inbox_slot"         | The name of the PostgreSQL replication slot that should be used for the inbox.                       |
 
 The polling listener approach supports the following variables in addition to
 the above ones:
 
-| \<PREFIX\> + Variable Name      | Type   | Description                                                                                          |
-| ------------------------------- | ------ | ---------------------------------------------------------------------------------------------------- |
-| RESTART_DELAY_IN_MS             | number | When there is a message handling error, how long the listener should wait to restart the processing. |
-| RESTART_DELAY_SLOT_IN_USE_IN_MS | number | If the replication slot is in used, how long the listener should wait to connect again.              |
-| DB_PUBLICATION                  | string | The name of the PostgreSQL publication that should be used.                                          |
-| DB_REPLICATION_SLOT             | string | The name of the PostgreSQL replication slot that should be used.                                     |
+| \<PREFIX\> + Variable Name               | Type   | Default                | Description                                                                          |
+| ---------------------------------------- | ------ | ---------------------- | ------------------------------------------------------------------------------------ |
+| TRX_NEXT_MESSAGES_FUNCTION_SCHEMA        | string | "public"               | The database schema of the next messages function.                                   |
+| TRX_NEXT_MESSAGES_BATCH_SIZE             | number | 5                      | The (maximum) amount of messages to retrieve in one query.                           |
+| TRX_NEXT_MESSAGES_LOCK_IN_MS             | number | 5000                   | How long the retrieved messages should be locked before they can be retrieved again. |
+| TRX_NEXT_MESSAGES_POLLING_INTERVAL_IN_MS | number | 500                    | How often should the next messages function be executed.                             |
+| TRX_OUTBOX_NEXT_MESSAGES_FUNCTION_NAME   | string | "next_outbox_messages" | The database function name to get the next batch of outbox messages.                 |
+| TRX_INBOX_NEXT_MESSAGES_FUNCTION_NAME    | string | "next_inbox_messages"  | The database function name to get the next batch of inbox messages.                  |
 
 An example ENV file can then be:
 
@@ -688,9 +694,6 @@ TRX_INBOX_ENABLE_POISONOUS_MESSAGE_PROTECTION=true
 TRX_INBOX_MAX_POISONOUS_ATTEMPTS=3
 ...
 ```
-
-| MAX_POISONOUS_ATTEMPTS | number | xxx | | MAX_POISONOUS_ATTEMPTS | number |
-xxx | | MAX_POISONOUS_ATTEMPTS | number | xxx |
 
 ### Message Publisher
 

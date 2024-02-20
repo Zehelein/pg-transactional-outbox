@@ -91,6 +91,7 @@ export interface StringSetting {
   default: string;
   func: typeof getEnvVariableString;
   skipFallback?: boolean;
+  description: string;
 }
 
 export interface NumberSetting {
@@ -98,6 +99,7 @@ export interface NumberSetting {
   default: number;
   func: typeof getEnvVariableNumber;
   skipFallback?: boolean;
+  description: string;
 }
 
 export interface BooleanSetting {
@@ -105,6 +107,7 @@ export interface BooleanSetting {
   default: boolean;
   func: typeof getEnvVariableBoolean;
   skipFallback?: boolean;
+  description: string;
 }
 
 /**
@@ -136,10 +139,11 @@ export const getConfigSettings = (
 };
 
 /**
- * Shows the available env variables and their default values
+ * Shows the available env variables and their default values.
  * @param map A mapping of all the env variables to config settings.
  * @param envPrefix The prefix for the env variables to check first (e.g. "TRX_OUTBOX_" or "TRX_INBOX_").
  * @param envPrefixFallback The fallback prefix if the other is not found. Useful for defining settings that should be used for both outbox and inbox.
+ * @param defaultOverrides Default values for the overrides.
  * @returns A string with all the ENV config keys and their default values.
  */
 export const getConfigSettingsEnvTemplate = (
@@ -154,10 +158,16 @@ export const getConfigSettingsEnvTemplate = (
       defaultOverrides?.[`${envPrefix}${s.constantName}`] ??
       defaultOverrides?.[s.constantName] ??
       s.default;
-    result += `${envPrefix}${s.constantName}=${val}\n`;
-    if (s.skipFallback !== true) {
-      result += `${envPrefixFallback}${s.constantName}=${val}\n`;
-    }
+    const commentKey = s.skipFallback
+      ? `${envPrefix}${s.constantName}`
+      : `${envPrefixFallback}${s.constantName}`;
+    const quotedVal = typeof val === 'string' ? `"${val}"` : val;
+
+    result += `# | ${commentKey} | ${typeof val} | ${quotedVal} | ${
+      s.description
+    } |
+${commentKey}=${val}
+`;
   }
   return result;
 };

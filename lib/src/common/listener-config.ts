@@ -122,62 +122,53 @@ const basicSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
     constantName: 'DB_SCHEMA',
     default: defaultSettings.dbSchema,
     func: getEnvVariableString,
+    description: 'The database schema name where the table is located.',
   },
   {
     constantName: 'MESSAGE_PROCESSING_TIMEOUT_IN_MS',
     default: defaultSettings.messageProcessingTimeoutInMs,
     func: getEnvVariableNumber,
+    description: 'Stop the message handler after this time has passed.',
   },
   {
     constantName: 'MAX_ATTEMPTS',
     func: getEnvVariableNumber,
     default: defaultSettings.maxAttempts,
+    description:
+      'The maximum number of attempts to handle a message. With max 5 attempts a message is handled once initially and up to four more times for retries.',
   },
   {
     constantName: 'MAX_POISONOUS_ATTEMPTS',
     default: defaultSettings.maxPoisonousAttempts,
     func: getEnvVariableNumber,
+    description:
+      'The maximum number of times a message should be attempted which was started but did not finish (neither error nor success).',
   },
   {
     constantName: 'MESSAGE_CLEANUP_INTERVAL_IN_MS',
     default: defaultSettings.messageCleanupIntervalInMs,
     func: getEnvVariableNumber,
+    description:
+      'Time in milliseconds between the execution of the old message cleanups. Set it to zero to disable automatic message cleanup.',
   },
   {
     constantName: 'MESSAGE_CLEANUP_PROCESSED_IN_SEC',
     default: defaultSettings.messageCleanupProcessedInSec,
     func: getEnvVariableNumber,
+    description:
+      'Delete messages that were successfully processed after X seconds.',
   },
   {
     constantName: 'MESSAGE_CLEANUP_ABANDONED_IN_SEC',
     default: defaultSettings.messageCleanupAbandonedInSec,
     func: getEnvVariableNumber,
+    description: 'Delete messages that could not be processed after X seconds.',
   },
   {
     constantName: 'MESSAGE_CLEANUP_ALL_IN_SEC',
     default: defaultSettings.messageCleanupAllInSec,
     func: getEnvVariableNumber,
-  },
-];
-
-const inboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
-  {
-    constantName: 'DB_TABLE',
-    default: 'inbox',
-    func: getEnvVariableString,
-    skipFallback: true,
-  },
-  {
-    constantName: 'ENABLE_MAX_ATTEMPTS_PROTECTION',
-    default: true,
-    func: getEnvVariableBoolean,
-    skipFallback: true,
-  },
-  {
-    constantName: 'ENABLE_POISONOUS_MESSAGE_PROTECTION',
-    default: true,
-    func: getEnvVariableBoolean,
-    skipFallback: true,
+    description: 'Delete all old messages after X seconds.',
   },
 ];
 
@@ -187,18 +178,45 @@ const outboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
     default: 'outbox',
     func: getEnvVariableString,
     skipFallback: true,
+    description: 'The name of the database outbox table.',
   },
   {
     constantName: 'ENABLE_MAX_ATTEMPTS_PROTECTION',
     default: false,
     func: getEnvVariableBoolean,
     skipFallback: true,
+    description: 'Enable the max attempts protection.',
   },
   {
     constantName: 'ENABLE_POISONOUS_MESSAGE_PROTECTION',
     default: false,
     func: getEnvVariableBoolean,
     skipFallback: true,
+    description: 'Enable the max poisonous attempts protection.',
+  },
+];
+
+const inboxSettingsMap: (StringSetting | NumberSetting | BooleanSetting)[] = [
+  {
+    constantName: 'DB_TABLE',
+    default: 'inbox',
+    func: getEnvVariableString,
+    skipFallback: true,
+    description: 'The name of the database inbox table.',
+  },
+  {
+    constantName: 'ENABLE_MAX_ATTEMPTS_PROTECTION',
+    default: true,
+    func: getEnvVariableBoolean,
+    skipFallback: true,
+    description: 'Enable the max attempts protection.',
+  },
+  {
+    constantName: 'ENABLE_POISONOUS_MESSAGE_PROTECTION',
+    default: true,
+    func: getEnvVariableBoolean,
+    skipFallback: true,
+    description: 'Enable the max poisonous attempts protection.',
   },
 ];
 

@@ -20,10 +20,10 @@
 
 -- Drop and create the outbox table and ensure the schema exists
 
-CREATE SCHEMA IF NOT EXISTS messaging;
+CREATE SCHEMA IF NOT EXISTS public;
 
-DROP TABLE IF EXISTS messaging.outbox CASCADE;
-CREATE TABLE messaging.outbox (
+DROP TABLE IF EXISTS public.outbox CASCADE;
+CREATE TABLE public.outbox (
   id uuid PRIMARY KEY,
   aggregate_type TEXT NOT NULL,
   aggregate_id TEXT NOT NULL,
@@ -39,33 +39,33 @@ CREATE TABLE messaging.outbox (
   started_attempts smallint NOT NULL DEFAULT 0,
   finished_attempts smallint NOT NULL DEFAULT 0
 );
-ALTER TABLE messaging.outbox ADD CONSTRAINT outbox_concurrency_check
+ALTER TABLE public.outbox ADD CONSTRAINT outbox_concurrency_check
   CHECK (concurrency IN ('sequential', 'parallel'));
 
 -- Grant permissions for the handler and listener role 
 
-GRANT USAGE ON SCHEMA messaging TO messaging_listener;
-GRANT USAGE ON SCHEMA messaging TO messaging_listener;
+GRANT USAGE ON SCHEMA public TO messaging_listener;
+GRANT USAGE ON SCHEMA public TO messaging_listener;
 
-GRANT SELECT, INSERT, DELETE ON messaging.outbox TO messaging_listener;
-GRANT UPDATE (locked_until, processed_at, abandoned_at, started_attempts, finished_attempts) ON messaging.outbox TO messaging_listener;
-GRANT SELECT, INSERT, UPDATE, DELETE ON messaging.outbox TO messaging_listener;
+GRANT SELECT, INSERT, DELETE ON public.outbox TO messaging_listener;
+GRANT UPDATE (locked_until, processed_at, abandoned_at, started_attempts, finished_attempts) ON public.outbox TO messaging_listener;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.outbox TO messaging_listener;
 
 
 -- Assign replication role and create publication
 
 ALTER ROLE messaging_listener WITH REPLICATION;
-DROP PUBLICATION IF EXISTS transactional_outbox_publication;
-CREATE PUBLICATION transactional_outbox_publication FOR TABLE messaging.outbox WITH (publish = 'insert');
+DROP PUBLICATION IF EXISTS pg_transactional_outbox_pub;
+CREATE PUBLICATION pg_transactional_outbox_pub FOR TABLE public.outbox WITH (publish = 'insert');
 
 
 -- Create the logical replication slot
 
-SELECT pg_drop_replication_slot('transactional_outbox_slot') 
-  FROM pg_replication_slots WHERE slot_name = 'transactional_outbox_slot';
+SELECT pg_drop_replication_slot('pg_transactional_outbox_slot') 
+  FROM pg_replication_slots WHERE slot_name = 'pg_transactional_outbox_slot';
 
 -- NOTE: This must be run in a separate database transaction or it will fail
-SELECT pg_create_logical_replication_slot('transactional_outbox_slot', 'pgoutput');
+SELECT pg_create_logical_replication_slot('pg_transactional_outbox_slot', 'pgoutput');
 
 
 -- ____  _  _  ___   ___  __  __
@@ -77,10 +77,10 @@ SELECT pg_create_logical_replication_slot('transactional_outbox_slot', 'pgoutput
 
 -- Drop and create the inbox table and ensure the schema exists
 
-CREATE SCHEMA IF NOT EXISTS messaging;
+CREATE SCHEMA IF NOT EXISTS public;
 
-DROP TABLE IF EXISTS messaging.inbox CASCADE;
-CREATE TABLE messaging.inbox (
+DROP TABLE IF EXISTS public.inbox CASCADE;
+CREATE TABLE public.inbox (
   id uuid PRIMARY KEY,
   aggregate_type TEXT NOT NULL,
   aggregate_id TEXT NOT NULL,
@@ -96,31 +96,31 @@ CREATE TABLE messaging.inbox (
   started_attempts smallint NOT NULL DEFAULT 0,
   finished_attempts smallint NOT NULL DEFAULT 0
 );
-ALTER TABLE messaging.inbox ADD CONSTRAINT inbox_concurrency_check
+ALTER TABLE public.inbox ADD CONSTRAINT inbox_concurrency_check
   CHECK (concurrency IN ('sequential', 'parallel'));
 
 -- Grant permissions for the handler and listener role 
 
-GRANT USAGE ON SCHEMA messaging TO messaging_listener;
-GRANT USAGE ON SCHEMA messaging TO messaging_listener;
+GRANT USAGE ON SCHEMA public TO messaging_listener;
+GRANT USAGE ON SCHEMA public TO messaging_listener;
 
-GRANT SELECT, INSERT, DELETE ON messaging.inbox TO messaging_listener;
-GRANT UPDATE (locked_until, processed_at, abandoned_at, started_attempts, finished_attempts) ON messaging.inbox TO messaging_listener;
-GRANT SELECT, INSERT, UPDATE, DELETE ON messaging.inbox TO messaging_listener;
+GRANT SELECT, INSERT, DELETE ON public.inbox TO messaging_listener;
+GRANT UPDATE (locked_until, processed_at, abandoned_at, started_attempts, finished_attempts) ON public.inbox TO messaging_listener;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.inbox TO messaging_listener;
 
 
 -- Assign replication role and create publication
 
 ALTER ROLE messaging_listener WITH REPLICATION;
-DROP PUBLICATION IF EXISTS transactional_inbox_publication;
-CREATE PUBLICATION transactional_inbox_publication FOR TABLE messaging.inbox WITH (publish = 'insert');
+DROP PUBLICATION IF EXISTS pg_transactional_inbox_pub;
+CREATE PUBLICATION pg_transactional_inbox_pub FOR TABLE public.inbox WITH (publish = 'insert');
 
 
 -- Create the logical replication slot
 
-SELECT pg_drop_replication_slot('transactional_inbox_slot') 
-  FROM pg_replication_slots WHERE slot_name = 'transactional_inbox_slot';
+SELECT pg_drop_replication_slot('pg_transactional_inbox_slot') 
+  FROM pg_replication_slots WHERE slot_name = 'pg_transactional_inbox_slot';
 
 -- NOTE: This must be run in a separate database transaction or it will fail
-SELECT pg_create_logical_replication_slot('transactional_inbox_slot', 'pgoutput');
+SELECT pg_create_logical_replication_slot('pg_transactional_inbox_slot', 'pgoutput');
 
