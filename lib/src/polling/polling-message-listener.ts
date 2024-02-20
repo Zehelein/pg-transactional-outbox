@@ -206,12 +206,12 @@ const processBatch = async (
           `Finished processing the message with id ${message.id} and type ${message.messageType}.`,
         );
       } catch (e) {
-        const err = ensureExtendedError(e, 'MESSAGE_HANDLING_FAILED');
+        const err = ensureExtendedError(e, 'MESSAGE_HANDLING_FAILED', message);
         if (err.errorCode === 'TIMEOUT') {
           cancellation.emit('timeout', err);
         }
         logger.warn(
-          message,
+          err,
           `Message processing error for the message with id ${message.id} and type ${message.messageType}.`,
         );
         await errorHandler(message, err);

@@ -57,18 +57,25 @@ export class MessageError<
  * Returns the error as verified Error object or wraps the input as
  * ExtendedError with error code and potential innerError.
  * @param error The error variable to check
+ * @param fallbackErrorCode The error code to use if the message is not already a TransactionalOutboxInboxError.
+ * @param message The message object to use if the message is not a TransactionalOutboxInboxError.
  * @returns The error if the input was already an error otherwise a wrapped error. Enriched with the error code property.
  */
 export const ensureExtendedError = (
   error: unknown,
   fallbackErrorCode: ErrorCode,
+  message?: TransactionalMessage,
 ): ExtendedError => {
   if (error instanceof TransactionalOutboxInboxError) {
     return error;
   }
   const err = ensureError(error) as ExtendedError;
-  err.errorCode = fallbackErrorCode;
-  return err;
+  if (message) {
+    return new MessageError(err.message, fallbackErrorCode, message, err);
+  } else {
+    err.errorCode = fallbackErrorCode;
+    return err;
+  }
 };
 
 const ensureError = (error: unknown): Error | undefined => {

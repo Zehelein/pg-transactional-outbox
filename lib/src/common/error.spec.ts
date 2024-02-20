@@ -1,3 +1,4 @@
+import { TransactionalMessage } from '../message/transactional-message';
 import {
   MessageError,
   TransactionalOutboxInboxError,
@@ -62,6 +63,25 @@ describe('Error Unit Tests', () => {
 
       // Assert
       expect(error).toBe(inputError);
+    });
+
+    it('should return a MessageError when a message is given as input and add the error as innerError.', () => {
+      // Arrange
+      const input = new Error('This is an error');
+      const message = { id: 'test-message' } as TransactionalMessage;
+
+      // Act
+      const error = ensureExtendedError(input, 'DB_ERROR', message);
+
+      // Assert
+      expect(error).toBeInstanceOf(Error);
+      expect(error).toBeInstanceOf(MessageError);
+      expect(error.message).toBe(input.message);
+      expect((error as MessageError<TransactionalMessage>).messageObject).toBe(
+        message,
+      );
+      expect(error.errorCode).toBe('DB_ERROR');
+      expect(error.innerError).toBe(input);
     });
 
     it('should return the error containing now the fallback error code if the input is an instance of Error', () => {
