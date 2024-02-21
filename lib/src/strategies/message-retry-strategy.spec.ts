@@ -16,7 +16,7 @@ describe('defaultMessageRetryStrategy', () => {
     } as StoredTransactionalMessage;
     const retryStrategy = defaultMessageRetryStrategy(config);
 
-    expect(retryStrategy(message, defaultError)).toBe(true);
+    expect(retryStrategy(message, defaultError, 'message-handler')).toBe(true);
   });
 
   it('should use the default message retry strategy and not retry a message if the attempts are exceeded', () => {
@@ -28,7 +28,7 @@ describe('defaultMessageRetryStrategy', () => {
     } as StoredTransactionalMessage;
     const retryStrategy = defaultMessageRetryStrategy(config);
 
-    expect(retryStrategy(message, defaultError)).toBe(false);
+    expect(retryStrategy(message, defaultError, 'message-handler')).toBe(false);
   });
 
   it('should use the configured message retry strategy and not retry a message if the attempts are exceeded', () => {
@@ -42,23 +42,30 @@ describe('defaultMessageRetryStrategy', () => {
     } as StoredTransactionalMessage;
     const retryStrategy = defaultMessageRetryStrategy(config);
 
-    expect(retryStrategy(message, defaultError)).toBe(false);
+    expect(retryStrategy(message, defaultError, 'message-handler')).toBe(false);
   });
 
-  it('should retry serialization_failure errors even for exceeded attempts', () => {
-    const config = {
-      settings: {
-        maxAttempts: 1,
-      },
-    } as FullListenerConfig;
-    const message = {
-      finishedAttempts: 1000,
-    } as StoredTransactionalMessage;
-    const serializationError = ensureExtendedError(new Error(), 'DB_ERROR');
-    serializationError.innerError = new Error('Serialization Error');
-    (serializationError.innerError as any).code = 40001;
-    const retryStrategy = defaultMessageRetryStrategy(config);
+  it.each(['message-handler', 'error-handler', 'error-handler-error'])(
+    'should retry serialization_failure errors even for exceeded attempts',
+    (source) => {
+      const config = {
+        settings: {
+          maxAttempts: 1,
+        },
+      } as FullListenerConfig;
+      const message = {
+        finishedAttempts: 1000,
+      } as StoredTransactionalMessage;
+      const serializationError = ensureExtendedError(new Error(), 'DB_ERROR');
+      serializationError.innerError = new Error('Serialization Error');
+      (serializationError.innerError as any).code = 40001;
+      const retryStrategy = defaultMessageRetryStrategy(config);
+      const src = source as
+        | 'message-handler'
+        | 'error-handler'
+        | 'error-handler-error';
 
-    expect(retryStrategy(message, serializationError)).toBe(false);
-  });
+      expect(retryStrategy(message, serializationError, src)).toBe(false);
+    },
+  );
 });

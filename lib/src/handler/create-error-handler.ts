@@ -41,13 +41,16 @@ export const createErrorHandler = (
     const handler = handlerSelector(message);
     const transactionLevel =
       strategies.messageProcessingTransactionLevelStrategy(message);
-    let shouldRetry = true;
     try {
       return await executeTransaction(
         await strategies.messageProcessingDbClientStrategy.getClient(message),
         async (client) => {
           message.finishedAttempts++;
-          shouldRetry = strategies.messageRetryStrategy(message, error);
+          const shouldRetry = strategies.messageRetryStrategy(
+            message,
+            error,
+            'message-handler',
+          );
           if (handler?.handleError) {
             await handler.handleError(error, message, client, shouldRetry);
           }
@@ -76,19 +79,27 @@ export const createErrorHandler = (
         },
         transactionLevel,
       );
-    } catch (error) {
+    } catch (err) {
       const msg = handler
         ? `The error handling of the ${config.outboxOrInbox} message failed. Please make sure that your error handling code does not throw an error!`
         : `The error handling of the ${config.outboxOrInbox} message failed.`;
-      logger.error(
-        new MessageError(msg, 'MESSAGE_ERROR_HANDLING_FAILED', message, error),
+      const error = new MessageError(
         msg,
+        'MESSAGE_ERROR_HANDLING_FAILED',
+        message,
+        err,
       );
+      logger.error(error, msg);
       // In case the error handling logic failed do a best effort to increase the "finished_attempts" counter
       try {
         await executeTransaction(
           await strategies.messageProcessingDbClientStrategy.getClient(message),
           async (client) => {
+            const shouldRetry = strategies.messageRetryStrategy(
+              message,
+              error,
+              'message-handler',
+            );
             if (shouldRetry) {
               await increaseMessageFinishedAttempts(message, client, config);
             } else {
@@ -97,7 +108,7 @@ export const createErrorHandler = (
           },
           transactionLevel,
         );
-        return shouldRetry;
+        return strategies.messageRetryStrategy(message, error, 'error-handler');
       } catch (bestEffortError) {
         const e = new MessageError(
           `The 'best-effort' logic to increase the ${config.outboxOrInbox} message finished attempts failed as well.`,
@@ -106,9 +117,11 @@ export const createErrorHandler = (
           bestEffortError,
         );
         logger.warn(e, e.message);
-        // If everything fails do not retry the message for logical replication to allow continuing with other messages
-        // For polling it is unlikely that `markMessageAbandoned` would work now so just retry the message again is fine
-        return false;
+        return strategies.messageRetryStrategy(
+          message,
+          e,
+          'error-handler-error',
+        );
       }
     }
   };

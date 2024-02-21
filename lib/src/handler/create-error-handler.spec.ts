@@ -1,8 +1,9 @@
 import { DatabaseClient } from '../common/database';
 import { TransactionalOutboxInboxError } from '../common/error';
-import { ListenerConfig } from '../common/listener-config';
+import { FullListenerConfig, ListenerConfig } from '../common/listener-config';
 import { getDisabledLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
+import { defaultMessageRetryStrategy } from '../strategies/message-retry-strategy';
 import { createErrorHandler } from './create-error-handler';
 import { TransactionalMessageHandler } from './transactional-message-handler';
 
@@ -239,7 +240,11 @@ describe('createErrorHandler', () => {
         shutdown: jest.fn(),
       },
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(false),
-      messageRetryStrategy: jest.fn().mockReturnValue(true),
+      messageRetryStrategy: defaultMessageRetryStrategy({
+        settings: {
+          maxAttempts: 5,
+        },
+      } as unknown as FullListenerConfig),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
     };
     const config: ListenerConfig = {
@@ -288,7 +293,6 @@ describe('createErrorHandler', () => {
       strategies.messageProcessingTransactionLevelStrategy,
     ).toHaveBeenCalledWith(mockMessage);
     expect(strategies.poisonousMessageRetryStrategy).not.toHaveBeenCalled();
-    expect(strategies.messageRetryStrategy).toHaveBeenCalled();
   });
 
   it('Should increase the finished attempts even if no handler is found (anymore)', async () => {
