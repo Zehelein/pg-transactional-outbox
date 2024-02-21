@@ -1150,24 +1150,49 @@ only one message. This protects against poisonous messages: if 5 messages would
 be taken during startup all those 5 would be marked as poisonous if one of them
 fails.
 
-# Outlook
+# Extensions
 
-The following points could be added to the library to improve certain scenarios:
+You can (exponentially) increase the time after which a message can be retried
+again. You can set the locked_until to some configurable time/factor in the
+future for the polling listener approach. This can be done in the message error
+handler.
 
-- Add functionality to (exponentially) increase the time when a message can be
-  retried again. This would set the locked_until to some configurable
-  time/factor in the future for the polling listener approach. This can already
-  be done manually in the message error handler.
-- The polling lag can be improved by using the PostgreSQL LISTEN/NOTIFY
-  functionality. This can immediately trigger a new polling query in case there
-  are worker slots open.
-- Tests for poisonous messages are hard to automate. One approach could be to
-  use a `cluster` implementation where the listener runs within a fork and can
-  safely crash (process.exit(-1)).
-- Implement a "safe delete" where messages are inserted into an "inbox_archive"
-  and "outbox_archive" table when they are deleted from the main tables. This
-  would help to debug production issues and copy messages back to their main
-  tables to do another retry.
+Instead of just deleting old messages, you could insert them into an
+"outbox_archive" and "inbox_archive" table when they are deleted from the main
+tables. This would help to debug production issues and allow you to copy
+messages back to their main tables to do another retry.
+
+This could be done via something like this:
+
+```sql
+CREATE OR REPLACE FUNCTION trg_outbox_archive()
+  RETURNS trigger AS
+$BODY$
+BEGIN
+
+INSERT INTO public.outbox_archive SELECT (OLD).*;
+
+RETURN NULL;
+
+END;
+$BODY$
+  LANGUAGE plpgsql VOLATILE;
+
+
+DROP TRIGGER IF EXISTS after_delete_outbox ON public.outbox;
+CREATE TRIGGER after_delete_outbox
+  AFTER DELETE
+  ON public.outbox
+  FOR EACH ROW
+  EXECUTE PROCEDURE trg_outbox_archive();
+
+
+CREATE TRIGGER after_delete_outbox
+  AFTER DELETE
+  ON public.outbox
+  FOR EACH ROW
+  EXECUTE PROCEDURE trg_outbox_archive();
+```
 
 # Testing
 
