@@ -61,7 +61,7 @@ export const createErrorHandler = (
                 ...error,
                 messageObject: message,
               },
-              `An error ocurred while processing the ${config.outboxOrInbox} message with id ${message.id}.`,
+              `An error ocurred while processing the ${config.outboxOrInbox} message with id ${message.id}. Retrying it again.`,
             );
           } else {
             await markMessageAbandoned(message, client, config);
@@ -89,17 +89,18 @@ export const createErrorHandler = (
         message,
         err,
       );
-      logger.error(error, msg);
+      const shouldRetry = strategies.messageRetryStrategy(
+        message,
+        error,
+        'message-handler',
+      );
+      updateMessageText(error, shouldRetry);
+      logger.error(error, error.message);
       // In case the error handling logic failed do a best effort to increase the "finished_attempts" counter
       try {
         await executeTransaction(
           await strategies.messageProcessingDbClientStrategy.getClient(message),
           async (client) => {
-            const shouldRetry = strategies.messageRetryStrategy(
-              message,
-              error,
-              'message-handler',
-            );
             if (shouldRetry) {
               await increaseMessageFinishedAttempts(message, client, config);
             } else {
@@ -116,13 +117,20 @@ export const createErrorHandler = (
           message,
           bestEffortError,
         );
-        logger.warn(e, e.message);
-        return strategies.messageRetryStrategy(
+        const shouldRetry = strategies.messageRetryStrategy(
           message,
           e,
           'error-handler-error',
         );
+        updateMessageText(e, shouldRetry);
+        logger.error(e, e.message);
+        return shouldRetry;
       }
     }
   };
 };
+
+const updateMessageText = (e: Error, shouldRetry: boolean) =>
+  (e.message = `${e.message} Attempting to ${
+    shouldRetry ? 'retry' : 'abandon'
+  } the message.`);

@@ -844,7 +844,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
     const log = logs.filter(
       (log) =>
         log.args[1] ===
-        `The 'best-effort' logic to increase the ${config.outboxOrInbox} message finished attempts failed as well.`,
+        `The 'best-effort' logic to increase the ${config.outboxOrInbox} message finished attempts failed as well. Attempting to abandon the message.`,
     );
     expect(log).toHaveLength(1);
   });

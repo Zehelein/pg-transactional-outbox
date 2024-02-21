@@ -977,7 +977,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     const log = logs.filter(
       (log) =>
         log.args[1] ===
-        'The error handling of the inbox message failed. Please make sure that your error handling code does not throw an error!',
+        'The error handling of the inbox message failed. Please make sure that your error handling code does not throw an error! Attempting to retry the message.',
     );
     expect(log).toHaveLength(1);
   });
@@ -1065,13 +1065,13 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     const log = logs.filter(
       (log) =>
         log.args[1] ===
-        'The error handling of the inbox message failed. Please make sure that your error handling code does not throw an error!',
+        'The error handling of the inbox message failed. Please make sure that your error handling code does not throw an error! Attempting to retry the message.',
     );
     expect(log).toHaveLength(1);
     const bestEffortLog = logs.filter(
       (log) =>
         log.args[1] ===
-        "The 'best-effort' logic to increase the inbox message finished attempts failed as well.",
+        "The 'best-effort' logic to increase the inbox message finished attempts failed as well. Attempting to abandon the message.",
     );
     expect(bestEffortLog).toHaveLength(1);
   });
