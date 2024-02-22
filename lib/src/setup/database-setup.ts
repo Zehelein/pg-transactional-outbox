@@ -228,6 +228,7 @@ CREATE INDEX ${outboxOrInbox}_segment_idx ON ${schema}.${table} (segment);
 CREATE INDEX ${outboxOrInbox}_created_at_idx ON ${schema}.${table} (created_at);
 CREATE INDEX ${outboxOrInbox}_processed_at_idx ON ${schema}.${table} (processed_at);
 CREATE INDEX ${outboxOrInbox}_abandoned_at_idx ON ${schema}.${table} (abandoned_at);
+CREATE INDEX ${outboxOrInbox}_locked_until_idx ON ${schema}.${table} (locked_until);
 `;
 };
 
