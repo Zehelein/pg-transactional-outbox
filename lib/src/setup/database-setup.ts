@@ -162,19 +162,22 @@ BEGIN
     BEGIN
       EXIT WHEN cardinality(ids) >= max_size;
     
-      SELECT id, locked_until
+      SELECT *
         INTO message_row
         FROM ${schema}.${table}
         WHERE id = loop_row.id
-        FOR NO KEY UPDATE NOWAIT;
+        FOR NO KEY UPDATE NOWAIT; -- throw/catch error when locked
       
       IF message_row.locked_until > NOW() THEN
         CONTINUE;
       END IF;
       
       ids := array_append(ids, message_row.id);
-    EXCEPTION WHEN lock_not_available THEN
-      CONTINUE;
+    EXCEPTION 
+      WHEN lock_not_available THEN
+        CONTINUE;
+      WHEN serialization_failure THEN
+        CONTINUE;
     END;
   END LOOP;
   
@@ -193,11 +196,14 @@ BEGIN
           INTO message_row
           FROM ${schema}.${table}
           WHERE id = loop_row.id
-          FOR NO KEY UPDATE NOWAIT;
+          FOR NO KEY UPDATE NOWAIT; -- throw/catch error when locked
 
         ids := array_append(ids, message_row.id);
-      EXCEPTION WHEN lock_not_available THEN
-        CONTINUE;
+      EXCEPTION 
+        WHEN lock_not_available THEN
+          CONTINUE;
+        WHEN serialization_failure THEN
+          CONTINUE;
       END;
     END LOOP;
   END IF;
@@ -224,10 +230,15 @@ const setupPollingIndexes = ({
   outboxOrInbox,
 }: DatabasePollingSetupConfig): string => {
   return /* sql */ `
+DROP INDEX IF EXISTS ${outboxOrInbox}_segment_idx;
 CREATE INDEX ${outboxOrInbox}_segment_idx ON ${schema}.${table} (segment);
+DROP INDEX IF EXISTS ${outboxOrInbox}_created_at_idx;
 CREATE INDEX ${outboxOrInbox}_created_at_idx ON ${schema}.${table} (created_at);
+DROP INDEX IF EXISTS ${outboxOrInbox}_processed_at_idx;
 CREATE INDEX ${outboxOrInbox}_processed_at_idx ON ${schema}.${table} (processed_at);
+DROP INDEX IF EXISTS ${outboxOrInbox}_abandoned_at_idx;
 CREATE INDEX ${outboxOrInbox}_abandoned_at_idx ON ${schema}.${table} (abandoned_at);
+DROP INDEX IF EXISTS ${outboxOrInbox}_locked_until_idx;
 CREATE INDEX ${outboxOrInbox}_locked_until_idx ON ${schema}.${table} (locked_until);
 `;
 };

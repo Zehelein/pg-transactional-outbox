@@ -1,6 +1,6 @@
 {
   "name": "pg-transactional-outbox",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "A PostgreSQL based transactional outbox and inbox pattern implementation to support exactly once message processing (with at least once message delivery).",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

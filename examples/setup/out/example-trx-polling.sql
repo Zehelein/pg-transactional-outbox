@@ -81,19 +81,22 @@ BEGIN
     BEGIN
       EXIT WHEN cardinality(ids) >= max_size;
     
-      SELECT id, locked_until
+      SELECT *
         INTO message_row
         FROM public.outbox
         WHERE id = loop_row.id
-        FOR NO KEY UPDATE NOWAIT;
+        FOR NO KEY UPDATE NOWAIT; -- throw/catch error when locked
       
       IF message_row.locked_until > NOW() THEN
         CONTINUE;
       END IF;
       
       ids := array_append(ids, message_row.id);
-    EXCEPTION WHEN lock_not_available THEN
-      CONTINUE;
+    EXCEPTION 
+      WHEN lock_not_available THEN
+        CONTINUE;
+      WHEN serialization_failure THEN
+        CONTINUE;
     END;
   END LOOP;
   
@@ -112,11 +115,14 @@ BEGIN
           INTO message_row
           FROM public.outbox
           WHERE id = loop_row.id
-          FOR NO KEY UPDATE NOWAIT;
+          FOR NO KEY UPDATE NOWAIT; -- throw/catch error when locked
 
         ids := array_append(ids, message_row.id);
-      EXCEPTION WHEN lock_not_available THEN
-        CONTINUE;
+      EXCEPTION 
+        WHEN lock_not_available THEN
+          CONTINUE;
+        WHEN serialization_failure THEN
+          CONTINUE;
       END;
     END LOOP;
   END IF;
@@ -137,10 +143,15 @@ $BODY$;
 
 -- Create indexes for the outbox table to improve polling performance
 
+DROP INDEX IF EXISTS outbox_segment_idx;
 CREATE INDEX outbox_segment_idx ON public.outbox (segment);
+DROP INDEX IF EXISTS outbox_created_at_idx;
 CREATE INDEX outbox_created_at_idx ON public.outbox (created_at);
+DROP INDEX IF EXISTS outbox_processed_at_idx;
 CREATE INDEX outbox_processed_at_idx ON public.outbox (processed_at);
+DROP INDEX IF EXISTS outbox_abandoned_at_idx;
 CREATE INDEX outbox_abandoned_at_idx ON public.outbox (abandoned_at);
+DROP INDEX IF EXISTS outbox_locked_until_idx;
 CREATE INDEX outbox_locked_until_idx ON public.outbox (locked_until);
 
 
@@ -214,19 +225,22 @@ BEGIN
     BEGIN
       EXIT WHEN cardinality(ids) >= max_size;
     
-      SELECT id, locked_until
+      SELECT *
         INTO message_row
         FROM public.inbox
         WHERE id = loop_row.id
-        FOR NO KEY UPDATE NOWAIT;
+        FOR NO KEY UPDATE NOWAIT; -- throw/catch error when locked
       
       IF message_row.locked_until > NOW() THEN
         CONTINUE;
       END IF;
       
       ids := array_append(ids, message_row.id);
-    EXCEPTION WHEN lock_not_available THEN
-      CONTINUE;
+    EXCEPTION 
+      WHEN lock_not_available THEN
+        CONTINUE;
+      WHEN serialization_failure THEN
+        CONTINUE;
     END;
   END LOOP;
   
@@ -245,11 +259,14 @@ BEGIN
           INTO message_row
           FROM public.inbox
           WHERE id = loop_row.id
-          FOR NO KEY UPDATE NOWAIT;
+          FOR NO KEY UPDATE NOWAIT; -- throw/catch error when locked
 
         ids := array_append(ids, message_row.id);
-      EXCEPTION WHEN lock_not_available THEN
-        CONTINUE;
+      EXCEPTION 
+        WHEN lock_not_available THEN
+          CONTINUE;
+        WHEN serialization_failure THEN
+          CONTINUE;
       END;
     END LOOP;
   END IF;
@@ -270,8 +287,14 @@ $BODY$;
 
 -- Create indexes for the inbox table to improve polling performance
 
+DROP INDEX IF EXISTS inbox_segment_idx;
 CREATE INDEX inbox_segment_idx ON public.inbox (segment);
+DROP INDEX IF EXISTS inbox_created_at_idx;
 CREATE INDEX inbox_created_at_idx ON public.inbox (created_at);
+DROP INDEX IF EXISTS inbox_processed_at_idx;
 CREATE INDEX inbox_processed_at_idx ON public.inbox (processed_at);
+DROP INDEX IF EXISTS inbox_abandoned_at_idx;
 CREATE INDEX inbox_abandoned_at_idx ON public.inbox (abandoned_at);
+DROP INDEX IF EXISTS inbox_locked_until_idx;
 CREATE INDEX inbox_locked_until_idx ON public.inbox (locked_until);
+

@@ -27,8 +27,9 @@ export interface MessageRetryStrategy {
  * Get the default message retry strategy. This strategy checks that the maximum
  * of finished attempts is not exceeded. The number can be defined in the
  * `config.settings.maxAttempts` variable. If the error is a PostgreSQL
- * serialization error it will always be retried. If another error was thrown
- * from the code handling errors in the error handler the message is not retired.
+ * serialization error it will be retried up to 100 times (or up to maxAttempts
+ * whatever is larger). If another error was thrown from the code handling
+ * errors in the error handler the message is not retired.
  */
 export const defaultMessageRetryStrategy = (
   config: FullListenerConfig,
@@ -41,10 +42,13 @@ export const defaultMessageRetryStrategy = (
     if (
       error.innerError &&
       'code' in error.innerError &&
-      error.innerError.code === '40001'
+      // Trx Rollback: serialization failure = 40001 deadlock detected = 40P01
+      (error.innerError.code === '40001' || error.innerError.code === '40P01')
     ) {
-      // always retry PostgreSQL serialization_failure
-      return true;
+      // retry PostgreSQL serialization/deadlock failures up to 100 attempts
+      return (
+        message.startedAttempts <= Math.max(config.settings.maxAttempts, 100)
+      );
     }
     if (source === 'error-handler-error') {
       // If even the code that handles errors in the error handler throws an error the message is not retried.
