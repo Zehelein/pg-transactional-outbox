@@ -36,8 +36,8 @@ export const getConfigs = (port: number) => {
       nextMessagesBatchSize: 2,
       nextMessagesFunctionName: 'next_test_inbox_messages',
       nextMessagesFunctionSchema: 'inbox',
-      nextMessagesPollingIntervalInMs: 100,
-      nextMessagesLockInMs: 200,
+      nextMessagesPollingIntervalInMs: 50,
+      nextMessagesLockInMs: 100,
     },
   };
 
@@ -61,7 +61,8 @@ export const getConfigs = (port: number) => {
       nextMessagesBatchSize: 2,
       nextMessagesFunctionName: 'next_test_outbox_messages',
       nextMessagesFunctionSchema: 'outbox',
-      nextMessagesPollingIntervalInMs: 100,
+      nextMessagesPollingIntervalInMs: 50,
+      nextMessagesLockInMs: 100,
     },
   };
 

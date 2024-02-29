@@ -736,7 +736,7 @@ describe('Polling integration tests', () => {
       });
 
       // Assert
-      await sleep(1_000);
+      await sleep(2_000);
       inboxLogs;
       expect(inboxHandlerCounter).toBe(5);
       const inboxResult = await handlerPool.query(
@@ -826,19 +826,6 @@ describe('Polling integration tests', () => {
       const d3 = createMsg({ segment: 'D', concurrency: 'parallel' });
       const d4 = createMsg({ segment: 'D', concurrency: 'parallel' });
       const d5 = createMsg({ segment: 'D', concurrency: 'parallel' });
-
-      const createHandler = (
-        msgArray: TransactionalMessage[],
-        aggType: string,
-        msgType?: string,
-      ) => ({
-        aggregateType: aggType,
-        messageType: msgType ?? messageType,
-        handle: async (message: TransactionalMessage): Promise<void> => {
-          await sleep(Number(message.aggregateId));
-          msgArray.push(message);
-        },
-      });
 
       const aMessages: TransactionalMessage[] = [];
       const bMessages: TransactionalMessage[] = [];
@@ -1094,6 +1081,67 @@ describe('Polling integration tests', () => {
       expect((await getCount()).count).toBe('4');
       await sleep(200);
       expect((await getCount()).count).toBe('2');
+    });
+
+    test('An inbox message that has a timeout will not throw a promise rejected error and retry 5 times.', async () => {
+      // Arrange
+      const msg: TransactionalMessage = {
+        id: uuid(),
+        aggregateId: uuid(),
+        aggregateType,
+        messageType,
+        payload: { content: 'some movie' },
+        metadata,
+        createdAt: '2023-01-18T21:02:27.000Z',
+      };
+      const storeInboxMessage = initializeMessageStorage(
+        configs.inboxConfig,
+        inboxLogger,
+      );
+      const [shutdownInboxSrv] = initializePollingMessageListener(
+        {
+          ...configs.inboxConfig,
+          settings: {
+            ...configs.inboxConfig.settings,
+            messageProcessingTimeoutInMs: 250,
+          },
+        },
+        [
+          {
+            aggregateType,
+            messageType,
+            handle: async (_, client): Promise<void> => {
+              await client.query('SELECT 1;');
+              await sleep(500);
+              expect((client as any)._ending || (client as any)._ended).toBe(
+                true,
+              );
+              await client.query('SELECT 1;');
+            },
+          },
+        ],
+        inboxLogger,
+      );
+      cleanup = async () => {
+        await shutdownInboxSrv();
+      };
+      // Act
+      await executeTransaction(await handlerPool.connect(), async (client) => {
+        await storeInboxMessage(msg, client);
+      });
+
+      // Assert
+      await sleep(2_000);
+      inboxLogs;
+      const inboxResult = await handlerPool.query(
+        `SELECT finished_attempts FROM ${configs.inboxConfig.settings.dbSchema}.${configs.inboxConfig.settings.dbTable} WHERE id = $1;`,
+        [msg.id],
+      );
+      expect(inboxResult.rowCount).toBe(1);
+      expect(inboxResult.rows[0].finished_attempts).toBe(5);
+      expect(inboxLogs[inboxLogs.length - 1].args[1]).toMatch(
+        'Giving up processing the inbox message with id ',
+      );
     });
   });
 });

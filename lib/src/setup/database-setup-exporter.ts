@@ -16,14 +16,14 @@ const {
 const inboxAsciiArt = `
 -- ____  _  _  ___   ___  __  __
 -- |_ _|| \\| || _ ) / _ \\ \\ \\/ /
---  | | | .  || _ \\| (_) | >  < 
+--  | | | .  || _ \\| (_) | >  <
 -- |___||_|\\_||___/ \\___/ /_/\\_\\
 `;
 
 const outboxAsciiArt = `
 --   ___   _   _  _____  ___   ___  __  __
 --  / _ \\ | | | ||_   _|| _ ) / _ \\ \\ \\/ /
--- | (_) || |_| |  | |  | _ \\| (_) | >  < 
+-- | (_) || |_| |  | |  | _ \\| (_) | >  <
 --  \\___/  \\___/   |_|  |___/ \\___/ /_/\\_\\
 `;
 
@@ -38,7 +38,7 @@ ${skipRoles ? '' : dropAndCreateHandlerAndListenerRoles(config)}
 -- Drop and create the ${box} table and ensure the schema exists
 ${dropAndCreateTable(config)}
 
--- Grant permissions for the handler and listener role 
+-- Grant permissions for the handler and listener role
 ${grantPermissions(config)}
 
 -- Assign replication role and create publication
@@ -54,13 +54,13 @@ const createPollingScript = (
   skipRoles = false,
 ): string => {
   const box = config.outboxOrInbox;
-  return `${box === 'inbox' ? inboxAsciiArt : outboxAsciiArt} 
+  return `${box === 'inbox' ? inboxAsciiArt : outboxAsciiArt}
 ${skipRoles ? '' : dropAndCreateHandlerAndListenerRoles(config)}
 
 -- Drop and create the ${box} table and ensure the schema exists
 ${dropAndCreateTable(config)}
 
--- Grant permissions for the handler and listener role 
+-- Grant permissions for the handler and listener role
 ${grantPermissions(config)}
 
 -- Create the function to get the next batch of messages from the ${box} table.

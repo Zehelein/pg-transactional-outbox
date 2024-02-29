@@ -30,8 +30,8 @@ const dropAndCreateHandlerAndListenerRoles = ({
 
 -- DROP OWNED BY ${listenerRole};
 -- DROP ROLE IF EXISTS ${listenerRole};
--- CREATE ROLE ${listenerRole} WITH LOGIN PASSWORD 'secret-password';  
--- GRANT CONNECT ON DATABASE ${database} TO ${listenerRole};  
+-- CREATE ROLE ${listenerRole} WITH LOGIN PASSWORD 'secret-password';
+-- GRANT CONNECT ON DATABASE ${database} TO ${listenerRole};
 `;
 
   if (handlerRole) {
@@ -39,7 +39,7 @@ const dropAndCreateHandlerAndListenerRoles = ({
 -- DROP OWNED BY ${handlerRole};
 -- DROP ROLE IF EXISTS ${handlerRole};
 -- CREATE ROLE ${handlerRole} WITH LOGIN PASSWORD 'secret-password';
--- GRANT CONNECT ON DATABASE ${database} TO ${handlerRole};  
+-- GRANT CONNECT ON DATABASE ${database} TO ${handlerRole};
 `;
   }
   return sql;
@@ -115,7 +115,7 @@ const setupReplicationSlot = ({
   replicationSlot,
 }: DatabaseReplicationSetupConfig): string => {
   return /* sql */ `
-SELECT pg_drop_replication_slot('${replicationSlot}') 
+SELECT pg_drop_replication_slot('${replicationSlot}')
   FROM pg_replication_slots WHERE slot_name = '${replicationSlot}';
 
 -- NOTE: This must be run in a separate database transaction or it will fail
@@ -138,11 +138,11 @@ const createPollingFunction = ({
 DROP FUNCTION IF EXISTS ${funcSchema}.${nextMessagesName}(integer, integer);
 CREATE OR REPLACE FUNCTION ${funcSchema}.${nextMessagesName}(
   max_size integer, lock_ms integer)
-    RETURNS SETOF ${schema}.${table} 
+    RETURNS SETOF ${schema}.${table}
     LANGUAGE 'plpgsql'
 
 AS $BODY$
-DECLARE 
+DECLARE
   loop_row ${schema}.${table}%ROWTYPE;
   message_row ${schema}.${table}%ROWTYPE;
   ids uuid[] := '{}';
@@ -161,31 +161,31 @@ BEGIN
   LOOP
     BEGIN
       EXIT WHEN cardinality(ids) >= max_size;
-    
+
       SELECT *
         INTO message_row
         FROM ${schema}.${table}
         WHERE id = loop_row.id
         FOR NO KEY UPDATE NOWAIT; -- throw/catch error when locked
-      
+
       IF message_row.locked_until > NOW() THEN
         CONTINUE;
       END IF;
-      
+
       ids := array_append(ids, message_row.id);
-    EXCEPTION 
+    EXCEPTION
       WHEN lock_not_available THEN
         CONTINUE;
       WHEN serialization_failure THEN
         CONTINUE;
     END;
   END LOOP;
-  
+
   -- if max_size not reached: get the oldest parallelizable message independent of segment
   IF cardinality(ids) < max_size THEN
     FOR loop_row IN
       SELECT * FROM ${schema}.${table}
-        WHERE concurrency = 'parallel' AND processed_at IS NULL AND abandoned_at IS NULL AND locked_until < NOW() 
+        WHERE concurrency = 'parallel' AND processed_at IS NULL AND abandoned_at IS NULL AND locked_until < NOW()
           AND id NOT IN (SELECT UNNEST(ids))
         order by created_at
     LOOP
@@ -199,7 +199,7 @@ BEGIN
           FOR NO KEY UPDATE NOWAIT; -- throw/catch error when locked
 
         ids := array_append(ids, message_row.id);
-      EXCEPTION 
+      EXCEPTION
         WHEN lock_not_available THEN
           CONTINUE;
         WHEN serialization_failure THEN
@@ -207,11 +207,11 @@ BEGIN
       END;
     END LOOP;
   END IF;
-  
+
   -- set a short lock value so the the workers can each process a message
   IF cardinality(ids) > 0 THEN
 
-    RETURN QUERY 
+    RETURN QUERY
       UPDATE ${schema}.${table}
         SET locked_until = clock_timestamp() + (lock_ms || ' milliseconds')::INTERVAL, started_attempts = started_attempts + 1
         WHERE ID = ANY(ids)

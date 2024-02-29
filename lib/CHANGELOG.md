@@ -3,6 +3,23 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
+## [0.5.0] - 2024-02-29
+
+### Changed
+
+- When a message handling timeout happens, the message handler database
+  transaction is rolled back. To ensure, that the message handler logic does not
+  use the database client anymore after the rollback the client is released.
+
+## [0.5.1] - 2024-02-28
+
+### Changed
+
+- The polling functions (e.g. `next_outbox_messages`) did not correctly lock the
+  inbox/outbox messages. Please update the SQL functions in your projects to the
+  latest version created e.g. based on the
+  `examples/setup/out/example-trx-polling.sql` adjustments.
+
 ## [0.5.0] - 2024-02-01
 
 ### Added

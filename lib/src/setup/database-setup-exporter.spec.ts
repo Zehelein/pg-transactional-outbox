@@ -44,21 +44,21 @@ describe('Database setup exporter', () => {
     const expectedOutboxSql = /* sql */ `
 --   ___   _   _  _____  ___   ___  __  __
 --  / _ \\ | | | ||_   _|| _ ) / _ \\ \\ \\/ /
--- | (_) || |_| |  | |  | _ \\| (_) | >  < 
+-- | (_) || |_| |  | |  | _ \\| (_) | >  <
 --  \\___/  \\___/   |_|  |___/ \\___/ /_/\\_\\
- 
+
 
 -- Manually create the roles if they do not exist:
 
 -- DROP OWNED BY test_listener;
 -- DROP ROLE IF EXISTS test_listener;
--- CREATE ROLE test_listener WITH LOGIN PASSWORD 'secret-password';  
--- GRANT CONNECT ON DATABASE test_database TO test_listener;  
+-- CREATE ROLE test_listener WITH LOGIN PASSWORD 'secret-password';
+-- GRANT CONNECT ON DATABASE test_database TO test_listener;
 
 -- DROP OWNED BY test_handler;
 -- DROP ROLE IF EXISTS test_handler;
 -- CREATE ROLE test_handler WITH LOGIN PASSWORD 'secret-password';
--- GRANT CONNECT ON DATABASE test_database TO test_handler;  
+-- GRANT CONNECT ON DATABASE test_database TO test_handler;
 
 
 -- Drop and create the outbox table and ensure the schema exists
@@ -85,7 +85,7 @@ CREATE TABLE test_schema.test_outbox (
 ALTER TABLE test_schema.test_outbox ADD CONSTRAINT outbox_concurrency_check
   CHECK (concurrency IN ('sequential', 'parallel'));
 
--- Grant permissions for the handler and listener role 
+-- Grant permissions for the handler and listener role
 
 GRANT USAGE ON SCHEMA test_schema TO test_handler;
 GRANT USAGE ON SCHEMA test_schema TO test_listener;
@@ -100,11 +100,11 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON test_schema.test_outbox TO test_listener
 DROP FUNCTION IF EXISTS test_schema_messages.test_next_outbox_messages(integer, integer);
 CREATE OR REPLACE FUNCTION test_schema_messages.test_next_outbox_messages(
   max_size integer, lock_ms integer)
-    RETURNS SETOF test_schema.test_outbox 
+    RETURNS SETOF test_schema.test_outbox
     LANGUAGE 'plpgsql'
 
 AS $BODY$
-DECLARE 
+DECLARE
   loop_row test_schema.test_outbox%ROWTYPE;
   message_row test_schema.test_outbox%ROWTYPE;
   ids uuid[] := '{}';
@@ -123,28 +123,31 @@ BEGIN
   LOOP
     BEGIN
       EXIT WHEN cardinality(ids) >= max_size;
-    
-      SELECT id, locked_until
+
+      SELECT *
         INTO message_row
         FROM test_schema.test_outbox
         WHERE id = loop_row.id
-        FOR NO KEY UPDATE NOWAIT;
-      
+        FOR NO KEY UPDATE NOWAIT; -- throw/catch error when locked
+
       IF message_row.locked_until > NOW() THEN
         CONTINUE;
       END IF;
-      
+
       ids := array_append(ids, message_row.id);
-    EXCEPTION WHEN lock_not_available THEN
-      CONTINUE;
+    EXCEPTION
+      WHEN lock_not_available THEN
+        CONTINUE;
+      WHEN serialization_failure THEN
+        CONTINUE;
     END;
   END LOOP;
-  
+
   -- if max_size not reached: get the oldest parallelizable message independent of segment
   IF cardinality(ids) < max_size THEN
     FOR loop_row IN
       SELECT * FROM test_schema.test_outbox
-        WHERE concurrency = 'parallel' AND processed_at IS NULL AND abandoned_at IS NULL AND locked_until < NOW() 
+        WHERE concurrency = 'parallel' AND processed_at IS NULL AND abandoned_at IS NULL AND locked_until < NOW()
           AND id NOT IN (SELECT UNNEST(ids))
         order by created_at
     LOOP
@@ -155,19 +158,22 @@ BEGIN
           INTO message_row
           FROM test_schema.test_outbox
           WHERE id = loop_row.id
-          FOR NO KEY UPDATE NOWAIT;
+          FOR NO KEY UPDATE NOWAIT; -- throw/catch error when locked
 
         ids := array_append(ids, message_row.id);
-      EXCEPTION WHEN lock_not_available THEN
-        CONTINUE;
+      EXCEPTION
+        WHEN lock_not_available THEN
+          CONTINUE;
+        WHEN serialization_failure THEN
+          CONTINUE;
       END;
     END LOOP;
   END IF;
-  
+
   -- set a short lock value so the the workers can each process a message
   IF cardinality(ids) > 0 THEN
 
-    RETURN QUERY 
+    RETURN QUERY
       UPDATE test_schema.test_outbox
         SET locked_until = clock_timestamp() + (lock_ms || ' milliseconds')::INTERVAL, started_attempts = started_attempts + 1
         WHERE ID = ANY(ids)
@@ -180,10 +186,16 @@ $BODY$;
 
 -- Create indexes for the outbox table to improve polling performance
 
+DROP INDEX IF EXISTS outbox_segment_idx;
 CREATE INDEX outbox_segment_idx ON test_schema.test_outbox (segment);
+DROP INDEX IF EXISTS outbox_created_at_idx;
 CREATE INDEX outbox_created_at_idx ON test_schema.test_outbox (created_at);
+DROP INDEX IF EXISTS outbox_processed_at_idx;
 CREATE INDEX outbox_processed_at_idx ON test_schema.test_outbox (processed_at);
+DROP INDEX IF EXISTS outbox_abandoned_at_idx;
 CREATE INDEX outbox_abandoned_at_idx ON test_schema.test_outbox (abandoned_at);
+DROP INDEX IF EXISTS outbox_locked_until_idx;
+CREATE INDEX outbox_locked_until_idx ON test_schema.test_outbox (locked_until);
 
 `;
 
@@ -206,9 +218,9 @@ CREATE INDEX outbox_abandoned_at_idx ON test_schema.test_outbox (abandoned_at);
     const expectedInboxSql = /* sql*/ `
 -- ____  _  _  ___   ___  __  __
 -- |_ _|| \\| || _ ) / _ \\ \\ \\/ /
---  | | | .  || _ \\| (_) | >  < 
+--  | | | .  || _ \\| (_) | >  <
 -- |___||_|\\_||___/ \\___/ /_/\\_\\
- 
+
 
 
 -- Drop and create the inbox table and ensure the schema exists
@@ -235,7 +247,7 @@ CREATE TABLE test_schema.test_inbox (
 ALTER TABLE test_schema.test_inbox ADD CONSTRAINT inbox_concurrency_check
   CHECK (concurrency IN ('sequential', 'parallel'));
 
--- Grant permissions for the handler and listener role 
+-- Grant permissions for the handler and listener role
 
 GRANT USAGE ON SCHEMA test_schema TO test_handler;
 GRANT USAGE ON SCHEMA test_schema TO test_listener;
@@ -250,11 +262,11 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON test_schema.test_inbox TO test_listener;
 DROP FUNCTION IF EXISTS test_schema_messages.test_next_inbox_messages(integer, integer);
 CREATE OR REPLACE FUNCTION test_schema_messages.test_next_inbox_messages(
   max_size integer, lock_ms integer)
-    RETURNS SETOF test_schema.test_inbox 
+    RETURNS SETOF test_schema.test_inbox
     LANGUAGE 'plpgsql'
 
 AS $BODY$
-DECLARE 
+DECLARE
   loop_row test_schema.test_inbox%ROWTYPE;
   message_row test_schema.test_inbox%ROWTYPE;
   ids uuid[] := '{}';
@@ -273,28 +285,31 @@ BEGIN
   LOOP
     BEGIN
       EXIT WHEN cardinality(ids) >= max_size;
-    
-      SELECT id, locked_until
+
+      SELECT *
         INTO message_row
         FROM test_schema.test_inbox
         WHERE id = loop_row.id
-        FOR NO KEY UPDATE NOWAIT;
-      
+        FOR NO KEY UPDATE NOWAIT; -- throw/catch error when locked
+
       IF message_row.locked_until > NOW() THEN
         CONTINUE;
       END IF;
-      
+
       ids := array_append(ids, message_row.id);
-    EXCEPTION WHEN lock_not_available THEN
-      CONTINUE;
+    EXCEPTION
+      WHEN lock_not_available THEN
+        CONTINUE;
+      WHEN serialization_failure THEN
+        CONTINUE;
     END;
   END LOOP;
-  
+
   -- if max_size not reached: get the oldest parallelizable message independent of segment
   IF cardinality(ids) < max_size THEN
     FOR loop_row IN
       SELECT * FROM test_schema.test_inbox
-        WHERE concurrency = 'parallel' AND processed_at IS NULL AND abandoned_at IS NULL AND locked_until < NOW() 
+        WHERE concurrency = 'parallel' AND processed_at IS NULL AND abandoned_at IS NULL AND locked_until < NOW()
           AND id NOT IN (SELECT UNNEST(ids))
         order by created_at
     LOOP
@@ -305,19 +320,22 @@ BEGIN
           INTO message_row
           FROM test_schema.test_inbox
           WHERE id = loop_row.id
-          FOR NO KEY UPDATE NOWAIT;
+          FOR NO KEY UPDATE NOWAIT; -- throw/catch error when locked
 
         ids := array_append(ids, message_row.id);
-      EXCEPTION WHEN lock_not_available THEN
-        CONTINUE;
+      EXCEPTION
+        WHEN lock_not_available THEN
+          CONTINUE;
+        WHEN serialization_failure THEN
+          CONTINUE;
       END;
     END LOOP;
   END IF;
-  
+
   -- set a short lock value so the the workers can each process a message
   IF cardinality(ids) > 0 THEN
 
-    RETURN QUERY 
+    RETURN QUERY
       UPDATE test_schema.test_inbox
         SET locked_until = clock_timestamp() + (lock_ms || ' milliseconds')::INTERVAL, started_attempts = started_attempts + 1
         WHERE ID = ANY(ids)
@@ -330,10 +348,16 @@ $BODY$;
 
 -- Create indexes for the inbox table to improve polling performance
 
+DROP INDEX IF EXISTS inbox_segment_idx;
 CREATE INDEX inbox_segment_idx ON test_schema.test_inbox (segment);
+DROP INDEX IF EXISTS inbox_created_at_idx;
 CREATE INDEX inbox_created_at_idx ON test_schema.test_inbox (created_at);
+DROP INDEX IF EXISTS inbox_processed_at_idx;
 CREATE INDEX inbox_processed_at_idx ON test_schema.test_inbox (processed_at);
+DROP INDEX IF EXISTS inbox_abandoned_at_idx;
 CREATE INDEX inbox_abandoned_at_idx ON test_schema.test_inbox (abandoned_at);
+DROP INDEX IF EXISTS inbox_locked_until_idx;
+CREATE INDEX inbox_locked_until_idx ON test_schema.test_inbox (locked_until);
 
 `;
 
@@ -357,7 +381,7 @@ CREATE INDEX inbox_abandoned_at_idx ON test_schema.test_inbox (abandoned_at);
     const expectedOutboxSql = /* sql */ `
 --   ___   _   _  _____  ___   ___  __  __
 --  / _ \\ | | | ||_   _|| _ ) / _ \\ \\ \\/ /
--- | (_) || |_| |  | |  | _ \\| (_) | >  < 
+-- | (_) || |_| |  | |  | _ \\| (_) | >  <
 --  \\___/  \\___/   |_|  |___/ \\___/ /_/\\_\\
 
 
@@ -365,13 +389,13 @@ CREATE INDEX inbox_abandoned_at_idx ON test_schema.test_inbox (abandoned_at);
 
 -- DROP OWNED BY test_listener;
 -- DROP ROLE IF EXISTS test_listener;
--- CREATE ROLE test_listener WITH LOGIN PASSWORD 'secret-password';  
--- GRANT CONNECT ON DATABASE test_database TO test_listener;  
+-- CREATE ROLE test_listener WITH LOGIN PASSWORD 'secret-password';
+-- GRANT CONNECT ON DATABASE test_database TO test_listener;
 
 -- DROP OWNED BY test_handler;
 -- DROP ROLE IF EXISTS test_handler;
 -- CREATE ROLE test_handler WITH LOGIN PASSWORD 'secret-password';
--- GRANT CONNECT ON DATABASE test_database TO test_handler;  
+-- GRANT CONNECT ON DATABASE test_database TO test_handler;
 
 
 -- Drop and create the outbox table and ensure the schema exists
@@ -398,7 +422,7 @@ CREATE TABLE test_schema.test_outbox (
 ALTER TABLE test_schema.test_outbox ADD CONSTRAINT outbox_concurrency_check
   CHECK (concurrency IN ('sequential', 'parallel'));
 
--- Grant permissions for the handler and listener role 
+-- Grant permissions for the handler and listener role
 
 GRANT USAGE ON SCHEMA test_schema TO test_handler;
 GRANT USAGE ON SCHEMA test_schema TO test_listener;
@@ -417,7 +441,7 @@ CREATE PUBLICATION test_outbox_pub FOR TABLE test_schema.test_outbox WITH (publi
 
 -- Create the logical replication slot
 
-SELECT pg_drop_replication_slot('test_outbox_slot') 
+SELECT pg_drop_replication_slot('test_outbox_slot')
   FROM pg_replication_slots WHERE slot_name = 'test_outbox_slot';
 
 -- NOTE: This must be run in a separate database transaction or it will fail
@@ -445,7 +469,7 @@ SELECT pg_create_logical_replication_slot('test_outbox_slot', 'pgoutput');
     const expectedInboxSql = /* sql*/ `
 -- ____  _  _  ___   ___  __  __
 -- |_ _|| \\| || _ ) / _ \\ \\ \\/ /
---  | | | .  || _ \\| (_) | >  < 
+--  | | | .  || _ \\| (_) | >  <
 -- |___||_|\\_||___/ \\___/ /_/\\_\\
 
 
@@ -474,7 +498,7 @@ CREATE TABLE test_schema.test_inbox (
 ALTER TABLE test_schema.test_inbox ADD CONSTRAINT inbox_concurrency_check
   CHECK (concurrency IN ('sequential', 'parallel'));
 
--- Grant permissions for the handler and listener role 
+-- Grant permissions for the handler and listener role
 
 GRANT USAGE ON SCHEMA test_schema TO test_handler;
 GRANT USAGE ON SCHEMA test_schema TO test_listener;
@@ -493,7 +517,7 @@ CREATE PUBLICATION test_inbox_pub FOR TABLE test_schema.test_inbox WITH (publish
 
 -- Create the logical replication slot
 
-SELECT pg_drop_replication_slot('test_inbox_slot') 
+SELECT pg_drop_replication_slot('test_inbox_slot')
   FROM pg_replication_slots WHERE slot_name = 'test_inbox_slot';
 
 -- NOTE: This must be run in a separate database transaction or it will fail

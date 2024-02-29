@@ -155,7 +155,18 @@ const processMessage = async (
       if (handler) {
         cancellation.on('timeout', async () => {
           timedOut = true;
+          // roll back the current changes and release/end the client to disable further changes
           await client.query('ROLLBACK');
+          if ('release' in client) {
+            client.release(
+              new TransactionalOutboxInboxError(
+                'Message processing timeout',
+                'TIMEOUT',
+              ),
+            );
+          } else if ('end' in client) {
+            await client.end();
+          }
           await justDoIt(() => {
             releaseIfPoolClient(client);
           });
