@@ -1,7 +1,7 @@
 import { ExtendedError, MessageError } from '../common/error';
 import { ListenerConfig } from '../common/listener-config';
 import { TransactionalLogger } from '../common/logger';
-import { executeTransaction } from '../common/utils';
+import { IsolationLevel, executeTransaction, sleep } from '../common/utils';
 import { increaseMessageFinishedAttempts } from '../message/increase-message-finished-attempts';
 import { markMessageAbandoned } from '../message/mark-message-abandoned';
 import { StoredTransactionalMessage } from '../message/transactional-message';
@@ -96,17 +96,13 @@ export const createErrorHandler = (
       );
       updateMessageText(error, shouldRetry);
       logger.error(error, error.message);
-      // In case the error handling logic failed do a best effort to increase the "finished_attempts" counter
+      // In case the error handling logic failed do a best effort to increase the "finished_attempts" counter or abandon the message
       try {
-        await executeTransaction(
-          await strategies.messageProcessingDbClientStrategy.getClient(message),
-          async (client) => {
-            if (shouldRetry) {
-              await increaseMessageFinishedAttempts(message, client, config);
-            } else {
-              await markMessageAbandoned(message, client, config);
-            }
-          },
+        await bestEffortMessageUpdate(
+          strategies,
+          message,
+          shouldRetry,
+          config,
           transactionLevel,
         );
         return strategies.messageRetryStrategy(message, error, 'error-handler');
@@ -134,3 +130,42 @@ const updateMessageText = (e: Error, shouldRetry: boolean) =>
   (e.message = `${e.message} Attempting to ${
     shouldRetry ? 'retry' : 'abandon'
   } the message.`);
+
+const bestEffortMessageUpdate = async (
+  strategies: HandlerStrategies,
+  message: StoredTransactionalMessage,
+  shouldRetry: boolean,
+  config: ListenerConfig,
+  transactionLevel: IsolationLevel | undefined,
+) => {
+  let i = 0;
+  do {
+    try {
+      await executeTransaction(
+        await strategies.messageProcessingDbClientStrategy.getClient(message),
+        async (client) => {
+          if (shouldRetry) {
+            await increaseMessageFinishedAttempts(message, client, config);
+          } else {
+            await markMessageAbandoned(message, client, config);
+          }
+        },
+        transactionLevel,
+      );
+      return;
+    } catch (error) {
+      i++;
+      // retry for serialization failure = 40001 and deadlock detected = 40P01 PG errors
+      if (
+        i < 3 &&
+        error instanceof Error &&
+        'code' in error &&
+        (error.code === '40001' || error.code === '40P01')
+      ) {
+        await sleep(i * 100);
+      } else {
+        throw error;
+      }
+    }
+  } while (i < 3);
+};

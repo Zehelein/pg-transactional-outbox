@@ -220,7 +220,7 @@ describe('createErrorHandler', () => {
     expect(strategies.messageRetryStrategy).toHaveBeenCalled();
   });
 
-  it('Should not retry a message when the handler threw an error and the best-effort finished attempts increase as well', async () => {
+  it('Should not retry a message when the handler threw an error and the best-effort finished attempts increase threw an error as well', async () => {
     // Arrange
     const client = getClient({});
     client.query = jest
@@ -229,6 +229,7 @@ describe('createErrorHandler', () => {
       .mockReturnValueOnce({ rows: 0 }) // rollback
       .mockReturnValueOnce({ rows: 0 }) // begin
       .mockRejectedValueOnce(
+        // non pg serialization/deadlock error
         new Error('Best effort finished attempts increment error'),
       );
     const strategies = {
@@ -293,6 +294,93 @@ describe('createErrorHandler', () => {
       strategies.messageProcessingTransactionLevelStrategy,
     ).toHaveBeenCalledWith(mockMessage);
     expect(strategies.poisonousMessageRetryStrategy).not.toHaveBeenCalled();
+    // error handler (begin, rollback) best effort (begin, increment attempt, rollback)
+    expect(client.query).toHaveBeenCalledTimes(5);
+  });
+
+  it('Should attempt the best-effort attempt three times on a serialization error', async () => {
+    // Arrange
+    // pg serialization/deadlock error
+    const err = new Error('Best effort finished attempts increment error');
+    (err as Error & { code: string }).code = '40001';
+    const client = getClient({});
+    client.query = jest
+      .fn()
+      .mockReturnValueOnce({ rows: 0 }) // begin error handler
+      .mockReturnValueOnce({ rows: 0 }) // rollback
+      .mockReturnValueOnce({ rows: 0 }) // begin best effort 1
+      .mockRejectedValueOnce(err)
+      .mockReturnValueOnce({ rows: 0 }) // rollback
+      .mockReturnValueOnce({ rows: 0 }) // begin best effort 2
+      .mockRejectedValueOnce(err)
+      .mockReturnValueOnce({ rows: 0 }) // rollback
+      .mockReturnValueOnce({ rows: 0 }) // begin best effort 3
+      .mockRejectedValueOnce(err)
+      .mockReturnValueOnce({ rows: 0 }); // rollback
+    const strategies = {
+      messageProcessingTransactionLevelStrategy: jest
+        .fn()
+        .mockReturnValue(undefined),
+      messageProcessingDbClientStrategy: {
+        getClient: async () => client,
+        shutdown: jest.fn(),
+      },
+      poisonousMessageRetryStrategy: jest.fn().mockReturnValue(false),
+      messageRetryStrategy: defaultMessageRetryStrategy({
+        settings: {
+          maxAttempts: 5,
+        },
+      } as unknown as FullListenerConfig),
+      messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
+    };
+    const config: ListenerConfig = {
+      outboxOrInbox: 'inbox',
+      dbListenerConfig: {},
+      settings: {
+        dbSchema: 'test_schema',
+        dbTable: 'test_table',
+        enablePoisonousMessageProtection: true,
+        enableMaxAttemptsProtection: true,
+      },
+    };
+    const handler = {
+      handle: jest.fn(),
+      handleError: jest.fn(() => {
+        throw new Error('error handler error');
+      }),
+    };
+    const errorHandler = createErrorHandler(
+      handler,
+      strategies,
+      config,
+      getDisabledLogger(),
+    );
+    const mockMessage = {
+      ...message,
+    };
+    const error = new TransactionalOutboxInboxError(
+      'test',
+      'MESSAGE_HANDLING_FAILED',
+    );
+
+    // Act
+    const retryAnswer = await errorHandler(mockMessage, error);
+
+    // Assert
+    expect(handler.handleError).toHaveBeenCalledWith(
+      error,
+      mockMessage,
+      client,
+      true,
+    );
+    expect(retryAnswer).toBe(true); // the initial error handling error was a PG serialization error
+    expect(mockMessage).toStrictEqual({ ...message, finishedAttempts: 1 });
+    expect(
+      strategies.messageProcessingTransactionLevelStrategy,
+    ).toHaveBeenCalledWith(mockMessage);
+    expect(strategies.poisonousMessageRetryStrategy).not.toHaveBeenCalled();
+    // error handler (begin, rollback) best effort (begin, increment attempt, rollback)
+    expect(client.query).toHaveBeenCalledTimes(11);
   });
 
   it('Should increase the finished attempts even if no handler is found (anymore)', async () => {
