@@ -109,7 +109,7 @@ export const getClient = async (
 ): Promise<PoolClient> => {
   const client = await pool.connect();
   // The pool can return a new or an old client - we must register the event listener but should do so only once
-  if (!client.listeners('error').length && logger) {
+  if (!client.listeners?.('error').length && logger) {
     client.on('error', (err) => {
       logger.error(
         ensureExtendedError(err, 'DB_ERROR'),

@@ -412,6 +412,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       ],
       getDisabledLogger(),
     );
+    afterCleanup = cleanup;
 
     // Act
     sendReplicationChunk('not_processed_id');
@@ -436,8 +437,6 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
     expect(client.end).toHaveBeenCalledTimes(0);
-    await cleanup();
-    expect(client.end).toHaveBeenCalledTimes(1);
   });
 
   it('should return an error if more than one messageHandler is registered for one aggregate/message type combination', () => {

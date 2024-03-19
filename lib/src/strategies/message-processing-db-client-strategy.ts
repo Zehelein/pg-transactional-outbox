@@ -3,6 +3,7 @@ import { DatabaseClient } from '../common/database';
 import { ensureExtendedError } from '../common/error';
 import { FullListenerConfig } from '../common/listener-config';
 import { TransactionalLogger } from '../common/logger';
+import { getClient } from '../common/utils';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 
 /**
@@ -40,7 +41,7 @@ export const defaultMessageProcessingDbClientStrategy = (
   return {
     getClient: async (
       _message: StoredTransactionalMessage,
-    ): Promise<DatabaseClient> => await pool.connect(),
+    ): Promise<DatabaseClient> => await getClient(pool, logger),
     shutdown: async () => {
       pool.removeAllListeners();
       try {

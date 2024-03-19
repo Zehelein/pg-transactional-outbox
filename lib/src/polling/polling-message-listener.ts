@@ -5,6 +5,7 @@ import { ExtendedError, ensureExtendedError } from '../common/error';
 import { TransactionalLogger } from '../common/logger';
 import {
   awaitWithTimeout,
+  getClient,
   justDoIt,
   processPool,
   sleep,
@@ -179,7 +180,7 @@ const processBatch = async (
   try {
     messages = await getNextMessagesBatch(
       batchSize,
-      pool,
+      await getClient(pool, logger),
       config.settings,
       logger,
       config.outboxOrInbox,
