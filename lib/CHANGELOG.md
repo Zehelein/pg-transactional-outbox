@@ -3,7 +3,28 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
-## [0.5.0] - 2024-02-29
+## [0.5.5] - 2024-03-19
+
+### Added
+
+- When logging is enabled and the log level is set to "trace" then the client
+  will track the executed queries and add them to the PostgreSQL error object.
+
+## [0.5.4] - 2024-03-19
+
+### Changed
+
+- When getting a new database client from the Pool the error handler is attached
+  to the retrieved PoolClient.
+
+## [0.5.3] - 2024-03-04
+
+### Changed
+
+- The "best-effort" attempt to increase the message finished attempts is retried
+  multiple times in case of database locking errors.
+
+## [0.5.2] - 2024-02-29
 
 ### Changed
 

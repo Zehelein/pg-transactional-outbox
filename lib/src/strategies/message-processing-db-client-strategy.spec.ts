@@ -23,7 +23,12 @@ describe('defaultMessageProcessingDbClientStrategy', () => {
         query: jest.fn(),
         release: jest.fn(),
         listeners: jest.fn().mockReturnValue([]),
+        removeAllListeners: jest.fn(),
         escapeLiteral: (p: string) => p,
+        connection: {
+          removeAllListeners: jest.fn(),
+          on: jest.fn(),
+        },
       }),
       removeAllListeners: jest.fn(),
       end: jest.fn(),

@@ -19,6 +19,10 @@ import {
   runScheduledMessageCleanup,
 } from 'pg-transactional-outbox';
 import {
+  IsolationLevel,
+  getClient,
+} from 'pg-transactional-outbox/src/common/utils';
+import {
   DockerComposeEnvironment,
   StartedDockerComposeEnvironment,
 } from 'testcontainers';
@@ -35,7 +39,7 @@ import {
 if (isDebugMode()) {
   jest.setTimeout(600_000);
 } else {
-  jest.setTimeout(60_000);
+  jest.setTimeout(45_000);
 }
 
 const aggregateType = 'source_entity';
@@ -737,7 +741,6 @@ describe('Polling integration tests', () => {
 
       // Assert
       await sleep(2_000);
-      inboxLogs;
       expect(inboxHandlerCounter).toBe(5);
       const inboxResult = await handlerPool.query(
         `SELECT finished_attempts FROM ${configs.inboxConfig.settings.dbSchema}.${configs.inboxConfig.settings.dbTable} WHERE id = $1;`,
@@ -899,9 +902,6 @@ describe('Polling integration tests', () => {
       );
       const filterMap = (messages: TransactionalMessage[]) =>
         messages.filter((m) => m.concurrency === 'sequential').map((m) => m.id);
-      if (aMessages[0].id !== a1.id) {
-        inboxLogs;
-      }
       expect(filterMap(aMessages)).toStrictEqual([a1.id, a3.id, a5.id]);
       expect(filterMap(bMessages)).toStrictEqual([
         b1.id,
@@ -1132,7 +1132,6 @@ describe('Polling integration tests', () => {
 
       // Assert
       await sleep(2_000);
-      inboxLogs;
       const inboxResult = await handlerPool.query(
         `SELECT finished_attempts FROM ${configs.inboxConfig.settings.dbSchema}.${configs.inboxConfig.settings.dbTable} WHERE id = $1;`,
         [msg.id],
@@ -1142,6 +1141,71 @@ describe('Polling integration tests', () => {
       expect(inboxLogs[inboxLogs.length - 1].args[1]).toMatch(
         'Giving up processing the inbox message with id ',
       );
+    });
+
+    test('Client adds query stack when the error log level is trace', async () => {
+      // Arrange
+      const pool = new Pool(configs.inboxConfig.dbListenerConfig);
+      const [logger] = getInMemoryLogger('test');
+      logger.level = 'trace';
+      const client = await getClient(pool, logger);
+      let error: unknown = undefined;
+
+      // Act and Assert
+      try {
+        await executeTransaction(
+          client,
+          async (c) => {
+            const result = await c.query('select * from this does not exist;');
+            logger.error('should not be logged');
+            return result;
+          },
+          IsolationLevel.ReadCommitted,
+        );
+      } catch (err) {
+        error = err;
+      }
+
+      expect(error).toMatchObject({
+        message: 'syntax error at or near "not"',
+        queryStack: [
+          {
+            query: 'START TRANSACTION ISOLATION LEVEL READ COMMITTED',
+            values: undefined,
+          },
+          { query: 'select * from this does not exist;', values: undefined },
+          { query: 'ROLLBACK', values: undefined },
+        ],
+      });
+    });
+
+    test('Client does not add the query stack when the error log level is higher than trace', async () => {
+      // Arrange
+      const pool = new Pool(configs.inboxConfig.dbListenerConfig);
+      const [logger] = getInMemoryLogger('test');
+      logger.level = 'debug';
+      const client = await getClient(pool, logger);
+      let error: unknown = undefined;
+
+      // Act and Assert
+      try {
+        await executeTransaction(
+          client,
+          async (c) => {
+            const result = await c.query('select * from this does not exist;');
+            logger.error('should not be logged');
+            return result;
+          },
+          IsolationLevel.ReadCommitted,
+        );
+      } catch (err) {
+        error = err;
+      }
+
+      expect(error).toMatchObject({
+        message: 'syntax error at or near "not"',
+      });
+      expect(error).not.toHaveProperty('queryStack');
     });
   });
 });

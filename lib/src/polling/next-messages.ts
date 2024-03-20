@@ -41,7 +41,7 @@ export const getNextMessagesBatch = async (
 
   if (messagesResult.rowCount ?? 0 > 0) {
     logger.debug(
-      messagesResult.rows.map((m) => m.id),
+      { messageIds: messagesResult.rows.map((m) => m.id) },
       `Found ${messagesResult.rowCount} ${outboxOrInbox} message(s) to process.`,
     );
     lastLogTime[outboxOrInbox] = Date.now();

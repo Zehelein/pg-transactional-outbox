@@ -106,7 +106,7 @@ describe('getNextMessagesBatch', () => {
     });
     expect(logger.trace).not.toHaveBeenCalled();
     expect(logger.debug).toHaveBeenCalledWith(
-      expect.any(Array),
+      { messageIds: ['537d399e-291c-499c-a8cc-6bfa7e222b7c'] },
       `Found 1 inbox message(s) to process.`,
     );
   });

@@ -1,4 +1,4 @@
-import { Pool, PoolClient } from 'pg';
+import { Connection, Pool, PoolClient, QueryConfig } from 'pg';
 import { DatabaseClient, releaseIfPoolClient } from './database';
 import { TransactionalOutboxInboxError, ensureExtendedError } from './error';
 import { TransactionalLogger } from './logger';
@@ -97,8 +97,17 @@ export const executeTransaction = async <T>(
   }
 };
 
+interface QueryStackItem {
+  query: string;
+  values: unknown[];
+}
+
 /**
  * Creates a PoolClient from the given pool and attaches the logger for error logging.
+ * If the logger is provided and has the log level 'trace' the client will track
+ * all the queries that were done during its lifetime. The queries are appended
+ * to errors that are thrown from that client/connection in the custom property
+ * `queryStack` on the pg library error.
  * @param pool A PostgreSQL database pool from which clients can be created.
  * @param logger A logger that will be registered for the on-error event of the client.
  * @returns The PoolClient object
@@ -108,14 +117,58 @@ export const getClient = async (
   logger?: TransactionalLogger,
 ): Promise<PoolClient> => {
   const client = await pool.connect();
-  // The pool can return a new or an old client - we must register the event listener but should do so only once
-  if (!client.listeners?.('error').length && logger) {
+  if (logger) {
+    const appendQueryStack = (error: unknown) => {
+      if ('queryStack' in client && error instanceof Error) {
+        (error as Error & { queryStack: QueryStackItem[] }).queryStack =
+          client.queryStack as QueryStackItem[];
+      }
+    };
+
+    // The pool can return a new or an old client - thus we remove existing event listeners
+    client.removeAllListeners('error');
     client.on('error', (err) => {
-      logger.error(
-        ensureExtendedError(err, 'DB_ERROR'),
-        'PostgreSQL client error',
-      );
+      const error = ensureExtendedError(err, 'DB_ERROR');
+      appendQueryStack(error);
+      logger.error(error, 'PostgreSQL client error');
     });
+
+    // Track the queries in case the log level is 'trace'
+    if (logger.level?.toLocaleLowerCase() === 'trace') {
+      const c = client as PoolClient & {
+        queryStack: QueryStackItem[];
+        connection: Connection;
+      };
+      if (c.queryStack === undefined) {
+        // Wrap the client query to track all queries (only once as clients are reused)
+        const query = client.query;
+
+        const queryWrapper = async (
+          queryOrConfig: string | QueryConfig,
+          values: unknown[],
+          callback: (err: Error, result: unknown) => void,
+        ) => {
+          if (typeof queryOrConfig === 'object' && 'text' in queryOrConfig) {
+            c.queryStack.push({
+              query: queryOrConfig.text,
+              values: queryOrConfig.values ?? values,
+            });
+          } else {
+            c.queryStack.push({ query: queryOrConfig, values });
+          }
+          // This matches the pg implementation - types are too strict
+          return query.call(client, queryOrConfig as string, values, callback);
+        };
+        client.query = queryWrapper as typeof client.query;
+
+        // Subscribing to "message" and append the stack if the parameter is an error object
+        c.connection.removeAllListeners('message');
+        c.connection.on('message', (error: unknown) => {
+          appendQueryStack(error);
+        });
+      }
+      c.queryStack = [];
+    }
   }
   return client;
 };

@@ -9,7 +9,8 @@
   "scripts": {
     "clean": "rimraf dist && rimraf tsconfig.tsbuildinfo",
     "build": "yarn clean && tsc",
-    "test": "jest"
+    "test": "jest",
+    "test-with-trace-warnings": "node --trace-warnings node_modules/.bin/jest --no-cache"
   },
   "dependencies": {
     "pg": "^8.11.3",

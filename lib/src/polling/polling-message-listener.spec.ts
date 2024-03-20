@@ -234,6 +234,10 @@ describe('Polling message listener unit tests - initializePollingMessageListener
       on: jest.fn((event, callback) => (clientEvents[event] = callback)),
       end: jest.fn(),
       release: jest.fn(),
+      connection: {
+        removeAllListeners: jest.fn(),
+        on: jest.fn(),
+      },
     } as unknown as typeof client;
     poolEvents = {};
     clientEvents = {};

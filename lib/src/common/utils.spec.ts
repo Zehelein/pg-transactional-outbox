@@ -75,6 +75,7 @@ describe('Utils Unit Tests', () => {
             client.query = jest.fn();
             client.release = jest.fn();
             client.listeners = jest.fn().mockReturnValue([]);
+            client.removeAllListeners = jest.fn();
             return client;
           })(),
         ),
@@ -190,6 +191,7 @@ describe('Utils Unit Tests', () => {
         on: jest.fn(),
         query: jest.fn(),
         listeners: jest.fn().mockReturnValue([]),
+        removeAllListeners: jest.fn(),
       } as unknown as Client;
 
       // Act
@@ -271,6 +273,11 @@ describe('Utils Unit Tests', () => {
         listeners: () => ({ length: 0 }),
         on: (_event: 'error', callback: (err: Error) => void) => {
           errorCallback = callback;
+        },
+        removeAllListeners: jest.fn(),
+        connection: {
+          removeAllListeners: jest.fn(),
+          on: jest.fn(),
         },
       };
       const pool = {
