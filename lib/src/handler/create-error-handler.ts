@@ -1,3 +1,4 @@
+import { isPgSerializationError } from '../common/database';
 import { ExtendedError, MessageError } from '../common/error';
 import { ListenerConfig } from '../common/listener-config';
 import { TransactionalLogger } from '../common/logger';
@@ -156,12 +157,7 @@ const bestEffortMessageUpdate = async (
     } catch (error) {
       i++;
       // retry for serialization failure = 40001 and deadlock detected = 40P01 PG errors
-      if (
-        i < 3 &&
-        error instanceof Error &&
-        'code' in error &&
-        (error.code === '40001' || error.code === '40P01')
-      ) {
+      if (i < 3 && isPgSerializationError(error)) {
         await sleep(i * 100);
       } else {
         throw error;

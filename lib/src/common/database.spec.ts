@@ -1,24 +1,63 @@
 import { Client, PoolClient } from 'pg';
-import { releaseIfPoolClient } from './database';
+import { isPgSerializationError, releaseIfPoolClient } from './database';
 
 describe('Database Unit Tests', () => {
-  it('should call release if it is a pool client', () => {
-    // Arrange
-    const client = new Client() as unknown as PoolClient;
-    client.release = jest.fn();
+  describe('releaseIfPoolClient', () => {
+    it('should call release if it is a pool client', () => {
+      // Arrange
+      const client = new Client() as unknown as PoolClient;
+      client.release = jest.fn();
 
-    // Act
-    releaseIfPoolClient(client);
+      // Act
+      releaseIfPoolClient(client);
 
-    // Assert
-    expect(client.release).toHaveBeenCalled();
+      // Assert
+      expect(client.release).toHaveBeenCalled();
+    });
+
+    it('should not throw an error if the client is no pool client', () => {
+      // Arrange
+      const client = new Client();
+
+      // Act
+      expect(() => releaseIfPoolClient(client)).not.toThrow();
+    });
   });
 
-  it('should not throw an error if the client is no pool client', () => {
-    // Arrange
-    const client = new Client();
+  describe('isPgSerializationError', () => {
+    it('returns true for serialization errors', () => {
+      const error = { code: '40001' };
+      expect(isPgSerializationError(error)).toBe(true);
+    });
 
-    // Act
-    expect(() => releaseIfPoolClient(client)).not.toThrow();
+    it('returns true for deadlock errors', () => {
+      const error = { code: '40P01' };
+      expect(isPgSerializationError(error)).toBe(true);
+    });
+
+    it('returns false for other errors', () => {
+      const error = { code: '42601' }; // SQL syntax error
+      expect(isPgSerializationError(error)).toBe(false);
+    });
+
+    it('returns false for undefined error', () => {
+      const error = undefined;
+      expect(isPgSerializationError(error)).toBe(false);
+    });
+
+    it('returns false for null error', () => {
+      const error = null;
+      expect(isPgSerializationError(error)).toBe(false);
+    });
+
+    it('returns false for non-object error', () => {
+      const error = 'not an object';
+      expect(isPgSerializationError(error)).toBe(false);
+    });
+
+    it('returns false for error without code', () => {
+      const error = {};
+      expect(isPgSerializationError(error)).toBe(false);
+    });
   });
 });

@@ -45,6 +45,7 @@ export {
 export {
   PollingListenerConfig,
   PollingListenerSettings,
+  applyDefaultPollingListenerConfigValues,
   getInboxPollingListenerEnvTemplate,
   getInboxPollingListenerSettings,
   getOutboxPollingListenerEnvTemplate,
@@ -64,6 +65,7 @@ export { createReplicationSemaphoreConcurrencyController } from './replication/c
 export {
   ReplicationListenerConfig,
   ReplicationListenerSettings,
+  applyDefaultReplicationListenerConfigValues,
   getInboxReplicationListenerEnvTemplate,
   getInboxReplicationListenerSettings,
   getOutboxReplicationListenerEnvTemplate,

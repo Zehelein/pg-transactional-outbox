@@ -1,3 +1,4 @@
+import { isPgSerializationError } from '../common/database';
 import { ExtendedError } from '../common/error';
 import { FullListenerConfig } from '../common/listener-config';
 import { StoredTransactionalMessage } from '../message/transactional-message';
@@ -39,12 +40,7 @@ export const defaultMessageRetryStrategy = (
     error: ExtendedError,
     source: 'message-handler' | 'error-handler' | 'error-handler-error',
   ): boolean => {
-    if (
-      error.innerError &&
-      'code' in error.innerError &&
-      // Trx Rollback: serialization failure = 40001 deadlock detected = 40P01
-      (error.innerError.code === '40001' || error.innerError.code === '40P01')
-    ) {
+    if (isPgSerializationError(error.innerError)) {
       // retry PostgreSQL serialization/deadlock failures up to 100 attempts
       return (
         message.startedAttempts <= Math.max(config.settings.maxAttempts, 100)
