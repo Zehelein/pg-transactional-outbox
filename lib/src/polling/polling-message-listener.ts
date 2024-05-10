@@ -90,9 +90,8 @@ export const initializePollingMessageListener = (
 
     const applyRestart = (promise: Promise<unknown>) => {
       void promise.catch(async (e) => {
-        const err = ensureExtendedError(e, 'LISTENER_STOPPED');
         logger.error(
-          err,
+          ensureExtendedError(e, 'LISTENER_STOPPED'),
           `Error polling for ${fullConfig.outboxOrInbox} messages.`,
         );
         if (!signal.stopped) {
@@ -221,8 +220,9 @@ const processBatch = async (
     return batchPromises;
   } catch (batchError) {
     const error = ensureExtendedError(batchError, 'BATCH_PROCESSING_ERROR');
+    Object.assign(error, { messages });
     logger.error(
-      { ...error, messages },
+      error,
       `Error when working on a batch of ${config.outboxOrInbox} messages.`,
     );
     return [];

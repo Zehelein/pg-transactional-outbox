@@ -57,11 +57,9 @@ export const createErrorHandler = (
           }
           if (shouldRetry) {
             await increaseMessageFinishedAttempts(message, client, config);
+            Object.assign(error, { messageObject: message });
             logger.warn(
-              {
-                ...error,
-                messageObject: message,
-              },
+              error,
               `An error ocurred while processing the ${config.outboxOrInbox} message with id ${message.id}. Retrying it again.`,
             );
           } else {

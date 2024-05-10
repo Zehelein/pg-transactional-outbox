@@ -38,7 +38,8 @@ export const initializeRabbitMqHandler = async (
 
   const broker = await BrokerAsPromised.create(cfg);
   broker.on('error', (err, { vhost, connectionUrl }) => {
-    logger.error({ err, vhost, connectionUrl }, 'RabbitMQ broker error');
+    Object.assign(err, { vhost, connectionUrl });
+    logger.error(err, 'RabbitMQ broker error');
   });
   const mutex = new Mutex();
   // Consume messages for the desired subscriptions
@@ -77,11 +78,9 @@ export const initializeRabbitMqHandler = async (
               const err =
                 error instanceof Error ? error : new Error(String(error));
               ackOrNack(err);
+              Object.assign(err, { messageObject: message });
               logger.error(
-                {
-                  ...message,
-                  err,
-                },
+                err,
                 'Could not save the incoming message to the inbox',
               );
             } finally {
