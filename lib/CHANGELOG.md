@@ -3,6 +3,19 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
+## [0.5.7] - 2024-05-10
+
+### Changed
+
+- Errors are now consistently logged as `Error` objects. Where possible enriched
+  with additional data.
+
+## [0.5.6] - 2024-04-23
+
+### Added
+
+- Exposed the `applyDefaultPollingListenerConfigValues` function.
+
 ## [0.5.5] - 2024-03-19
 
 ### Added
