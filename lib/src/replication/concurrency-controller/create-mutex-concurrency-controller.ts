@@ -6,4 +6,10 @@ import { ReplicationConcurrencyController } from './concurrency-controller';
  * @returns The controller to acquire and release the mutex
  */
 export const createReplicationMutexConcurrencyController =
-  (): ReplicationConcurrencyController => new Mutex();
+  (): ReplicationConcurrencyController => {
+    const m = new Mutex();
+    return {
+      acquire: () => m.acquire(),
+      cancel: () => m.cancel(),
+    };
+  };

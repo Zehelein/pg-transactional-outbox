@@ -15,24 +15,24 @@
     "setup:db": "ts-node ./setup/init-db.ts"
   },
   "dependencies": {
-    "amqplib": "^0.10.3",
-    "dotenv": "^16.3.1",
-    "pg": "^8.11.3",
-    "pino": "^8.16.2",
-    "rascal": "^17.0.1",
-    "uuid": "^9.0.1"
+    "amqplib": "^0.10.4",
+    "dotenv": "^16.4.5",
+    "pg": "^8.13.0",
+    "pino": "^9.4.0",
+    "rascal": "^20.1.0",
+    "uuid": "^10.0.0"
   },
   "devDependencies": {
-    "@types/node": "^20.9.4",
-    "@types/pg": "^8.10.9",
+    "@types/node": "^22.5.5",
+    "@types/pg": "^8.11.10",
     "@types/rascal": "^10.0.9",
-    "@types/uuid": "^9.0.7",
+    "@types/uuid": "^10.0.0",
     "jest": "^29.7.0",
-    "pino-pretty": "^10.2.3",
-    "prettier": "^3.1.0",
+    "pino-pretty": "^11.2.2",
+    "prettier": "^3.3.3",
     "rimraf": "^5.0.5",
-    "ts-node": "^10.9.1",
-    "tsc-watch": "^6.0.4",
-    "typescript": "5.3.2"
+    "ts-node": "^10.9.2",
+    "tsc-watch": "^6.2.0",
+    "typescript": "5.6.2"
   }
 }

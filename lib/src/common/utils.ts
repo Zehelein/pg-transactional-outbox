@@ -156,8 +156,13 @@ export const getClient = async (
           } else {
             c.queryStack.push({ query: queryOrConfig, values });
           }
-          // This matches the pg implementation - types are too strict
-          return query.call(client, queryOrConfig as string, values, callback);
+          // This matches the pg implementation - TypeScript types are too strict
+          return (query as any).call(
+            client,
+            queryOrConfig as string,
+            values,
+            callback,
+          );
         };
         client.query = queryWrapper as typeof client.query;
 
