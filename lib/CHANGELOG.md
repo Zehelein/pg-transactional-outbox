@@ -3,6 +3,14 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
+## [0.5.9] - 2024-12-03
+
+### Changed
+
+- Package upgrade for the cross-spawn dependency with critical vulnerability.
+  This package was used in build related scripts but was not part of the
+  `pg-transactional-outbox` library.
+
 ## [0.5.8] - 2024-09-18
 
 ### Changed
