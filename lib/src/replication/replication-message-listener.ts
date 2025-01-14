@@ -3,6 +3,7 @@ import { createErrorHandler } from '../handler/create-error-handler';
 import { createMessageHandler } from '../handler/create-message-handler';
 import { GeneralMessageHandler } from '../handler/general-message-handler';
 import { TransactionalMessageHandler } from '../handler/transactional-message-handler';
+import { defaultMessageNotFoundRetryStrategy } from '../strategies/message-not-found-retry-strategy';
 import { defaultMessageProcessingDbClientStrategy } from '../strategies/message-processing-db-client-strategy';
 import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
 import { defaultMessageProcessingTransactionLevelStrategy } from '../strategies/message-processing-transaction-level-strategy';
@@ -89,4 +90,7 @@ const applyDefaultStrategies = (
   listenerRestartStrategy:
     strategies?.listenerRestartStrategy ??
     defaultReplicationListenerRestartStrategy(config),
+  messageNotFoundRetryStrategy:
+    strategies?.messageNotFoundRetryStrategy ??
+    defaultMessageNotFoundRetryStrategy(config),
 });

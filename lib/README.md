@@ -1089,6 +1089,19 @@ You can customize the behavior of the service by changing the following options:
   `maxPoisonousAttempts`, but you can implement your own logic and pass it as an
   argument to the service constructor.
 
+### Message not found retry strategy
+
+When a message should be processed the listener tries to lock the message in the
+database to get an exclusive lock. When the database is under very heavy load it
+can happen, that the logical replication informs of a new message which can't be
+selected in the database yet. This setting allows to retry the message locking.
+You can customize this behavior:
+
+- `settings.maxMessageNotFoundAttempts`: If the message was not found on the
+  first try, retry it that number of times. Default is zero.
+- `settings.maxMessageNotFoundDelayInMs`: If the message was not found, delay
+  the next attempt by that many milliseconds.
+
 ## Replication listener strategies
 
 ### Replication listener concurrency strategy

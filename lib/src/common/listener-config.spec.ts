@@ -34,6 +34,8 @@ describe('Listener settings', () => {
           enableMaxAttemptsProtection: true,
           maxPoisonousAttempts: 3,
           enablePoisonousMessageProtection: false,
+          maxMessageNotFoundAttempts: 0,
+          maxMessageNotFoundDelayInMs: 10,
           messageCleanupIntervalInMs: 300000,
           messageCleanupProcessedInSec: 604800,
           messageCleanupAbandonedInSec: 1209600,
@@ -74,6 +76,8 @@ describe('Listener settings', () => {
           messageCleanupProcessedInSec: 50,
           messageCleanupAbandonedInSec: 60,
           messageCleanupAllInSec: 70,
+          maxMessageNotFoundAttempts: 80,
+          maxMessageNotFoundDelayInMs: 90,
         },
       };
       const result = applyDefaultListenerConfigValues(fullConfig);

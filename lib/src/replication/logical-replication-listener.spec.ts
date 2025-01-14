@@ -141,6 +141,8 @@ const settings: FullReplicationListenerSettings = {
   messageCleanupProcessedInSec: 500,
   messageCleanupAbandonedInSec: 600,
   messageCleanupAllInSec: 700,
+  maxMessageNotFoundAttempts: 4,
+  maxMessageNotFoundDelayInMs: 800,
 };
 
 const dbMessage = {

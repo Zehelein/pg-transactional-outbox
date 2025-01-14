@@ -44,6 +44,8 @@ describe('Polling listener settings', () => {
           nextMessagesBatchSize: 5,
           nextMessagesLockInMs: 5000,
           nextMessagesPollingIntervalInMs: 500,
+          maxMessageNotFoundAttempts: 0,
+          maxMessageNotFoundDelayInMs: 10,
         },
       };
       expect(result).toEqual(expected);
@@ -71,6 +73,8 @@ describe('Polling listener settings', () => {
           nextMessagesBatchSize: 80,
           nextMessagesLockInMs: 90,
           nextMessagesPollingIntervalInMs: 100,
+          maxMessageNotFoundAttempts: 0,
+          maxMessageNotFoundDelayInMs: 10,
         },
       };
       const result = applyDefaultPollingListenerConfigValues(fullConfig);

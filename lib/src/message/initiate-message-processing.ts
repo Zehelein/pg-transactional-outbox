@@ -1,6 +1,9 @@
+import { QueryResult } from 'pg';
 import { DatabaseClient } from '../common/database';
+import { sleep } from '../common/utils';
 import { PollingListenerSettings } from '../polling/config';
 import { ReplicationListenerSettings } from '../replication/config';
+import { MessageNotFoundRetryStrategy } from '../strategies/message-not-found-retry-strategy';
 import { StoredTransactionalMessage } from './transactional-message';
 
 /**
@@ -13,22 +16,24 @@ import { StoredTransactionalMessage } from './transactional-message';
  * @param message The message for which to acquire a lock and set the updatable properties (again).
  * @param client The database client. Must be part of the transaction where the message handling changes are later done.
  * @param config The configuration settings for the polling or replication listener.
+ * @param messageNotFoundRetryStrategy The retry strategy if the message could not be found in the database.
  * @returns 'MESSAGE_NOT_FOUND' if the message was not found, 'ALREADY_PROCESSED' if it was processed, and otherwise assigns the properties to the message and returns it.
  */
 export const initiateMessageProcessing = async (
   message: StoredTransactionalMessage,
   client: DatabaseClient,
   settings: PollingListenerSettings | ReplicationListenerSettings,
+  messageNotFoundRetryStrategy: MessageNotFoundRetryStrategy,
 ): Promise<
   true | 'MESSAGE_NOT_FOUND' | 'ALREADY_PROCESSED' | 'ABANDONED_MESSAGE'
 > => {
-  // Use a NOWAIT select to immediately fail if another process is locking that message
-  const selectResult = await client.query(
-    /* sql */ `
-    SELECT started_attempts, finished_attempts, processed_at, abandoned_at, locked_until FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR NO KEY UPDATE NOWAIT;`,
-    [message.id],
+  const selectResult = await loadAndLockMessage(
+    message,
+    client,
+    settings,
+    messageNotFoundRetryStrategy,
   );
-  if (selectResult.rowCount === 0) {
+  if (selectResult === 'MESSAGE_NOT_FOUND') {
     return 'MESSAGE_NOT_FOUND';
   }
   const {
@@ -52,4 +57,44 @@ export const initiateMessageProcessing = async (
     return 'ABANDONED_MESSAGE';
   }
   return true;
+};
+
+/**
+ * Load and lock (and potentially retry) a message.
+ * @param message The message for which to acquire the lock.
+ * @param client The database client. Must be part of the transaction where the message handling changes are later done.
+ * @param config The configuration settings for the polling or replication listener.
+ * @param messageNotFoundRetryStrategy The retry strategy if the message could not be found in the database.
+ * @returns 'MESSAGE_NOT_FOUND' if the message was not found, otherwise the message details from the database.
+ */
+const loadAndLockMessage = async (
+  message: StoredTransactionalMessage,
+  client: DatabaseClient,
+  settings: PollingListenerSettings | ReplicationListenerSettings,
+  messageNotFoundRetryStrategy: MessageNotFoundRetryStrategy,
+): Promise<QueryResult<any> | 'MESSAGE_NOT_FOUND'> => {
+  let selectResult: QueryResult<any>;
+  let attempts = 0;
+  do {
+    // Use a NOWAIT select to immediately fail if another process is locking that message
+    selectResult = await client.query(
+      /* sql */ `
+      SELECT started_attempts, finished_attempts, processed_at, abandoned_at, locked_until FROM ${settings.dbSchema}.${settings.dbTable} WHERE id = $1 FOR NO KEY UPDATE NOWAIT;`,
+      [message.id],
+    );
+    if (selectResult.rowCount === 0 || selectResult.rowCount === null) {
+      const { retry, delayInMs } = messageNotFoundRetryStrategy(
+        message,
+        ++attempts,
+      );
+      if (retry) {
+        await sleep(delayInMs);
+      } else {
+        return 'MESSAGE_NOT_FOUND';
+      }
+    } else {
+      return selectResult;
+    }
+    // eslint-disable-next-line no-constant-condition
+  } while (true);
 };

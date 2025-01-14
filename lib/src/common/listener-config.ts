@@ -77,6 +77,17 @@ export interface ListenerSettings {
    */
   enablePoisonousMessageProtection: boolean;
   /**
+   * The maximum number of retries when a message could not be found.
+   * Defaults to 0 which means it tries to find the message only once but will
+   * not try it again.
+   */
+  maxMessageNotFoundAttempts?: number;
+  /**
+   * The time to wait before trying to find a not (yet) found message again.
+   * Defaults to 10ms.
+   */
+  maxMessageNotFoundDelayInMs?: number;
+  /**
    * Time in milliseconds between the execution of the old message cleanups.
    * Leave it undefined or zero to disable automatic message cleanup.
    */
@@ -96,6 +107,8 @@ const defaultSettings: Omit<FullListenerSettings, 'dbTable'> = {
   enableMaxAttemptsProtection: true,
   maxPoisonousAttempts: 3,
   enablePoisonousMessageProtection: true,
+  maxMessageNotFoundAttempts: 0,
+  maxMessageNotFoundDelayInMs: 10,
   messageCleanupIntervalInMs: 5 * 60 * 1000,
   messageCleanupProcessedInSec: 7 * 24 * 60 * 60,
   messageCleanupAbandonedInSec: 14 * 24 * 60 * 60,

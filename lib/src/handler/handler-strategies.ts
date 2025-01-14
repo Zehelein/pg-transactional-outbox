@@ -1,3 +1,4 @@
+import { MessageNotFoundRetryStrategy } from '../strategies/message-not-found-retry-strategy';
 import { MessageProcessingDbClientStrategy } from '../strategies/message-processing-db-client-strategy';
 import { MessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
 import { MessageProcessingTransactionLevelStrategy } from '../strategies/message-processing-transaction-level-strategy';
@@ -34,4 +35,10 @@ export interface HandlerStrategies {
    * should be retried again or not.
    */
   poisonousMessageRetryStrategy: PoisonousMessageRetryStrategy;
+
+  /**
+   * Decides if the message loading and locking should be retried when the
+   * message was not found (yet).
+   */
+  messageNotFoundRetryStrategy: MessageNotFoundRetryStrategy;
 }

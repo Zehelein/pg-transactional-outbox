@@ -177,6 +177,7 @@ const processMessage = async (
           message,
           client,
           config.settings,
+          strategies.messageNotFoundRetryStrategy,
         );
         if (result !== true) {
           logger.warn(

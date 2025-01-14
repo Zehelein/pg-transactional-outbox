@@ -269,6 +269,8 @@ const config: FullReplicationListenerConfig = {
     messageProcessingTimeoutInMs: 300,
     maxAttempts: 5,
     maxPoisonousAttempts: 3,
+    maxMessageNotFoundAttempts: 0,
+    maxMessageNotFoundDelayInMs: 10,
     messageCleanupIntervalInMs: 400,
     messageCleanupProcessedInSec: 500,
     messageCleanupAbandonedInSec: 600,
@@ -1169,6 +1171,9 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       messageRetryStrategy: jest.fn().mockReturnValue(true),
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(true),
       listenerRestartStrategy: jest.fn().mockReturnValue(123),
+      messageNotFoundRetryStrategy: jest
+        .fn()
+        .mockReturnValue({ retry: false, delayInMs: 1 }),
     };
     const [cleanup] = initializeReplicationMessageListener(
       config,
@@ -1222,5 +1227,6 @@ describe('Replication message listener unit tests - initializeReplicationMessage
     );
     expect(increaseMessageFinishedAttemptsSpy).not.toHaveBeenCalled();
     expect(client.connect).toHaveBeenCalledTimes(1);
+    expect(strategies.messageNotFoundRetryStrategy).not.toHaveBeenCalled();
   });
 });

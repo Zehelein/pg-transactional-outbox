@@ -107,6 +107,9 @@ describe('createErrorHandler', () => {
         poisonousMessageRetryStrategy: jest.fn().mockReturnValue(false),
         messageRetryStrategy: jest.fn().mockReturnValue(shouldRetry),
         messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
+        messageNotFoundRetryStrategy: jest
+          .fn()
+          .mockReturnValue({ retry: false, delayInMs: 1 }),
       };
       const config: ListenerConfig = {
         outboxOrInbox: 'inbox',
@@ -169,6 +172,9 @@ describe('createErrorHandler', () => {
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(false),
       messageRetryStrategy: jest.fn().mockReturnValue(true),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
+      messageNotFoundRetryStrategy: jest
+        .fn()
+        .mockReturnValue({ retry: false, delayInMs: 1 }),
     };
     const config: ListenerConfig = {
       outboxOrInbox: 'inbox',
@@ -247,6 +253,9 @@ describe('createErrorHandler', () => {
         },
       } as unknown as FullListenerConfig),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
+      messageNotFoundRetryStrategy: jest
+        .fn()
+        .mockReturnValue({ retry: false, delayInMs: 1 }),
     };
     const config: ListenerConfig = {
       outboxOrInbox: 'inbox',
@@ -332,6 +341,9 @@ describe('createErrorHandler', () => {
         },
       } as unknown as FullListenerConfig),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
+      messageNotFoundRetryStrategy: jest
+        .fn()
+        .mockReturnValue({ retry: false, delayInMs: 1 }),
     };
     const config: ListenerConfig = {
       outboxOrInbox: 'inbox',
@@ -397,6 +409,9 @@ describe('createErrorHandler', () => {
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(false),
       messageRetryStrategy: jest.fn().mockReturnValue(true),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
+      messageNotFoundRetryStrategy: jest
+        .fn()
+        .mockReturnValue({ retry: false, delayInMs: 1 }),
     };
     const config: ListenerConfig = {
       outboxOrInbox: 'inbox',
@@ -455,6 +470,9 @@ describe('createErrorHandler', () => {
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(false),
       messageRetryStrategy: jest.fn().mockReturnValue(true),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
+      messageNotFoundRetryStrategy: jest
+        .fn()
+        .mockReturnValue({ retry: false, delayInMs: 1 }),
     };
     const config: ListenerConfig = {
       outboxOrInbox: 'inbox',

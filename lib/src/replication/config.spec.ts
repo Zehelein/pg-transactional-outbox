@@ -36,6 +36,8 @@ describe('Replication listener settings', () => {
           enableMaxAttemptsProtection: true,
           maxPoisonousAttempts: 3,
           enablePoisonousMessageProtection: false,
+          maxMessageNotFoundAttempts: 0,
+          maxMessageNotFoundDelayInMs: 10,
           messageCleanupIntervalInMs: 300000,
           messageCleanupProcessedInSec: 604800,
           messageCleanupAbandonedInSec: 1209600,
@@ -70,6 +72,8 @@ describe('Replication listener settings', () => {
           dbReplicationSlot: 'full_slot',
           restartDelayInMs: 80,
           restartDelaySlotInUseInMs: 90,
+          maxMessageNotFoundAttempts: 100,
+          maxMessageNotFoundDelayInMs: 110,
         },
       };
       const result = applyDefaultReplicationListenerConfigValues(fullConfig);

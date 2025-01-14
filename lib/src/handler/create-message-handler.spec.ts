@@ -129,6 +129,9 @@ describe('createMessageHandler', () => {
         poisonousMessageRetryStrategy: jest.fn().mockReturnValue(false),
         messageRetryStrategy: jest.fn().mockReturnValue(false),
         messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
+        messageNotFoundRetryStrategy: jest
+          .fn()
+          .mockReturnValue({ retry: false, delayInMs: 1 }),
       };
       const config: ReplicationListenerConfig = {
         outboxOrInbox: 'inbox',
@@ -187,6 +190,9 @@ describe('createMessageHandler', () => {
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(true),
       messageRetryStrategy: jest.fn().mockReturnValue(false),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
+      messageNotFoundRetryStrategy: jest
+        .fn()
+        .mockReturnValue({ retry: false, delayInMs: 1 }),
     };
     const config: ReplicationListenerConfig = {
       outboxOrInbox: 'inbox',
@@ -244,6 +250,9 @@ describe('createMessageHandler', () => {
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(false),
       messageRetryStrategy: jest.fn().mockReturnValue(false),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
+      messageNotFoundRetryStrategy: jest
+        .fn()
+        .mockReturnValue({ retry: false, delayInMs: 1 }),
     };
     const config: ReplicationListenerConfig = {
       outboxOrInbox: 'inbox',
@@ -301,6 +310,9 @@ describe('createMessageHandler', () => {
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(true),
       messageRetryStrategy: jest.fn().mockReturnValue(true),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
+      messageNotFoundRetryStrategy: jest
+        .fn()
+        .mockReturnValue({ retry: false, delayInMs: 1 }),
     };
     const config: ReplicationListenerConfig = {
       outboxOrInbox: 'inbox',
@@ -356,6 +368,9 @@ describe('createMessageHandler', () => {
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(true),
       messageRetryStrategy: jest.fn().mockReturnValue(false),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
+      messageNotFoundRetryStrategy: jest
+        .fn()
+        .mockReturnValue({ retry: false, delayInMs: 1 }),
     };
     const config: ReplicationListenerConfig = {
       outboxOrInbox: 'inbox',
@@ -411,6 +426,9 @@ describe('createMessageHandler', () => {
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(false),
       messageRetryStrategy: jest.fn().mockReturnValue(false),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
+      messageNotFoundRetryStrategy: jest
+        .fn()
+        .mockReturnValue({ retry: false, delayInMs: 1 }),
     };
     const config: ReplicationListenerConfig = {
       outboxOrInbox: 'inbox',
@@ -479,6 +497,8 @@ describe('createMessageHandler', () => {
         messageCleanupProcessedInSec: 20000,
         messageCleanupAbandonedInSec: 20000,
         messageCleanupAllInSec: 20000,
+        maxMessageNotFoundAttempts: 0,
+        maxMessageNotFoundDelayInMs: 10,
       },
     };
     const strategies = {
@@ -492,6 +512,9 @@ describe('createMessageHandler', () => {
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(true),
       messageRetryStrategy: defaultMessageRetryStrategy(config),
       messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
+      messageNotFoundRetryStrategy: jest
+        .fn()
+        .mockReturnValue({ retry: false, delayInMs: 1 }),
     };
 
     const handler = { handle: jest.fn() };

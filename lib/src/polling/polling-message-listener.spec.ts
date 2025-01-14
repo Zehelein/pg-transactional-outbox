@@ -929,6 +929,9 @@ describe('Polling message listener unit tests - initializePollingMessageListener
       messageRetryStrategy: jest.fn().mockReturnValue(true),
       poisonousMessageRetryStrategy: jest.fn().mockReturnValue(true),
       batchSizeStrategy: jest.fn().mockReturnValue(2),
+      messageNotFoundRetryStrategy: jest
+        .fn()
+        .mockReturnValue({ retry: false, delayInMs: 1 }),
     };
     const [shutdown] = initializePollingMessageListener(
       config,
@@ -977,6 +980,7 @@ describe('Polling message listener unit tests - initializePollingMessageListener
     expect(strategies.messageRetryStrategy).not.toHaveBeenCalled();
     expect(strategies.poisonousMessageRetryStrategy).not.toHaveBeenCalled();
     expect(strategies.batchSizeStrategy).toHaveBeenCalled();
+    expect(strategies.messageNotFoundRetryStrategy).not.toHaveBeenCalled();
   });
 
   it('should correctly handle database event callbacks', async () => {

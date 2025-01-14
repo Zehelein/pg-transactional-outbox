@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import inspector from 'inspector';
 import { DatabaseClient } from '../common/database';
+import { FullListenerConfig } from '../common/listener-config';
 import { ReplicationListenerSettings } from '../replication/config';
+import { defaultMessageNotFoundRetryStrategy } from '../strategies/message-not-found-retry-strategy';
 import { initiateMessageProcessing } from './initiate-message-processing';
 import {
   StoredTransactionalMessage,
@@ -42,23 +44,39 @@ const settings = {
   dbReplicationSlot: 'test_slot',
 } as ReplicationListenerSettings;
 
+const messageNotFoundRetryStrategy = defaultMessageNotFoundRetryStrategy({
+  settings: {
+    maxMessageNotFoundAttempts: 2,
+    maxMessageNotFoundDelayInMs: 10,
+  },
+} as unknown as FullListenerConfig);
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const getTestClient = (resolveValue: any) =>
+const getTestClient = (resolveValue: any, resolveValue2?: any) =>
   ({
-    query: jest.fn().mockResolvedValue(resolveValue),
+    query: jest
+      .fn()
+      .mockResolvedValueOnce(resolveValue)
+      .mockResolvedValue(resolveValue2),
   }) as unknown as DatabaseClient;
 
 describe('initiateMessageProcessing', () => {
   test('it verifies the message', async () => {
     // Act + Assert
     // Test for MESSAGE_NOT_FOUND (no row found)
-    const client = getTestClient({
-      rowCount: 0,
-    });
+    const client = getTestClient(
+      {
+        rowCount: 0,
+      },
+      {
+        rowCount: 0,
+      },
+    );
     let result = await initiateMessageProcessing(
       { ...storedMessage },
       client,
       settings,
+      messageNotFoundRetryStrategy,
     );
     expect(result).toBe('MESSAGE_NOT_FOUND');
 
@@ -71,6 +89,7 @@ describe('initiateMessageProcessing', () => {
       { ...storedMessage },
       client,
       settings,
+      messageNotFoundRetryStrategy,
     );
     expect(result).toBe('ALREADY_PROCESSED');
 
@@ -83,6 +102,56 @@ describe('initiateMessageProcessing', () => {
       { ...storedMessage },
       client,
       settings,
+      messageNotFoundRetryStrategy,
+    );
+    expect(result).toBe(true);
+  });
+
+  test('it returns MESSAGE_NOT_FOUND if the not-found-retries are exceeded', async () => {
+    // Act + Assert
+    const client = getTestClient(
+      {
+        rowCount: 0,
+      },
+      {
+        rowCount: 0,
+      },
+    );
+    const result = await initiateMessageProcessing(
+      { ...storedMessage },
+      client,
+      settings,
+      defaultMessageNotFoundRetryStrategy({
+        settings: {
+          maxMessageNotFoundAttempts: 1,
+          maxMessageNotFoundDelayInMs: 10,
+        },
+      } as unknown as FullListenerConfig),
+    );
+    expect(result).toBe('MESSAGE_NOT_FOUND');
+  });
+
+  test('it returns the message even if at first the message was not found', async () => {
+    // Act + Assert
+    const client = getTestClient(
+      {
+        rowCount: 0,
+      },
+      {
+        rowCount: 1,
+        rows: [{ processed_at: null, finished_attempts: 0 }],
+      },
+    );
+
+    client.query = jest.fn().mockResolvedValue({
+      rowCount: 1,
+      rows: [{ processed_at: null, finished_attempts: 0 }],
+    });
+    const result = await initiateMessageProcessing(
+      { ...storedMessage },
+      client,
+      settings,
+      messageNotFoundRetryStrategy,
     );
     expect(result).toBe(true);
   });
@@ -112,7 +181,12 @@ describe('initiateMessageProcessing', () => {
       const msg = { ...storedMessage };
 
       // Act
-      const result = await initiateMessageProcessing(msg, client, settings);
+      const result = await initiateMessageProcessing(
+        msg,
+        client,
+        settings,
+        messageNotFoundRetryStrategy,
+      );
 
       // Assert
       expect(result).toBe(
@@ -148,7 +222,12 @@ describe('initiateMessageProcessing', () => {
     const msg = { ...storedMessage };
 
     // Act
-    const result = await initiateMessageProcessing(msg, client, settings);
+    const result = await initiateMessageProcessing(
+      msg,
+      client,
+      settings,
+      messageNotFoundRetryStrategy,
+    );
 
     // Assert
     expect(result).toBe(true);

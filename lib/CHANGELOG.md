@@ -3,6 +3,18 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
+## [0.6.0] - 2025-01-14
+
+### Added
+
+- For databases under heavy load the logical replication can notify about a new
+  message that is not yet returned via a SELECT on the database. A new strategy
+  `MessageNotFoundRetryStrategy` was added to decide to retry in case of a not
+  found message. The config settings `maxMessageNotFoundAttempts` can be used to
+  define how many retries should be done. The default is zero. The setting
+  `maxMessageNotFoundDelayInMs` can be used to add a delay before another retry
+  is done.
+
 ## [0.5.9] - 2024-12-03
 
 ### Changed

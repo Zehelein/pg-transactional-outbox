@@ -16,6 +16,7 @@ import { GeneralMessageHandler } from '../handler/general-message-handler';
 import { TransactionalMessageHandler } from '../handler/transactional-message-handler';
 import { runScheduledMessageCleanup } from '../message/message-cleanup';
 import { StoredTransactionalMessage } from '../message/transactional-message';
+import { defaultMessageNotFoundRetryStrategy } from '../strategies/message-not-found-retry-strategy';
 import { defaultMessageProcessingDbClientStrategy } from '../strategies/message-processing-db-client-strategy';
 import { defaultMessageProcessingTimeoutStrategy } from '../strategies/message-processing-timeout-strategy';
 import { defaultMessageProcessingTransactionLevelStrategy } from '../strategies/message-processing-transaction-level-strategy';
@@ -158,6 +159,9 @@ const applyDefaultStrategies = (
   batchSizeStrategy:
     strategies?.batchSizeStrategy ??
     defaultPollingListenerBatchSizeStrategy(config),
+  messageNotFoundRetryStrategy:
+    strategies?.messageNotFoundRetryStrategy ??
+    defaultMessageNotFoundRetryStrategy(config),
 });
 
 const processBatch = async (

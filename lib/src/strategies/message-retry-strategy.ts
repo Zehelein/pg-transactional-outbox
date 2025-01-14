@@ -4,7 +4,7 @@ import { FullListenerConfig } from '../common/listener-config';
 import { StoredTransactionalMessage } from '../message/transactional-message';
 
 /**
- * Decides if a message should be attempted and what the maximum number of
+ * Decides if a message should be attempted again and what the maximum number of
  * attempts for that message should be.
  */
 export interface MessageRetryStrategy {
