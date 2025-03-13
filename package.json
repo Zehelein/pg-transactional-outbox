@@ -62,6 +62,7 @@
   "resolutions": {
     "braces": "3.0.3",
     "micromatch": "4.0.8",
-    "cross-spawn": "7.0.5"
+    "cross-spawn": "7.0.5",
+    "@babel/runtime-corejs3": "7.26.10"
   }
 }
