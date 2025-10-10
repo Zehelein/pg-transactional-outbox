@@ -82,7 +82,7 @@ export const initializePollingMessageListener = (
     pool.on('connect', (client) => {
       client.removeAllListeners('notice');
       client.on('notice', (msg) => {
-        logger.trace('raised notice', msg.message);
+        logger.trace(`raised notice ${msg.message}`);
       });
     });
 

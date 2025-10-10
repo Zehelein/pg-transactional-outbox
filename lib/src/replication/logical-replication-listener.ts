@@ -218,7 +218,7 @@ const subscribe = async (
     logger.trace(`Transactional ${outboxOrInbox} listener started`);
   });
   client.on('notice', (msg) => {
-    logger.trace('raised notice', msg.message);
+    logger.trace(`raised notice ${msg.message}`);
   });
 
   return plugin.start(client, slotName, lastLsn);
@@ -390,7 +390,7 @@ const handleIncomingData = (
         return;
       }
       throw new MessageError(
-        `An error ocurred while handling the message with ID ${message.id} and LSN ${lsn}`,
+        `An error occurred while handling the message with ID ${message.id} and LSN ${lsn}`,
         'MESSAGE_HANDLING_FAILED',
         message,
         err,

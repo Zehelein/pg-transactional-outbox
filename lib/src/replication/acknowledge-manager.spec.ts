@@ -10,6 +10,7 @@ const mockLogger = {
   trace: jest.fn(),
   silent: () => {},
   level: 'info',
+  msgPrefix: '',
 };
 
 const acknowledgeLsn = (lsn: string): void => {

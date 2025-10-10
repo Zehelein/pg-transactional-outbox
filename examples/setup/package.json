@@ -15,12 +15,12 @@
     "debug:watch": "tsc-watch --onSuccess \"node --inspect dist/index.js\""
   },
   "devDependencies": {
-    "@types/node": "^24.0.3",
-    "jest": "^30.0.2",
-    "prettier": "^3.6.0",
+    "@types/node": "^24.7.1",
+    "jest": "^30.2.0",
+    "prettier": "^3.6.2",
     "rimraf": "^6.0.1",
     "ts-node": "^10.9.2",
-    "tsc-watch": "^7.1.1",
-    "typescript": "5.8.3"
+    "tsc-watch": "^7.2.0",
+    "typescript": "5.9.3"
   }
 }

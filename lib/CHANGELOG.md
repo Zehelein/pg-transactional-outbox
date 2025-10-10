@@ -3,6 +3,18 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
+## [0.6.3] - 2025-10-10
+
+Dependency Upgrades
+
+## [0.6.2] - 2025-06-24
+
+Dependency Upgrades
+
+## [0.6.1] - 2025-04-04
+
+Dependency Upgrades
+
 ## [0.6.0] - 2025-01-14
 
 ### Added

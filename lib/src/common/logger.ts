@@ -18,6 +18,7 @@ export const getDisabledLogger = (): TransactionalLogger => ({
   trace: () => {},
   silent: () => {},
   level: 'silent',
+  msgPrefix: '',
 });
 
 /**
@@ -43,6 +44,7 @@ export const getInMemoryLogger = (
     trace: l('trace'),
     silent: l('silent'),
     level: 'trace',
+    msgPrefix: '',
   };
   return [logger, logs];
 };

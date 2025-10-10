@@ -1,6 +1,6 @@
 {
   "name": "pg-transactional-outbox",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "A PostgreSQL based transactional outbox and inbox pattern implementation to support exactly once message processing (with at least once message delivery).",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -55,23 +55,23 @@
   },
   "dependencies": {
     "async-mutex": "^0.5.0",
-    "pg": "^8.16.2",
-    "pg-logical-replication": "^2.2.0",
-    "pino": "^9.7.0",
+    "pg": "^8.16.3",
+    "pg-logical-replication": "^2.2.1",
+    "pino": "^10.0.0",
     "uuid": "^11.1.0"
   },
   "devDependencies": {
-    "@types/node": "^24.0.3",
-    "@types/pg": "^8.15.4",
+    "@types/node": "^24.7.1",
+    "@types/pg": "^8.15.5",
     "@types/rascal": "^10.2.1",
-    "@types/wtfnode": "^0.7.3",
-    "jest": "^30.0.2",
-    "prettier": "^3.6.0",
+    "@types/wtfnode": "^0.10.0",
+    "jest": "^30.2.0",
+    "prettier": "^3.6.2",
     "rimraf": "^6.0.1",
-    "ts-jest": "^29.4.0",
+    "ts-jest": "^29.4.5",
     "ts-node": "^10.9.2",
-    "tsc-watch": "^7.1.1",
-    "typescript": "5.8.3",
-    "wtfnode": "^0.10.0"
+    "tsc-watch": "^7.2.0",
+    "typescript": "5.9.3",
+    "wtfnode": "^0.10.1"
   }
 }
