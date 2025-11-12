@@ -11,7 +11,7 @@ export const releaseIfPoolClient = (
   client: DatabaseClient,
   err?: Error | boolean,
 ): void => {
-  if (client instanceof Client && 'release' in client) {
+  if (typeof (client as any).release === 'function') {
     (client as PoolClient).release(err);
   }
 };

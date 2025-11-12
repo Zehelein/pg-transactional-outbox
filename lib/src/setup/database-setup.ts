@@ -162,15 +162,16 @@ BEGIN
     BEGIN
       EXIT WHEN cardinality(ids) >= max_size;
 
+      -- if the message is marked as locked --> skip it
+      IF loop_row.locked_until > NOW() THEN
+        CONTINUE;
+      END IF;
+
       SELECT *
         INTO message_row
         FROM ${schema}.${table}
         WHERE id = loop_row.id
         FOR NO KEY UPDATE NOWAIT; -- throw/catch error when locked
-
-      IF message_row.locked_until > NOW() THEN
-        CONTINUE;
-      END IF;
 
       ids := array_append(ids, message_row.id);
     EXCEPTION

@@ -15,6 +15,18 @@ describe('Database Unit Tests', () => {
       expect(client.release).toHaveBeenCalled();
     });
 
+    it('should call release if the object has a release function which is important if the PoolClient is a different hoisted version', () => {
+      // Arrange
+      const hoistedPoolClient = Object.create({});
+      hoistedPoolClient.release = jest.fn();
+
+      // Act
+      releaseIfPoolClient(hoistedPoolClient);
+
+      // Assert
+      expect(hoistedPoolClient.release).toHaveBeenCalled();
+    });
+
     it('should not throw an error if the client is no pool client', () => {
       // Arrange
       const client = new Client();

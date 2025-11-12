@@ -3,6 +3,35 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
+## [0.6.4] - 2025-11-12
+
+- Adjusting the polling SQL function to check if the message is locked earlier.
+  The old variant checked it after the "SELECT .. INTO" construct which could
+  lead to rare cases under heavy database load that another polling cycle would
+  try to lock the message and fail while the first polling cycle did not finish.
+  Please recreate the SQL setup script - especially the `next_inbox_messages`
+  function - and update your deployed functions. This can be done with the CLI
+  tool in the examples/setup folder. Alternatively you can check the GIT history
+  in this repo and remove
+
+  ```sql
+  IF message_row.locked_until > NOW() THEN
+    CONTINUE;
+  END IF;
+  ```
+
+  And add the following above the "SELECT \* INTO ..." section:
+
+  ```sql
+  IF loop_row.locked_until > NOW() THEN
+    CONTINUE;
+  END IF;
+  ```
+
+- The check to release clients from the pool was adjusted. In systems that use
+  different `pg` library variants the PG Client could come from another hoisted
+  version and the `instanceof` comparison would fail.
+
 ## [0.6.3] - 2025-10-10
 
 Dependency Upgrades
