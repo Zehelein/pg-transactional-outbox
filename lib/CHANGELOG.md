@@ -3,6 +3,10 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
+## [0.6.5] - 2026-01-24
+
+Dependency upgrades.
+
 ## [0.6.4] - 2025-11-12
 
 - Adjusting the polling SQL function to check if the message is locked earlier.
@@ -34,15 +38,15 @@ this file.
 
 ## [0.6.3] - 2025-10-10
 
-Dependency Upgrades
+Dependency upgrades
 
 ## [0.6.2] - 2025-06-24
 
-Dependency Upgrades
+Dependency upgrades
 
 ## [0.6.1] - 2025-04-04
 
-Dependency Upgrades
+Dependency upgrades
 
 ## [0.6.0] - 2025-01-14
 

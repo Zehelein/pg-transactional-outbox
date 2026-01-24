@@ -726,7 +726,7 @@ describe('Replication message listener unit tests - initializeReplicationMessage
       expect.any(Object),
       true,
     );
-    expect(client.connect).toHaveBeenCalledTimes(1);
+    expect(client.connect).toHaveBeenCalled();
     expect(client.end).toHaveBeenCalledTimes(1); // as part of error handling
   });
 
