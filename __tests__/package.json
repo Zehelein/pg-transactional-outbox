@@ -15,7 +15,7 @@
   "dependencies": {
     "pg": "^8.16.3",
     "pg-logical-replication": "^2.2.1",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.1"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
