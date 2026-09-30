@@ -1,9 +1,11 @@
 import EventEmitter from 'events';
-import { releaseIfPoolClient } from '../common/database';
-import { TransactionalOutboxInboxError } from '../common/error';
+import {
+  TransactionalOutboxInboxError,
+  ensureExtendedError,
+} from '../common/error';
 import { ListenerConfig } from '../common/listener-config';
 import { TransactionalLogger } from '../common/logger';
-import { executeTransaction, justDoIt } from '../common/utils';
+import { executeTransaction } from '../common/utils';
 import { initiateMessageProcessing } from '../message/initiate-message-processing';
 import { markMessageAbandoned } from '../message/mark-message-abandoned';
 import { markMessageCompleted } from '../message/mark-message-completed';
@@ -148,50 +150,71 @@ const processMessage = async (
 ) => {
   const transactionLevel =
     strategies.messageProcessingTransactionLevelStrategy(message);
-  await executeTransaction(
-    await strategies.messageProcessingDbClientStrategy.getClient(message),
-    async (client) => {
-      let timedOut = false;
-      if (handler) {
-        cancellation.on('timeout', async () => {
-          timedOut = true;
-          // roll back the current changes and release/end the client to disable further changes
-          await client.query('ROLLBACK');
-          if ('release' in client) {
-            client.release(
-              new TransactionalOutboxInboxError(
-                'Message processing timeout',
-                'TIMEOUT',
-              ),
-            );
-          } else if ('end' in client) {
-            await client.end();
-          }
-          await justDoIt(() => {
-            releaseIfPoolClient(client);
+  // `executeTransaction` commits/rolls back and releases the client itself. The
+  // timeout listener below must not touch the client anymore once that happened,
+  // otherwise it would release an already released pool client (which throws in
+  // pg-pool) or roll back a transaction of whoever got that pool client next.
+  let transactionFinished = false;
+  try {
+    await executeTransaction(
+      await strategies.messageProcessingDbClientStrategy.getClient(message),
+      async (client) => {
+        let timedOut = false;
+        if (handler) {
+          cancellation.on('timeout', async () => {
+            timedOut = true;
+            if (transactionFinished) {
+              return;
+            }
+            try {
+              // roll back the current changes and release/end the client to disable further changes
+              await client.query('ROLLBACK');
+              if (transactionFinished) {
+                // The transaction completed while the ROLLBACK was queued behind its last query
+                return;
+              }
+              if ('release' in client) {
+                client.release(
+                  new TransactionalOutboxInboxError(
+                    'Message processing timeout',
+                    'TIMEOUT',
+                  ),
+                );
+              } else if ('end' in client) {
+                await client.end();
+              }
+            } catch (error) {
+              // This listener is not awaited by anyone - a thrown error would be an unhandled rejection
+              logger.warn(
+                ensureExtendedError(error, 'TIMEOUT', message),
+                `Could not roll back and release the database client of the timed out ${config.outboxOrInbox} message with ID ${message.id}.`,
+              );
+            }
           });
-        });
 
-        // lock the message from further processing
-        const result = await initiateMessageProcessing(
-          message,
-          client,
-          config.settings,
-          strategies.messageNotFoundRetryStrategy,
-        );
-        if (result !== true) {
-          logger.warn(
+          // lock the message from further processing
+          const result = await initiateMessageProcessing(
             message,
-            `The received ${config.outboxOrInbox} message cannot be processed: ${result}`,
+            client,
+            config.settings,
+            strategies.messageNotFoundRetryStrategy,
           );
-          return;
+          if (result !== true) {
+            logger.warn(
+              message,
+              `The received ${config.outboxOrInbox} message cannot be processed: ${result}`,
+            );
+            return;
+          }
+          await handler.handle(message, client);
         }
-        await handler.handle(message, client);
-      }
-      if (!timedOut) {
-        await markMessageCompleted(message, client, config);
-      }
-    },
-    transactionLevel,
-  );
+        if (!timedOut) {
+          await markMessageCompleted(message, client, config);
+        }
+      },
+      transactionLevel,
+    );
+  } finally {
+    transactionFinished = true;
+  }
 };

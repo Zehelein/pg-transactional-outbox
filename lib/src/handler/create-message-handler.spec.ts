@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { Client } from 'pg';
 import { DatabaseClient } from '../common/database';
 import { getDisabledLogger } from '../common/logger';
 import { StoredTransactionalMessage } from '../message/transactional-message';
@@ -541,5 +542,177 @@ describe('createMessageHandler', () => {
     expect(
       strategies.messageProcessingTransactionLevelStrategy,
     ).toHaveBeenCalledWith(mockMessage);
+  });
+});
+
+describe('createMessageHandler message processing timeout', () => {
+  interface Deferred {
+    promise: Promise<void>;
+    resolve: () => void;
+  }
+  const deferred = (): Deferred => {
+    let resolve: () => void = () => {};
+    const promise = new Promise<void>((res) => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  };
+  /** Let all currently queued promise callbacks run */
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+  /**
+   * A client that behaves like a pg-pool client: `release` throws when it is
+   * called twice for the same checkout and releasing with an error destroys the
+   * connection so further queries fail.
+   */
+  const getPoolLikeClient = (delays: {
+    commit?: Deferred;
+    rollback?: Deferred;
+  }) => {
+    let checkedOut = true;
+    let destroyed = false;
+    const client = Object.assign(Object.create(Client.prototype), {
+      queries: [] as string[],
+      releaseCalls: [] as unknown[],
+      query: async (sql: string) => {
+        client.queries.push(sql);
+        if (destroyed) {
+          throw new Error('Client was closed and is not queryable');
+        }
+        if (sql.includes('FOR NO KEY UPDATE NOWAIT')) {
+          return {
+            rowCount: 1,
+            rows: [{ started_attempts: 1, finished_attempts: 0 }],
+          };
+        }
+        if (sql === 'COMMIT' && delays.commit) {
+          await delays.commit.promise;
+        }
+        if (sql === 'ROLLBACK' && delays.rollback) {
+          await delays.rollback.promise;
+        }
+        return { rowCount: 0, rows: [] };
+      },
+      release: (err?: Error) => {
+        client.releaseCalls.push(err);
+        if (!checkedOut) {
+          throw new Error(
+            'Release called on client which has already been released to the pool.',
+          );
+        }
+        checkedOut = false;
+        destroyed = !!err;
+      },
+    });
+    return client;
+  };
+
+  const createHandler = (
+    client: DatabaseClient,
+    handle: TransactionalMessageHandler['handle'],
+  ) => {
+    const strategies = {
+      messageProcessingTransactionLevelStrategy: jest
+        .fn()
+        .mockReturnValue(undefined),
+      messageProcessingDbClientStrategy: {
+        getClient: async () => client,
+        shutdown: jest.fn(),
+      },
+      poisonousMessageRetryStrategy: jest.fn().mockReturnValue(false),
+      messageRetryStrategy: jest.fn().mockReturnValue(false),
+      messageProcessingTimeoutStrategy: jest.fn().mockReturnValue(1000),
+      messageNotFoundRetryStrategy: jest
+        .fn()
+        .mockReturnValue({ retry: false, delayInMs: 1 }),
+    };
+    const config: ReplicationListenerConfig = {
+      outboxOrInbox: 'inbox',
+      dbListenerConfig: {},
+      settings: {
+        dbSchema: 'test_schema',
+        dbTable: 'test_table',
+        dbPublication: 'test_pub',
+        dbReplicationSlot: 'test_slot',
+        enablePoisonousMessageProtection: false,
+        enableMaxAttemptsProtection: false,
+      },
+    };
+    return createMessageHandler(
+      { handle },
+      strategies,
+      config,
+      getDisabledLogger(),
+      'polling',
+    );
+  };
+
+  it('Should not release the client again when the timeout fires after the message was processed', async () => {
+    // Arrange
+    const client = getPoolLikeClient({});
+    const messageHandler = createHandler(client, jest.fn());
+    const cancellation = new EventEmitter();
+    await messageHandler({ ...message }, cancellation);
+    expect(client.releaseCalls).toEqual([undefined]);
+
+    // Act
+    cancellation.emit('timeout', new Error('timeout'));
+    await flush();
+
+    // Assert
+    expect(client.releaseCalls).toEqual([undefined]);
+    expect(client.queries).not.toContain('ROLLBACK');
+  });
+
+  it('Should not release the client again when the transaction commits while the timeout ROLLBACK is queued', async () => {
+    // Arrange
+    const commit = deferred();
+    const rollback = deferred();
+    const client = getPoolLikeClient({ commit, rollback });
+    const messageHandler = createHandler(client, jest.fn());
+    const cancellation = new EventEmitter();
+    const processing = messageHandler({ ...message }, cancellation);
+    await flush();
+    expect(client.queries).toContain('COMMIT');
+
+    // Act: the timeout fires while the COMMIT is in flight - its ROLLBACK is
+    // queued behind the COMMIT on the same connection and resolves after it.
+    cancellation.emit('timeout', new Error('timeout'));
+    await flush();
+    commit.resolve();
+    await processing;
+    expect(client.releaseCalls).toEqual([undefined]);
+    rollback.resolve();
+    await flush();
+
+    // Assert
+    expect(client.releaseCalls).toEqual([undefined]);
+  });
+
+  it('Should release the client with the timeout error once and surface the original error when the handler finishes later', async () => {
+    // Arrange
+    const client = getPoolLikeClient({});
+    const handlerDone = deferred();
+    const messageHandler = createHandler(client, () => handlerDone.promise);
+    const cancellation = new EventEmitter();
+    const processing = messageHandler({ ...message }, cancellation);
+    await flush();
+
+    // Act
+    cancellation.emit('timeout', new Error('timeout'));
+    await flush();
+    expect(client.releaseCalls).toHaveLength(1);
+    expect(client.releaseCalls[0]).toMatchObject({ errorCode: 'TIMEOUT' });
+    handlerDone.resolve();
+
+    // Assert: the original error is thrown - not the pg-pool double release error
+    // that the (swallowed) second release attempt in `executeTransaction` raised
+    const error = await processing.catch((e) => e);
+    expect(error.message).toBe('Client was closed and is not queryable');
+    expect(error.errorCode).toBe('DB_ERROR');
+    expect(client.releaseCalls[0]).toMatchObject({ errorCode: 'TIMEOUT' });
+    expect(
+      client.queries.filter((q: string) => q.includes('SET processed_at')),
+    ).toEqual([]);
   });
 });

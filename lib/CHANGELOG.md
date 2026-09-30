@@ -3,6 +3,18 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
+## [Unreleased]
+
+- Fixed a crash when the message processing timeout fires while the message
+  transaction is already finishing. The timeout handler called `release` on a
+  pool client that `executeTransaction` had already released, which throws in
+  pg-pool and - as the timeout handler is not awaited - surfaced as an unhandled
+  promise rejection that terminated the process. The timeout handler now skips
+  the ROLLBACK/release when the transaction already finished and never throws.
+  A client that was released with the timeout error before the (still running)
+  handler finished no longer masks the original error with a double release
+  error.
+
 ## [0.6.5] - 2026-01-24
 
 Dependency upgrades.

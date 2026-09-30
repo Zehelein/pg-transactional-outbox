@@ -92,7 +92,13 @@ export const executeTransaction = async <T>(
     } catch (rollbackError) {
       error.innerError = ensureExtendedError(rollbackError, 'DB_ERROR');
     }
-    releaseIfPoolClient(client, error);
+    try {
+      releaseIfPoolClient(client, error);
+    } catch (releaseError) {
+      // e.g. the client was already released (with an error) by the message
+      // processing timeout handling - the original error is the relevant one
+      error.innerError ??= ensureExtendedError(releaseError, 'DB_ERROR');
+    }
     throw error;
   }
 };
