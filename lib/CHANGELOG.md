@@ -3,6 +3,11 @@
 All notable changes to the pg-transactional-outbox library will be documented in
 this file.
 
+## [0.6.7] - 2026-10-09
+
+Exported the `isPgSerializationError` to be able to reuse the functionality when
+writing a custom e.g. `MessageRetryStrategy`.
+
 ## [0.6.6] - 2026-10-02
 
 Fixed an unhandled promise rejection that could terminate the process when the

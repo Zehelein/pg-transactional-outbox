@@ -1,4 +1,4 @@
-export { DatabaseClient } from './common/database';
+export { DatabaseClient, isPgSerializationError } from './common/database';
 export {
   ErrorCode,
   ExtendedError,
